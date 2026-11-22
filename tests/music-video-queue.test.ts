@@ -25,7 +25,7 @@ test("the official video of the playing song keeps the live queue", () => {
     musicWatchQueue(picked, [track("x", "Unrelated video", "HYBE LABELS")], live).map(
       (item) => item.id,
     ),
-    ["smart-audio", "b"],
+    ["smart-mv", "b"],
   );
 });
 
@@ -58,20 +58,21 @@ test("a different song keeps the list it was opened from", () => {
   );
 });
 
-test("a queue with nothing after the song hands over the opened list", () => {
+test("a one-song queue does not become a related-video playlist", () => {
   const live = {
     current: track("celebration", "CELEBRATION", "LE SSERAFIM"),
     queue: [track("celebration", "CELEBRATION", "LE SSERAFIM")],
     queueIndex: 0,
   };
-  const offered = [track("mv", "LE SSERAFIM 'CELEBRATION' Official MV", "HYBE LABELS")];
+  const picked = track("mv", "LE SSERAFIM 'CELEBRATION' Official MV", "HYBE LABELS");
+  const offered = [picked, track("suggested", "Another video", "Other")];
   assert.deepEqual(
-    musicWatchQueue(offered[0], offered, live).map((item) => item.id),
+    musicWatchQueue(picked, offered, live).map((item) => item.id),
     ["mv"],
   );
 });
 
-test("the last song of a longer queue also hands over the opened list", () => {
+test("the last song of a longer queue keeps its listening history and order", () => {
   const live = {
     current: track("b", "ELEVEN", "IVE"),
     queue: [track("a", "Smart", "LE SSERAFIM"), track("b", "ELEVEN", "IVE")],
@@ -81,7 +82,7 @@ test("the last song of a longer queue also hands over the opened list", () => {
     musicWatchQueue(track("b", "ELEVEN", "IVE"), [track("offered", "Offered", "Other")], live).map(
       (item) => item.id,
     ),
-    ["offered"],
+    ["a", "b"],
   );
 });
 
@@ -110,6 +111,7 @@ test("playing a video of the current song keeps the song name", () => {
     ...video,
     title: "Gnarly",
     artist: "KATSEYE",
+    collectionOrigin: { id: "gnarly-audio", connectorId: "youtube" },
   });
 });
 

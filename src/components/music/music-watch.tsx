@@ -21,6 +21,7 @@ import { useT } from "@/lib/i18n";
 import { useMusicAppearance } from "@/lib/music/appearance";
 import { appendMusicVideos, searchMusicVideoPage } from "@/lib/music/video-pages";
 import { searchTrackKey } from "@/lib/music/now-search";
+import { queueTrackKey } from "@/lib/music/queue-order";
 import { prefetchMusicVideoStreams } from "@/lib/music/video";
 import {
   enqueueMusic,
@@ -40,7 +41,13 @@ import { MusicVideoSurface } from "./music-video-surface";
 import { MusicVideoFullscreen } from "./music-video-fullscreen";
 import { MusicVideoMiniToggle } from "./music-video-mini-toggle";
 import { musicVideoSurfaces } from "@/lib/music/video-session";
-import { musicVideoPlayback, musicWatchQueue } from "@/lib/music/video-queue";
+import {
+  musicVideoPlayback,
+  musicVideoQueueEntries,
+  musicVideoQueueSelection,
+  musicVideoSourceSwitch,
+  musicWatchQueue,
+} from "@/lib/music/video-queue";
 import {
   getMusicVideoFullscreen,
   subscribeMusicVideoFullscreen,
@@ -56,12 +63,15 @@ const PREPARE_MS = 20_000;
 export function MusicWatch({
   track,
   queue,
+  queueTarget,
   onClose,
   onVideoShowing,
   active = true,
 }: {
   track: MusicTrack;
   queue: MusicTrack[];
+  /** Original queued song that opened a source-specific video search. */
+  queueTarget?: MusicTrack;
   onClose: () => void;
   onVideoShowing?: (showing: boolean) => void;
   active?: boolean;
@@ -130,15 +140,23 @@ export function MusicWatch({
         current.current.mediaKind !== "video" ||
         current.phase === "error" ||
         !isMusicTrackPrimed(track)
-      )
+      ) {
+        const selected = queueTarget
+          ? musicVideoQueueSelection(track, queueTarget, current)
+          : null;
+        const video =
+          selected?.track ??
+          musicVideoQueueEntries([
+            musicVideoPlayback({ ...track, mediaKind: "video" }, current),
+          ])[0];
+        const sourceSwitch = !!selected || musicVideoSourceSwitch(video, current);
         await playMusic(
-          musicVideoPlayback({ ...track, mediaKind: "video" }, current),
-          musicWatchQueue(track, queue.length ? queue : [track], current).map((item) => ({
-            ...item,
-            mediaKind: "video",
-          })),
+          video,
+          selected?.queue ?? musicWatchQueue(video, queue.length ? queue : [video], current),
+          new Set(),
+          sourceSwitch,
         );
-      else await waitForMusicAudioReady(track);
+      } else await waitForMusicAudioReady(track);
       if (cancelled) return;
       if (getMusicSpeakerState().active) await returnMusicToComputer();
     };
@@ -510,11 +528,17 @@ function VideoNext({
   badge?: boolean;
 }) {
   const t = useT();
-  const play = () =>
-    void playMusic(
-      { ...item, mediaKind: "video" },
-      (queue.length ? queue : [item]).map((track) => ({ ...track, mediaKind: "video" })),
-    ).catch(() => {});
+  const play = () => {
+    const selected = musicVideoQueueEntries([item])[0];
+    // Up Next retains the same listener queue and song identities, but each
+    // entry now plays its corresponding video. Suggested rails remain separate.
+    const chosenQueue = badge
+      ? musicVideoQueueEntries(queue).map((track) =>
+          queueTrackKey(track) === queueTrackKey(item) ? selected : track,
+        )
+      : musicVideoQueueEntries(queue.length ? queue : [item]);
+    void playMusic(selected, chosenQueue, new Set(), badge).catch(() => {});
+  };
   return (
     <div className="music-watch-video-next">
       <button

@@ -87,6 +87,7 @@ import {
   type QueryRung,
 } from "@/lib/music/search-fallback";
 import {
+  getMusicState,
   musicSimilarTracks,
   playMusicOnSpeaker,
   returnMusicToComputer,
@@ -121,6 +122,7 @@ import { useMusicData } from "./music/use-music-data";
 
 import { MusicDetail, type MusicDetailState } from "./music/music-detail";
 import { registerMusicCatalogOrigin } from "@/lib/music/playback-origin";
+import { queueTrackKey } from "@/lib/music/queue-order";
 import { loadDetailRows, loadDetailTracks } from "./music/music-detail-data";
 
 type SearchState = {
@@ -197,10 +199,14 @@ function MusicViewContent({ active }: { active: boolean }) {
   const [billboardChart, setBillboardChart] = useSessionState("music.billboardChart", "hot-100");
   const [videoQuery, setVideoQuery] = useSessionState("music.videoQuery", "music videos");
   const discoveryOrigin = useRef<{ text: string | null } | null>(null);
+  // Retain the Up Next song that requested a video search. The search results
+  // are source choices, not the playlist to replace the listener's queue with.
+  const videoSelectionTarget = useRef<MusicTrack | null>(null);
   const openDiscovery = (
     page: "tastes" | "playlists" | "videos" | "billboard" | "rollingStone",
   ) => {
     discoveryOrigin.current = { text: document.activeElement?.textContent ?? null };
+    videoSelectionTarget.current = null;
     setDiscoveryPage(page);
   };
   const openBillboard = (chartId = "hot-100") => {
@@ -209,6 +215,7 @@ function MusicViewContent({ active }: { active: boolean }) {
   };
   const closeDiscovery = useCallback(() => {
     setDiscoveryPage(null);
+    videoSelectionTarget.current = null;
     const origin = discoveryOrigin.current;
     requestAnimationFrame(() => {
       [...(scrollRef.current?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
@@ -253,7 +260,11 @@ function MusicViewContent({ active }: { active: boolean }) {
   const [search, setSearch] = useState<SearchState | null>(null);
   const [searching, setSearching] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
-  const [watch, setWatch] = useState<{ track: MusicTrack; queue: MusicTrack[] } | null>(null);
+  const [watch, setWatch] = useState<{
+    track: MusicTrack;
+    queue: MusicTrack[];
+    queueTarget?: MusicTrack;
+  } | null>(null);
   const [similar, setSimilar] = useState<{
     seed: MusicTrack;
     tracks: MusicTrack[];
@@ -266,8 +277,12 @@ function MusicViewContent({ active }: { active: boolean }) {
   const openVideo = useCallback(
     (track: MusicTrack, queue: MusicTrack[]) => {
       watchFromVideos.current = discoveryPage === "videos";
+      const queueTarget = watchFromVideos.current
+        ? videoSelectionTarget.current ?? undefined
+        : undefined;
+      videoSelectionTarget.current = null;
       if (watchFromVideos.current) setDiscoveryPage(null);
-      setWatch({ track, queue });
+      setWatch({ track, queue, queueTarget });
     },
     [discoveryPage],
   );
@@ -1042,6 +1057,14 @@ function MusicViewContent({ active }: { active: boolean }) {
             request.track,
           );
       } else {
+        // "Music video" from Up Next opens a source search for that queue
+        // entry. Remember the entry, not the search results as a playlist.
+        const requestedKey = queueTrackKey(request.track);
+        videoSelectionTarget.current = getMusicState().queue.some(
+          (entry) => queueTrackKey(entry) === requestedKey,
+        )
+          ? request.track
+          : null;
         setVideoQuery(`${request.track.artist} ${request.track.title}`);
         discoveryOrigin.current = { text: null };
         setDiscoveryPage("videos");
@@ -1384,6 +1407,7 @@ function MusicViewContent({ active }: { active: boolean }) {
                 active={active}
                 track={watch.track}
                 queue={watch.queue}
+                queueTarget={watch.queueTarget}
                 onClose={closeWatch}
               />
             ) : similar ? (

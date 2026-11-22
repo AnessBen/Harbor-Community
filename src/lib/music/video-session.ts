@@ -15,6 +15,7 @@ import { primeMusicVideoHostPosition, releaseMusicVideoHostSource } from "./vide
 import { createMusicVideoSurfaces, type HoldVideo } from "./video-surfaces";
 import { searchMusicVideoPage } from "./video-pages";
 import { clearMusicVideoSessionQuality } from "./video-quality";
+import { queuedVideoStreamTrack } from "./video-queue";
 import type { MusicTrack } from "./types";
 
 /**
@@ -22,31 +23,18 @@ import type { MusicTrack } from "./types";
  * resolves the official video for it instead, warmed while the previous song plays.
  */
 setMusicVideoTargetResolver(async (track) => {
-  // A result from the video list is already the video. Anything else that reaches a surface
-  // as a video, including queues restored from before this lookup existed, is a song.
-  if (track.videoSearch === false || track.connectorId !== "youtube") return null;
-  // Bare "artist title" makes the provider answer with other songs by the act; naming the
-  // kind of upload is what puts the official video first.
+  // An explicitly picked video is already its exact upload. A queued song
+  // searches for its video, including songs from other audio providers.
+  if (track.videoSearch === false || (track.connectorId !== "youtube" && !track.videoSearch))
+    return null;
+  // Ask YouTube for a recording-specific video rather than related songs by the act.
   const page = await searchMusicVideoPage(
     `${track.artist} ${track.title} music video`,
     false,
   ).catch(() => null);
-  const fold = (value: string) =>
-    value
-      .normalize("NFKC")
-      .toLowerCase()
-      .replace(/[^\p{L}\p{N}]+/gu, " ")
-      .trim();
-  const song = fold(track.title).split(" ").filter(Boolean);
-  const isSong = (candidate: MusicTrack) => {
-    const words = new Set(fold(candidate.title).split(" ").filter(Boolean));
-    return song.length > 0 && song.every((word) => words.has(word));
-  };
-  const pick = page?.tracks.find(
-    (candidate) => candidate.sourceId && candidate.sourceId !== track.sourceId && isSong(candidate),
-  );
-  const id = pick?.sourceId;
-  return id ? { ...track, id, sourceId: id } : null;
+  // Only the stream resolver receives YouTube's upload identity. The player
+  // keeps the original queue entry (ID, credits and playlist association).
+  return queuedVideoStreamTrack(track, page?.tracks ?? []);
 });
 
 /**
