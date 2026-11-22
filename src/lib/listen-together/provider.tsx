@@ -15,7 +15,7 @@ import {
   type ListenSuggestion,
   type SongRequestAction,
 } from "./queue";
-import { emitListToast } from "@/components/lists/list-toast";
+import { emitListenAlongToast } from "@/components/lists/list-toast";
 import type { ListenJoin } from "@/lib/together/client";
 import { isTauri } from "@tauri-apps/api/core";
 import { buildInviteUrl, onListenInvite, type ParsedInvite } from "@/lib/together/invite";
@@ -181,7 +181,7 @@ export function ListenTogetherProvider({ children }: { children: ReactNode }) {
       if (event.kind === "listen-request") {
         const { track, name } = event.request;
         if (event.action === "enqueue") enqueueMusic(suggestedMusicTrack(track));
-        emitListToast(
+        emitListenAlongToast(
           t(
             event.action === "enqueue"
               ? "{name} added {title} to the queue"
@@ -192,16 +192,23 @@ export function ListenTogetherProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (event.kind === "listen-request-status") {
-        if (!event.delivered) emitListToast(t("The host could not receive this request"), "error");
+        if (!event.delivered)
+          emitListenAlongToast(t("The host could not receive this request"), "error");
         else
-          emitListToast(t(event.action === "suggest" ? "Suggestion sent" : "Queue request sent"));
+          emitListenAlongToast(
+            t(event.action === "suggest" ? "Suggestion sent" : "Queue request sent"),
+          );
         return;
       }
       if (event.kind !== "snapshot") return;
       const next = event.snapshot;
       for (const change of listenMembershipChanges(previous, next, clientId)) {
         const message = change.joined ? "{name} joined Listen Along" : "{name} left Listen Along";
-        emitListToast(t(message, { name: change.participant.name }), "success", change.participant);
+        emitListenAlongToast(
+          t(message, { name: change.participant.name }),
+          "success",
+          change.participant,
+        );
       }
       previous = next;
     });
@@ -302,7 +309,7 @@ export function ListenTogetherProvider({ children }: { children: ReactNode }) {
     leave();
     const message = t(ended || "Listening session ended");
     setError(message);
-    emitListToast(message, "error");
+    emitListenAlongToast(message, "error");
   }, [expired, snapshot, room, leave, t]);
 
   useEffect(() => {

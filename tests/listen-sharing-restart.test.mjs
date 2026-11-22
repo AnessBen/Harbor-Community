@@ -63,7 +63,7 @@ test("restarting Listen Along and re-enabling Discord sharing each advertise a f
   const deps = {
     react: React,
     "react/jsx-runtime": jsxRuntime,
-    "@/components/lists/list-toast": { emitListToast() {} },
+    "@/components/lists/list-toast": { emitListenAlongToast() {} },
     "@tauri-apps/api/core": { isTauri: () => true },
     "@/lib/together/invite": {
       onListenInvite: noop,
