@@ -15,6 +15,40 @@ export type ListenQueue = MusicTransport & {
   currentEntryId: string | null;
 };
 
+export type ListenSong = Omit<ListenQueueEntry, "entryId">;
+export type SongRequestAction = "suggest" | "enqueue";
+export type ListenSuggestion = { id: string; name: string; track: ListenSong };
+
+export function listenSong(track: MusicTrack): ListenSong | null {
+  const connectorId = track.connectorId;
+  if (
+    !connectorId ||
+    connectorId.toLowerCase() === "local" ||
+    !safeId(connectorId) ||
+    !safeId(track.id) ||
+    !track.title
+  )
+    return null;
+  return {
+    trackId: track.id,
+    connectorId,
+    title: track.title.slice(0, 256),
+    artist: track.artist.slice(0, 256),
+  };
+}
+
+export function suggestedMusicTrack(song: ListenSong): MusicTrack {
+  return {
+    id: song.trackId,
+    connectorId: song.connectorId,
+    title: song.title,
+    artist: song.artist,
+    artwork: "",
+    durationSeconds: 0,
+    durationLabel: "",
+  };
+}
+
 const encoder = new TextEncoder();
 const safeId = (id: string) =>
   id.length > 0 && id.length <= 256 && !/[\s/\\?#]/.test(id) && !/^(local|file):/i.test(id);
@@ -32,16 +66,9 @@ export function createListenQueueBuilder() {
     const occurrences = new Map<string, number>();
     let bytes = 256; // Envelope, revision and currentEntryId, including a future larger revision.
     for (const [index, track] of [current, ...upcoming].entries()) {
-      const connectorId = track?.connectorId;
-      if (
-        !track ||
-        !connectorId ||
-        connectorId.toLowerCase() === "local" ||
-        !safeId(connectorId) ||
-        !safeId(track.id) ||
-        !track.title
-      )
-        continue;
+      if (!track) continue;
+      const song = listenSong(track);
+      if (!song) continue;
       let id = ids.get(track);
       if (!id) {
         id = String(++serial);
@@ -51,10 +78,7 @@ export function createListenQueueBuilder() {
       occurrences.set(id, n);
       const entry = {
         entryId: n === 1 ? id : id + "-" + n,
-        trackId: track.id,
-        connectorId,
-        title: track.title.slice(0, 256),
-        artist: track.artist.slice(0, 256),
+        ...song,
       };
       bytes += encoder.encode(JSON.stringify(entry)).length + 1;
       if (bytes > 32768 || queue.entries.length >= 200) break;

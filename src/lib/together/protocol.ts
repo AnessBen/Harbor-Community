@@ -107,11 +107,19 @@ export type ParticipantLocation =
       episode?: { season: number; episode: number; name?: string };
     };
 
-import type { ListenQueue } from "@/lib/listen-together/queue";
+import type {
+  ListenQueue,
+  ListenSong,
+  SongRequestAction,
+  ListenSuggestion,
+} from "@/lib/listen-together/queue";
 
 export type ClientMessage =
+  | { t: "listen-song-request"; action: SongRequestAction; track: ListenSong }
+  | { t: "listen-permission"; allowed: boolean }
   | {
       t: "hello";
+      songRequests?: boolean;
       listenMode?: "host" | "resume" | "guest";
       sessionId?: string;
       resumeKey?: string;
@@ -171,11 +179,15 @@ export type ClientMessage =
   | { t: "ping"; room: RoomCode; clientId: string };
 
 export type ServerMessage =
+  | { t: "listen-permission"; allowed: boolean }
+  | ({ t: "listen-song-request"; action: SongRequestAction } & ListenSuggestion)
+  | { t: "listen-request-status"; delivered: boolean; action?: SongRequestAction }
   | {
       t: "joined";
       sessionId?: string;
       resumeKey?: string;
       queue?: ListenQueue | null;
+      allowGuestQueue?: boolean;
       observedAt?: number;
       room: RoomCode;
       participants: Participant[];

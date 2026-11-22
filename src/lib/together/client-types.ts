@@ -1,4 +1,4 @@
-import type { ListenQueue } from "@/lib/listen-together/queue";
+import type { ListenQueue, ListenSuggestion, SongRequestAction } from "@/lib/listen-together/queue";
 import type {
   Participant,
   ParticipantLocation,
@@ -21,10 +21,14 @@ export type RoomSnapshot = {
   relayVersion: number | null;
   lastError: string | null;
   listenSessionId?: string;
+  allowGuestQueue?: boolean;
+  suggestions?: ListenSuggestion[];
   listenQueue?: ListenQueue | null;
 };
 
 export type RoomEvent =
+  | { kind: "listen-request"; request: ListenSuggestion; action: SongRequestAction }
+  | { kind: "listen-request-status"; delivered: boolean; action?: SongRequestAction }
   | { kind: "snapshot"; snapshot: RoomSnapshot }
   | { kind: "incoming-state"; state: SyncState }
   | { kind: "incoming-command"; from: string; command: RoomCommand }

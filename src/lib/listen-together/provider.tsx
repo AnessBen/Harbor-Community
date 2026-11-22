@@ -8,13 +8,19 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { ListenQueue } from "@/lib/listen-together/queue";
+import {
+  suggestedMusicTrack,
+  type ListenQueue,
+  type ListenSong,
+  type ListenSuggestion,
+  type SongRequestAction,
+} from "./queue";
 import { emitListToast } from "@/components/lists/list-toast";
 import type { ListenJoin } from "@/lib/together/client";
 import { isTauri } from "@tauri-apps/api/core";
 import { buildInviteUrl, onListenInvite, type ParsedInvite } from "@/lib/together/invite";
 import { HARBOR_PUBLIC_RELAY } from "@/lib/together/relay-version";
-import { getMusicState, subscribeMusic } from "@/lib/music/player";
+import { enqueueMusic, getMusicState, subscribeMusic } from "@/lib/music/player";
 import { useSyncExternalStore } from "react";
 import { setListenInvite } from "@/lib/discord/presence";
 import { TogetherClient, type RoomSnapshot } from "@/lib/together/client";
@@ -59,6 +65,11 @@ export type ListenTogetherValue = {
   room: string | null;
   listeners: number;
   guestQueue: ListenQueue | null;
+  allowGuestQueue?: boolean;
+  suggestions: ListenSuggestion[];
+  requestSong: (song: ListenSong, action: SongRequestAction) => void;
+  setGuestQueueAllowed: (allowed: boolean) => void;
+  reviewSuggestion: (id: string, accept: boolean) => void;
   followingQueue: boolean;
   nowPlaying: ListenTrackRef | null;
   isHost: boolean;
@@ -77,6 +88,10 @@ const EMPTY: ListenTogetherValue = {
   room: null,
   listeners: 0,
   guestQueue: null,
+  suggestions: [],
+  requestSong: () => {},
+  setGuestQueueAllowed: () => {},
+  reviewSuggestion: () => {},
   followingQueue: false,
   nowPlaying: null,
   isHost: false,
@@ -163,6 +178,25 @@ export function ListenTogetherProvider({ children }: { children: ReactNode }) {
     if (!client) return;
     let previous = client.getSnapshot();
     return client.on((event) => {
+      if (event.kind === "listen-request") {
+        const { track, name } = event.request;
+        if (event.action === "enqueue") enqueueMusic(suggestedMusicTrack(track));
+        emitListToast(
+          t(
+            event.action === "enqueue"
+              ? "{name} added {title} to the queue"
+              : "{name} suggested {title}",
+            { name, title: track.title },
+          ),
+        );
+        return;
+      }
+      if (event.kind === "listen-request-status") {
+        if (!event.delivered) emitListToast(t("The host could not receive this request"), "error");
+        else
+          emitListToast(t(event.action === "suggest" ? "Suggestion sent" : "Queue request sent"));
+        return;
+      }
       if (event.kind !== "snapshot") return;
       const next = event.snapshot;
       for (const change of listenMembershipChanges(previous, next, clientId)) {
@@ -310,6 +344,14 @@ export function ListenTogetherProvider({ children }: { children: ReactNode }) {
   const value = useMemo<ListenTogetherValue>(
     () => ({
       room,
+      allowGuestQueue: joined && snapshot.listenSessionId ? snapshot.allowGuestQueue : undefined,
+      suggestions: joined ? (snapshot.suggestions ?? []) : [],
+      requestSong: (song, action) => clientRef.current?.requestListenSong(song, action),
+      setGuestQueueAllowed: (allowed) => clientRef.current?.allowListenerQueue(allowed),
+      reviewSuggestion: (id, accept) => {
+        const suggestion = clientRef.current?.takeSuggestion(id);
+        if (suggestion && accept) enqueueMusic(suggestedMusicTrack(suggestion.track));
+      },
       followingQueue: !!room && !!invite?.sessionId,
       guestQueue:
         room && invite?.sessionId === snapshot?.listenSessionId
@@ -327,7 +369,7 @@ export function ListenTogetherProvider({ children }: { children: ReactNode }) {
       join,
       leave,
     }),
-    [room, invite, snapshot, busy, error, watching, relayUrl, clientId, start, join, leave],
+    [room, invite, joined, snapshot, busy, error, watching, relayUrl, clientId, start, join, leave],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -34,6 +34,8 @@ import { getMusicState, playNextMusic } from "@/lib/music/player";
 import { useMusicTrackLiked } from "@/lib/music/use-track-liked";
 import { useArtistCredits } from "./use-artist-credits";
 import { useMusicNavigate } from "./music-navigate";
+import { useListenTogether } from "@/lib/listen-together/provider";
+import { listenSong } from "@/lib/listen-together/queue";
 import type { MusicTrack } from "@/lib/music/types";
 
 export type MusicTrackMenuItem = {
@@ -72,6 +74,7 @@ export function useMusicTrackMenuItems(
     onMoreLikeThis,
   } = handlers;
   const liked = useMusicTrackLiked(track);
+  const listen = useListenTogether();
 
   const items: MusicTrackMenuItem[] = [];
   if (!track) return items;
@@ -91,13 +94,31 @@ export function useMusicTrackMenuItems(
       run: onToggleLike,
     });
   }
-  if (onAddToQueue) {
+  if (onAddToQueue && !listen.followingQueue) {
     items.push({
       id: "queue",
       label: t("music.card.addToQueue"),
       icon: <ListPlus size={14} />,
       run: onAddToQueue,
     });
+  }
+  if (listen.followingQueue && listen.allowGuestQueue !== undefined && listen.listeners > 1) {
+    const song = listenSong(track);
+    if (song) {
+      items.push({
+        id: "listen-suggest",
+        label: t("Suggest Song"),
+        icon: <ListMusic size={14} />,
+        run: () => listen.requestSong(song, "suggest"),
+      });
+      if (listen.allowGuestQueue)
+        items.push({
+          id: "listen-enqueue",
+          label: t("Add to host’s queue"),
+          icon: <ListPlus size={14} />,
+          run: () => listen.requestSong(song, "enqueue"),
+        });
+    }
   }
   if (onAddToPlaylist) {
     items.push({

@@ -1,4 +1,4 @@
-import type { ListenQueue } from "@/lib/listen-together/queue";
+import type { ListenQueue, ListenSong, SongRequestAction } from "@/lib/listen-together/queue";
 import {
   WT_PROTO,
   type ClientMessage,
@@ -206,6 +206,35 @@ export class TogetherClient {
     this.openSocket();
   }
 
+  requestListenSong(track: ListenSong, action: SongRequestAction): void {
+    if (
+      this.ws?.readyState === WebSocket.OPEN &&
+      this.snapshot.state === "joined" &&
+      this.listenJoin?.listenMode === "guest" &&
+      typeof this.snapshot.allowGuestQueue === "boolean" &&
+      (action === "suggest" || this.snapshot.allowGuestQueue)
+    ) {
+      this.sendNow({ t: "listen-song-request", track, action });
+    }
+  }
+
+  allowListenerQueue(allowed: boolean): void {
+    if (
+      this.ws?.readyState === WebSocket.OPEN &&
+      this.resume &&
+      typeof this.snapshot.allowGuestQueue === "boolean"
+    )
+      this.sendNow({ t: "listen-permission", allowed });
+  }
+
+  takeSuggestion(id: string) {
+    const list = this.snapshot.suggestions ?? [];
+    const request = list.find((item) => item.id === id);
+    if (this.snapshot.state !== "joined" || !this.resume || !request) return;
+    this.update({ suggestions: list.filter((item) => item.id !== id) });
+    return request;
+  }
+
   publishListenQueue(queue: ListenQueue): void {
     if (!this.resume || this.snapshot.state !== "joined") return;
     this.pendingQueue = { ...queue, revision: ++this.queueRevision };
@@ -375,6 +404,7 @@ export class TogetherClient {
       // The relay reserves its larger avatar payload allowance for the first frame.
       this.sendNow({
         t: "hello",
+        ...(this.listenJoin?.listenMode === "host" && { songRequests: true }),
         ...(this.resume ? { listenMode: "resume" as const, ...this.resume } : this.listenJoin),
         room: this.room,
         clientId: this.clientId,
@@ -455,6 +485,11 @@ export class TogetherClient {
         this.clearListenQueue();
         this.queueRevision = msg.queue?.revision ?? 0;
         this.update({
+          allowGuestQueue: msg.allowGuestQueue,
+          suggestions:
+            msg.sessionId && msg.sessionId === this.snapshot.listenSessionId
+              ? this.snapshot.suggestions
+              : [],
           listenQueue: msg.queue ?? null,
           state: "joined",
           listenSessionId: this.listenJoin ? msg.sessionId : undefined,
@@ -662,6 +697,27 @@ export class TogetherClient {
       case "queue-accepted":
         if (this.pendingQueue && msg.revision === this.pendingQueue.revision)
           this.clearListenQueue();
+        return;
+      case "listen-permission":
+        if (this.snapshot.listenSessionId && typeof msg.allowed === "boolean")
+          this.update({ allowGuestQueue: msg.allowed });
+        return;
+      case "listen-song-request": {
+        if (
+          !this.resume ||
+          !this.snapshot.listenSessionId ||
+          typeof this.snapshot.allowGuestQueue !== "boolean"
+        )
+          return;
+        const request = { id: msg.id, name: msg.name, track: msg.track };
+        if (msg.action === "suggest")
+          this.update({ suggestions: [...(this.snapshot.suggestions ?? []).slice(-49), request] });
+        else if (msg.action !== "enqueue" || !this.snapshot.allowGuestQueue) return;
+        this.emit({ kind: "listen-request", request, action: msg.action });
+        return;
+      }
+      case "listen-request-status":
+        this.emit({ kind: "listen-request-status", delivered: msg.delivered, action: msg.action });
         return;
       case "session-ended":
         if (this.listenJoin) this.endListen("Listening session ended");

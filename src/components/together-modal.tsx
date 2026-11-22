@@ -250,6 +250,41 @@ export function TogetherPopover({
             isHost={listen.isHost}
           />
         )}
+        {view === "default" && listen.isHost && listen.allowGuestQueue !== undefined && (
+          <label className="flex items-center gap-2 text-sm text-ink">
+            <input
+              type="checkbox"
+              checked={listen.allowGuestQueue}
+              onChange={(event) => listen.setGuestQueueAllowed(event.target.checked)}
+            />
+            {t("Let listeners add songs to the queue")}
+          </label>
+        )}
+        {view === "default" && listen.isHost && listen.suggestions.length > 0 && (
+          <section className="space-y-2 rounded-lg bg-canvas/50 p-3">
+            <h3 className="text-sm font-semibold">{t("Song suggestions")}</h3>
+            <ul className="max-h-48 space-y-2 overflow-auto">
+              {listen.suggestions.map((s) => (
+                <li key={s.id} className="flex items-center gap-2 text-xs">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate">
+                      {s.track.title} · {s.track.artist}
+                    </div>
+                    <div className="truncate text-ink-muted">
+                      {t("Suggested by {name}", { name: s.name })}
+                    </div>
+                  </div>
+                  <button type="button" onClick={() => listen.reviewSuggestion(s.id, true)}>
+                    {t("Add to queue")}
+                  </button>
+                  <button type="button" onClick={() => listen.reviewSuggestion(s.id, false)}>
+                    {t("Dismiss")}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
         {view === "default" && !enabled && (
           <div className="flex flex-col gap-3 rounded-lg bg-canvas/50 p-3.5">
             <div>

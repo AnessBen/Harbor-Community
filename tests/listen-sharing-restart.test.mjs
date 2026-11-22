@@ -85,6 +85,7 @@ test("restarting Listen Along and re-enabling Discord sharing each advertise a f
     "@/lib/settings": { useSettings: () => ({ settings }) },
     "@/lib/i18n": { useT: () => translate },
     "@/lib/view": { useView: () => ({ player: null }) },
+    "./queue": {},
     "./room": rooms,
     "./track-state": trackState,
     "./session": session,
