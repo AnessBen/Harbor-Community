@@ -463,7 +463,7 @@ test("a paused host's last seek survives settling, and a replaced or cancelled s
 test("listening toasts name arrivals and departures without announcing the initial roster or renames", () => {
   const member = (id: string, name: string) => ({ id, name, joinedAt: 1, ready: false });
   const self = member("self", "Host");
-  const guest = member("guest", "Sam");
+  const guest = { ...member("guest", "Sam"), avatar: "/sam.png", color: "#445566" };
   const before = {
     state: "joined" as const,
     room: "LTABC234",
@@ -475,13 +475,14 @@ test("listening toasts name arrivals and departures without announcing the initi
     lastError: null,
   };
   const joined = { ...before, participants: [self, guest] };
-  const renamed = { ...joined, participants: [self, member("guest", "Alex")] };
+  const updated = { ...guest, name: "Alex", avatar: "/alex.png" };
+  const renamed = { ...joined, participants: [self, updated] };
   assert.deepEqual(listenMembershipChanges(before, joined, "self"), [
-    { joined: true, name: "Sam" },
+    { joined: true, participant: guest },
   ]);
   assert.deepEqual(listenMembershipChanges(joined, renamed, "self"), []);
   assert.deepEqual(listenMembershipChanges(renamed, before, "self"), [
-    { joined: false, name: "Alex" },
+    { joined: false, participant: updated },
   ]);
   assert.deepEqual(listenMembershipChanges({ ...before, state: "connecting" }, joined, "self"), []);
   assert.deepEqual(

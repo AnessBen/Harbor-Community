@@ -1,5 +1,5 @@
 import type { RoomSnapshot } from "@/lib/together/client";
-import type { SyncState } from "@/lib/together/protocol";
+import type { Participant, SyncState } from "@/lib/together/protocol";
 import { listenStateMatchesTrack, listenTrackFromState, type ListenTrackRef } from "./track-state";
 
 export type ListenRole = "host" | "guest";
@@ -97,7 +97,7 @@ export function listenMembershipChanges(
   previous: RoomSnapshot,
   next: RoomSnapshot,
   self: string,
-): { joined: boolean; name: string }[] {
+): { joined: boolean; participant: Participant }[] {
   if (
     previous.state !== "joined" ||
     next.state !== "joined" ||
@@ -109,11 +109,11 @@ export function listenMembershipChanges(
   const changes = [];
   for (const participant of next.participants) {
     if (participant.id !== self && !previous.participants.some((p) => p.id === participant.id))
-      changes.push({ joined: true, name: participant.name });
+      changes.push({ joined: true, participant });
   }
   for (const participant of previous.participants) {
     if (participant.id !== self && !next.participants.some((p) => p.id === participant.id))
-      changes.push({ joined: false, name: participant.name });
+      changes.push({ joined: false, participant });
   }
   return changes;
 }

@@ -201,7 +201,7 @@ export function ListenTogetherProvider({ children }: { children: ReactNode }) {
       const next = event.snapshot;
       for (const change of listenMembershipChanges(previous, next, clientId)) {
         const message = change.joined ? "{name} joined Listen Along" : "{name} left Listen Along";
-        emitListToast(t(message, { name: change.name }));
+        emitListToast(t(message, { name: change.participant.name }), "success", change.participant);
       }
       previous = next;
     });
