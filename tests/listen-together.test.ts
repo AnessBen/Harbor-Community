@@ -30,6 +30,7 @@ import type { MusicAudioSettingsValue } from "../src/lib/music/audio-settings";
 import {
   LISTEN_DRIFT_SECONDS,
   listenActionFor,
+  reconcileListenSeek,
   listenShouldPublish,
 } from "../src/lib/listen-together/session";
 import { ROOM_CODE_LENGTH, generateRoomCode } from "../src/lib/together/protocol";
@@ -424,4 +425,36 @@ test("leaving twice never writes the host's mix back over the guest's", async ()
   await follower.end();
   assert.deepEqual(current(), own);
   assert.equal(writes.length, 2);
+});
+
+test("a fallback source follows host seeks and pauses without reloading the recording", () => {
+  const local = {
+    track: { id: "other-provider-id", connectorId: "deezer", collectionOrigin: HOST_TRACK },
+    positionSeconds: 30,
+    playing: true,
+  };
+  assert.equal(listenActionFor(hostState(), local).kind, "none");
+  assert.deepEqual(listenActionFor(hostState({ playing: false }), local), { kind: "pause" });
+  assert.deepEqual(listenActionFor(hostState({ positionSeconds: 80, playing: false }), local), {
+    kind: "seek",
+    positionSeconds: 80,
+  });
+});
+
+test("a paused host's last seek survives settling, and a replaced or cancelled seek never fires", (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1000 });
+  const positions: number[] = [];
+  const playing: boolean[] = [];
+  const apply = (value: boolean) => playing.push(value);
+  const cancel = reconcileListenSeek(2500, true, apply, () => positions.push(30));
+  cancel?.();
+  reconcileListenSeek(2500, false, apply, () => positions.push(80));
+  assert.deepEqual(playing, [true, false]);
+  t.mock.timers.tick(1499);
+  assert.deepEqual(positions, []);
+  t.mock.timers.tick(1);
+  assert.deepEqual(positions, [80]);
+  reconcileListenSeek(3500, true, apply, () => positions.push(120))?.();
+  t.mock.timers.tick(1000);
+  assert.deepEqual(positions, [80]);
 });

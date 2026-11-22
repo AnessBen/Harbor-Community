@@ -78,6 +78,7 @@ let config: DiscordConfig = {
   hideMusicWhenPaused: true,
 };
 let playback: PlaybackPresence | null = null;
+let listenInvite: string | null = null;
 let music: MusicPresence | null = null;
 let reading: MangaReadingState = null;
 let browse: BrowsePresence | null = null;
@@ -156,9 +157,12 @@ function computeBase(): Base {
     // carries one credit: the song, the artist, then the album. Repeating the album and
     // artist in two of them reads as a duplicate.
     const state = music.paused ? `Paused · ${music.artist}` : music.artist;
-    const buttons = music.trackUrl
-      ? [{ label: "Listen in Harbor", url: music.trackUrl }, ...STATIC_BUTTONS]
-      : STATIC_BUTTONS;
+    const joinUrl = config.showPartyJoin && listenInvite;
+    const buttons = joinUrl
+      ? [{ label: "Listen Along", url: joinUrl }, ...STATIC_BUTTONS]
+      : music.trackUrl
+        ? [{ label: "Listen in Harbor", url: music.trackUrl }, ...STATIC_BUTTONS]
+        : STATIC_BUTTONS;
     return {
       payload: {
         details: music.title,
@@ -177,7 +181,7 @@ function computeBase(): Base {
         paused: music.paused,
         buttons,
       },
-      key: `music:${music.title}|${state}|${music.artwork ?? ""}|${live ? "ts" : "nots"}`,
+      key: `music:${joinUrl || ""}|${music.title}|${state}|${music.artwork ?? ""}|${live ? "ts" : "nots"}`,
     };
   }
   if (reading) {
@@ -406,6 +410,11 @@ export function setReadingPresence(r: MangaReadingState): void {
 
 export function setBrowsePresence(b: BrowsePresence | null): void {
   browse = b;
+  schedule();
+}
+
+export function setListenInvite(url: string | null): void {
+  listenInvite = url;
   schedule();
 }
 

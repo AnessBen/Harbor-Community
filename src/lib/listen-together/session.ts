@@ -17,7 +17,11 @@ export type ListenAction =
   | { kind: "pause" };
 
 export type ListenLocal = {
-  track: { id: string; connectorId?: string | null } | null;
+  track: {
+    id: string;
+    connectorId?: string | null;
+    collectionOrigin?: { id: string; connectorId?: string };
+  } | null;
   positionSeconds: number;
   playing: boolean;
 };
@@ -36,7 +40,10 @@ export function listenActionFor(state: SyncState | null, local: ListenLocal): Li
   const wanted = listenTrackFromState(state);
   if (!state || !wanted) return { kind: "none" };
 
-  if (!listenStateMatchesTrack(state, local.track)) {
+  if (
+    !listenStateMatchesTrack(state, local.track) &&
+    !listenStateMatchesTrack(state, local.track?.collectionOrigin)
+  ) {
     return {
       kind: "load",
       track: wanted,
@@ -68,4 +75,20 @@ export function listenShouldPublish(previous: SyncState | null, next: SyncState)
 
 export function listenListenerCount(snapshot: Pick<RoomSnapshot, "participants">): number {
   return snapshot.participants?.length ?? 0;
+}
+
+// Each new host snapshot (or leaving the room) cancels the previous pending correction.
+export function reconcileListenSeek(
+  settleUntil: number,
+  playing: boolean,
+  applyTransport: (playing: boolean) => void,
+  applySeek: () => void,
+): (() => void) | undefined {
+  const delay = settleUntil - Date.now();
+  if (delay > 0) {
+    applyTransport(playing);
+    const timer = setTimeout(applySeek, delay);
+    return () => clearTimeout(timer);
+  }
+  applySeek();
 }

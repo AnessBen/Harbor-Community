@@ -1,3 +1,4 @@
+import type { ListenQueue } from "@/lib/listen-together/queue";
 import {
   WT_PROTO,
   type ClientMessage,
@@ -28,6 +29,8 @@ function capAvatar(avatar: string | null): string | null {
   return avatar && avatar.length > AVATAR_MAX_CHARS ? null : avatar;
 }
 
+export type ListenJoin = { listenMode: "host" } | { listenMode: "guest"; sessionId: string };
+
 export class TogetherClient {
   private ws: WebSocket | null = null;
   private url: string;
@@ -36,6 +39,13 @@ export class TogetherClient {
   private originalName: string;
   private renameAttempts = 0;
   private room: RoomCode | null = null;
+  private listenJoin?: ListenJoin;
+  private resume?: { sessionId: string; resumeKey: string };
+  private queueTimer: number | null = null;
+  private pendingQueue: ListenQueue | null = null;
+  private queueRevision = 0;
+  private wantedQueueRevision = 0;
+  private queueReadTimer: number | null = null;
   private snapshot: RoomSnapshot;
   private listeners = new Set<(e: RoomEvent) => void>();
   private pingTimer: number | null = null;
@@ -132,7 +142,7 @@ export class TogetherClient {
     this.suppressUntil = Date.now() + ms;
   }
 
-  join(room: RoomCode): void {
+  join(room: RoomCode, listenJoin?: ListenJoin): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN && this.room && this.room !== room) {
       this.sendNow({ t: "leave", room: this.room, clientId: this.clientId });
     }
@@ -142,11 +152,21 @@ export class TogetherClient {
     this.reconnectAttempt = 0;
     this.intentional = false;
     this.room = room;
+    this.listenJoin = listenJoin;
+    this.resume = undefined;
     this.claimedHost = false;
     this.everJoined = false;
     this.failStreak = 0;
     this.terminal = false;
-    this.update({ state: "connecting", room, lastError: null, started: false, relayVersion: null });
+    this.update({
+      state: "connecting",
+      room,
+      listenSessionId: undefined,
+      syncState: null,
+      lastError: null,
+      started: false,
+      relayVersion: null,
+    });
     this.openSocket();
   }
 
@@ -158,6 +178,8 @@ export class TogetherClient {
     this.cleanup();
     this.reconnectAttempt = 0;
     this.room = null;
+    this.listenJoin = undefined;
+    this.resume = undefined;
     this.outQueue = [];
     this.lastSentInvite = null;
     this.claimedHost = false;
@@ -169,6 +191,7 @@ export class TogetherClient {
       hostClientId: null,
       started: false,
       relayVersion: null,
+      listenSessionId: undefined,
       lastError: null,
     });
   }
@@ -181,6 +204,46 @@ export class TogetherClient {
     this.everJoined = false;
     this.update({ state: "connecting", lastError: null });
     this.openSocket();
+  }
+
+  publishListenQueue(queue: ListenQueue): void {
+    if (!this.resume || this.snapshot.state !== "joined") return;
+    this.pendingQueue = { ...queue, revision: ++this.queueRevision };
+    if (this.queueTimer === null) this.scheduleListenQueue(150);
+  }
+
+  private scheduleListenQueue(delay: number): void {
+    this.queueTimer = window.setTimeout(() => {
+      this.queueTimer = null;
+      if (
+        !this.pendingQueue ||
+        this.ws?.readyState !== WebSocket.OPEN ||
+        this.snapshot.state !== "joined"
+      )
+        return;
+      this.sendNow({ t: "listen-queue", queue: this.pendingQueue });
+      this.scheduleListenQueue(2000);
+    }, delay);
+  }
+
+  private fetchListenQueue(): void {
+    if (
+      this.queueReadTimer !== null ||
+      this.ws?.readyState !== WebSocket.OPEN ||
+      this.wantedQueueRevision <= (this.snapshot.listenQueue?.revision ?? 0)
+    )
+      return;
+    this.sendNow({ t: "get-listen-queue" });
+    this.queueReadTimer = window.setTimeout(() => {
+      this.queueReadTimer = null;
+      this.fetchListenQueue();
+    }, 1000);
+  }
+
+  private clearListenQueue(): void {
+    if (this.queueTimer !== null) window.clearTimeout(this.queueTimer);
+    this.queueTimer = null;
+    this.pendingQueue = null;
   }
 
   publishState(state: SyncState): void {
@@ -294,7 +357,11 @@ export class TogetherClient {
         .replace(/^http:\/\//i, "ws://")
         .replace(/\/+$/, "");
       const wsBase = /^wss?:\/\//i.test(base) ? base : `wss://${base}`;
-      this.ws = new WebSocket(`${wsBase}/r/${this.room}`);
+      const endpoint = new URL(wsBase);
+      endpoint.pathname = endpoint.pathname.replace(/\/+$/, "") + "/r/" + this.room;
+      if (this.listenJoin?.listenMode === "guest")
+        endpoint.searchParams.set("listenSession", this.listenJoin.sessionId);
+      this.ws = new WebSocket(endpoint.toString());
     } catch {
       this.failAttempt();
       return;
@@ -308,6 +375,7 @@ export class TogetherClient {
       // The relay reserves its larger avatar payload allowance for the first frame.
       this.sendNow({
         t: "hello",
+        ...(this.resume ? { listenMode: "resume" as const, ...this.resume } : this.listenJoin),
         room: this.room,
         clientId: this.clientId,
         name: this.name,
@@ -316,7 +384,7 @@ export class TogetherClient {
       });
       this.sendPing();
       this.flushOutQueue();
-      if (this.claimedHost) {
+      if (this.claimedHost && !this.listenJoin) {
         this.sendNow({ t: "claim-host", room: this.room, clientId: this.clientId, fresh: false });
       }
       if (this.lastSentInvite) {
@@ -367,16 +435,29 @@ export class TogetherClient {
   private handleServer(msg: ServerMessage) {
     switch (msg.t) {
       case "joined":
-        if (this.handleNameCollision(msg.participants)) return;
+        if (
+          this.listenJoin?.listenMode === "guest" &&
+          (msg.sessionId !== this.listenJoin.sessionId || msg.hostClientId === this.clientId)
+        ) {
+          this.endListen("Listening session ended");
+          return;
+        }
+        if (this.listenJoin?.listenMode === "host" && msg.sessionId && msg.resumeKey)
+          this.resume = { sessionId: msg.sessionId, resumeKey: msg.resumeKey };
+        if (!this.listenJoin && this.handleNameCollision(msg.participants)) return;
         this.renameAttempts = 0;
         this.everJoined = true;
         this.joinedThisAttempt = true;
         this.attemptResolved = true;
         this.failStreak = 0;
         this.clearWatchdog();
-        if (msg.state) this.localizeStateClock(msg.state, msg.srvAt);
+        if (msg.state) this.localizeStateClock(msg.state, msg.srvAt, msg.observedAt);
+        this.clearListenQueue();
+        this.queueRevision = msg.queue?.revision ?? 0;
         this.update({
+          listenQueue: msg.queue ?? null,
           state: "joined",
+          listenSessionId: this.listenJoin ? msg.sessionId : undefined,
           room: this.room,
           participants: msg.participants,
           syncState: msg.state,
@@ -496,7 +577,7 @@ export class TogetherClient {
         });
         return;
       case "state":
-        this.localizeStateClock(msg.state, msg.srvAt);
+        this.localizeStateClock(msg.state, msg.srvAt, msg.observedAt);
         this.update({ syncState: msg.state });
         this.emit({ kind: "incoming-state", state: msg.state });
         return;
@@ -560,7 +641,41 @@ export class TogetherClient {
           location: msg.location,
         });
         return;
+      case "listen-queue":
+        if (
+          this.snapshot.listenSessionId &&
+          msg.queue &&
+          msg.queue.revision > (this.snapshot.listenQueue?.revision ?? 0)
+        )
+          this.update({ listenQueue: msg.queue });
+        return;
+      case "queue-changed":
+        if (
+          this.snapshot.listenSessionId &&
+          msg.revision > (this.snapshot.listenQueue?.revision ?? 0)
+        ) {
+          this.wantedQueueRevision = Math.max(this.wantedQueueRevision, msg.revision);
+          this.fetchListenQueue();
+        }
+        return;
+      case "queue-accepted":
+        if (this.pendingQueue && msg.revision === this.pendingQueue.revision)
+          this.clearListenQueue();
+        return;
+      case "session-ended":
+        if (this.listenJoin) this.endListen("Listening session ended");
+        return;
       case "error":
+        if (this.resume && msg.code === "queue_busy") return;
+        if (this.resume && msg.code === "invalid_queue" && this.pendingQueue) {
+          // The acknowledgement may have been lost. Retry the latest snapshot at a fresh revision.
+          this.pendingQueue = { ...this.pendingQueue, revision: ++this.queueRevision };
+          return;
+        }
+        if (this.listenJoin && msg.code === "session_ended") {
+          this.endListen("Listening session ended");
+          return;
+        }
         this.update({ state: "error", lastError: msg.message });
         return;
       case "pong":
@@ -663,10 +778,11 @@ export class TogetherClient {
     this.pingSentAt = 0;
   }
 
-  private localizeStateClock(state: SyncState, srvAt: number | undefined) {
+  private localizeStateClock(state: SyncState, srvAt: number | undefined, observedAt?: number) {
     if (typeof srvAt !== "number") return;
     if (this.relayOffset == null) this.relayOffset = srvAt - Date.now();
-    state.updatedAt = srvAt - this.relayOffset;
+    state.updatedAt =
+      (typeof observedAt === "number" ? Math.min(srvAt, observedAt) : srvAt) - this.relayOffset;
   }
 
   private resetClockState() {
@@ -695,6 +811,11 @@ export class TogetherClient {
     }, delay);
   }
 
+  private endListen(message: string) {
+    this.leave();
+    this.update({ state: "error", lastError: message });
+  }
+
   private failAttempt() {
     if (this.attemptResolved) return;
     this.attemptResolved = true;
@@ -702,7 +823,9 @@ export class TogetherClient {
     this.failStreak += 1;
     const limit = this.everJoined ? MAX_FAIL_STREAK * 3 : MAX_FAIL_STREAK;
     if (this.failStreak >= limit) {
-      void this.goTerminal();
+      if (this.listenJoin?.listenMode === "guest")
+        this.endListen("Listening session ended or unavailable");
+      else void this.goTerminal();
       return;
     }
     this.update({ state: "connecting" });
@@ -757,6 +880,10 @@ export class TogetherClient {
   }
 
   private cleanup() {
+    this.wantedQueueRevision = 0;
+    if (this.queueReadTimer !== null) window.clearTimeout(this.queueReadTimer);
+    this.queueReadTimer = null;
+    this.clearListenQueue();
     this.stopPing();
     this.clearWatchdog();
     if (this.reconnectTimer != null) {

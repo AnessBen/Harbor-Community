@@ -917,7 +917,6 @@ async function nextPlayableSource(
   return (usable.find((candidate) => candidate.connectorId === want) ?? usable[0])?.track ?? null;
 }
 
-
 /** Warm the cross-source candidate cache without making the listener wait for it. */
 export function warmMusicSourceCache(track: MusicTrack): void {
   void sourcesFor(track).catch(() => {});
@@ -1402,8 +1401,32 @@ export function setMusicVolume(volume: number): void {
   void invoke("music_deck_volume", { deck: 1, volume: next }).catch(() => {});
 }
 
+let followingListenHost = false;
+
+export function followMusicQueue(): () => void {
+  let active = true;
+  let saved: MusicTrack[] | undefined;
+  followingListenHost = true;
+  // A cold-start invite can arrive before the persisted personal queue is loaded.
+  void initializeMusic()
+    .then(() => {
+      if (active) saved = state.queue;
+    })
+    .catch(() => {});
+  return () => {
+    active = false;
+    followingListenHost = false;
+    if (saved && state.queue !== saved) setMusicQueue(saved);
+  };
+}
+
 export function nextMusic(auto = false): void {
   if (!state.current) return;
+  if (auto && followingListenHost) {
+    enginePrimed = false;
+    publish({ phase: "paused", currentTime: state.duration });
+    return;
+  }
   if (!auto) autoSkipped.clear();
   if (auto && ownsMusicVideo() && getMusicTransport().repeat === "one" && videoController) {
     // Restart the video host itself. Reloading the native track would leave the

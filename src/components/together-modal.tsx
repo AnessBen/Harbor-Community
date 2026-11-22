@@ -5,6 +5,7 @@ import type { Meta } from "@/lib/cinemeta";
 import { useSettings } from "@/lib/settings";
 import { useKnobAnim } from "@/lib/knob-anim";
 import { useTogether } from "@/lib/together/provider";
+import { parseInviteParams, emitTogetherInvite } from "@/lib/together/invite";
 import { useSelfIdentity } from "@/lib/together/use-self-identity";
 import { useView } from "@/lib/view";
 import { useT } from "@/lib/i18n";
@@ -104,17 +105,13 @@ export function TogetherPopover({
             ? value
             : `https://x${value.startsWith("?") ? value : `?${value}`}`,
         );
-        const relay = url.searchParams.get("harbor-relay");
-        const room = url.searchParams.get("harbor-room");
-        if (relay && room) {
-          if (settings.togetherRelayUrl !== relay) {
-            update({ togetherRelayUrl: relay });
-          }
-          setJoinCode(room.toUpperCase());
-          setTimeout(() => joinSession(room), 200);
-          return;
+        const invite = parseInviteParams(url.searchParams);
+        if (invite) {
+          setJoinCode(invite.roomCode);
+          emitTogetherInvite(invite);
         }
       } catch {}
+      return;
     }
     joinSession(value);
   };
@@ -241,6 +238,18 @@ export function TogetherPopover({
             onClose={() => setView("default")}
           />
         )}
+        {view === "default" && listen.relayReady && !listen.watchingBlocks && (
+          <ListenTogetherCta
+            room={listen.room}
+            listeners={listen.listeners}
+            nowPlaying={listen.nowPlaying}
+            artwork={listen.nowPlaying?.artwork ?? null}
+            busy={listen.busy}
+            onStart={listen.start}
+            onLeave={listen.leave}
+            isHost={listen.isHost}
+          />
+        )}
         {view === "default" && !enabled && (
           <div className="flex flex-col gap-3 rounded-lg bg-canvas/50 p-3.5">
             <div>
@@ -334,18 +343,6 @@ export function TogetherPopover({
               <p className="px-1 text-[10.5px] text-ink-subtle">{t("or paste an invite link")}</p>
             </div>
 
-            {listen.relayReady && !listen.watchingBlocks && (
-              <ListenTogetherCta
-                room={listen.room}
-                listeners={listen.listeners}
-                nowPlaying={listen.nowPlaying}
-                artwork={listen.nowPlaying?.artwork ?? null}
-                busy={listen.busy}
-                onStart={listen.start}
-                onOpen={() => setView("default")}
-              />
-            )}
-
             {errored && snapshot.lastError && (
               <div className="flex flex-col gap-2 rounded-lg bg-danger/15 px-3 py-2.5">
                 <p className="text-[12px] leading-snug text-danger">{snapshot.lastError}</p>
@@ -363,18 +360,6 @@ export function TogetherPopover({
         {view === "default" && enabled && inSession && (
           <>
             {canReturn && roomMedia && <ReturnToVideo media={roomMedia} onReturn={returnToVideo} />}
-
-            {listen.relayReady && !listen.watchingBlocks && (
-              <ListenTogetherCta
-                room={listen.room}
-                listeners={listen.listeners}
-                nowPlaying={listen.nowPlaying}
-                artwork={listen.nowPlaying?.artwork ?? null}
-                busy={listen.busy}
-                onStart={listen.start}
-                onOpen={() => setView("default")}
-              />
-            )}
 
             <div className="flex items-center justify-between rounded-lg bg-canvas/50 px-3.5 py-2.5">
               <div className="flex flex-col">

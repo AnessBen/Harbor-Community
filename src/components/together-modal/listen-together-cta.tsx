@@ -14,7 +14,8 @@ export function ListenTogetherCta({
   artwork,
   busy,
   onStart,
-  onOpen,
+  onLeave,
+  isHost,
 }: {
   room: string | null;
   listeners: number;
@@ -22,15 +23,17 @@ export function ListenTogetherCta({
   artwork?: string | null;
   busy?: boolean;
   onStart: () => void;
-  onOpen: () => void;
+  onLeave: () => void;
+  isHost: boolean;
 }) {
   const t = useT();
   const live = !!room;
 
   return (
     <button
-      onClick={live ? onOpen : onStart}
-      disabled={busy}
+      type="button"
+      onClick={live ? onLeave : onStart}
+      disabled={!live && busy}
       className="group flex items-center gap-3 rounded-xl border border-accent/40 bg-accent/10 p-2 text-start transition-colors hover:bg-accent/15 disabled:opacity-50 disabled:hover:bg-accent/10"
     >
       <div className="relative grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-md bg-canvas/60 text-accent ring-1 ring-edge-soft/60">
@@ -64,9 +67,9 @@ export function ListenTogetherCta({
         </span>
       </div>
 
-      <span className="me-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-ink text-canvas transition-transform group-hover:scale-105">
+      <span className="me-1 flex h-9 shrink-0 px-3 items-center justify-center rounded-full bg-ink text-canvas transition-transform group-hover:scale-105">
         {live ? (
-          <Headphones size={14} strokeWidth={2.4} aria-hidden="true" />
+          t(isHost ? "Stop sharing" : "Leave room")
         ) : (
           <Plus size={14} strokeWidth={2.4} aria-hidden="true" />
         )}

@@ -1,3 +1,10 @@
+import { createListenQueueBuilder } from "./queue";
+import {
+  musicUpcoming,
+  musicPriorityNext,
+  getMusicTransport,
+  subscribeTransport,
+} from "@/lib/music/transport";
 import { useEffect, useRef } from "react";
 import type { RoomSnapshot, TogetherClient } from "@/lib/together/client";
 import type { SyncState } from "@/lib/together/protocol";
@@ -9,6 +16,7 @@ import {
   subscribeMusicAudioSettings,
 } from "@/lib/music/audio-settings";
 import {
+  followMusicQueue,
   getMusicState,
   playMusic,
   seekMusic,
@@ -21,6 +29,7 @@ import { readListenMix, type ListenMix } from "./mix-state";
 import {
   LISTEN_DRIFT_SECONDS,
   listenActionFor,
+  reconcileListenSeek,
   listenRoleOf,
   listenShouldPublish,
 } from "./session";
@@ -48,6 +57,11 @@ function musicTrackFrom(ref: ListenTrackRef): MusicTrack {
   };
 }
 
+function currentListenPosition(state: SyncState): number {
+  const elapsed = state.playing ? Math.max(0, Date.now() - state.updatedAt) / 1000 : 0;
+  return state.positionSeconds + elapsed * (state.speed ?? 1);
+}
+
 function applyTransport(playing: boolean): void {
   const phase = getMusicState().phase;
   if (playing && phase !== "playing") toggleMusicPlayback();
@@ -71,7 +85,59 @@ export function useListenSession(params: ListenSessionParams): void {
   const hostClientId = snapshot?.hostClientId ?? null;
   const syncState = snapshot?.syncState ?? null;
 
+  const sessionId = snapshot?.listenSessionId;
+  const guestSession = room && sessionId && snapshot.hostClientId !== clientId ? sessionId : null;
+  useEffect(() => {
+    if (guestSession) return followMusicQueue();
+  }, [guestSession]);
+
+  useEffect(() => {
+    if (!sessionId || !isHost) return;
+    const build = createListenQueueBuilder();
+    let lastQueue: MusicTrack[] | undefined;
+    let lastCurrent: MusicTrack | null | undefined;
+    let lastIndex = -2;
+    let lastTransport: ReturnType<typeof getMusicTransport> | undefined;
+    let lastPriority: MusicTrack | null | undefined;
+    const publish = () => {
+      const { queue, queueIndex, current } = getMusicState();
+      const transport = getMusicTransport();
+      const priority = musicPriorityNext();
+      if (
+        lastQueue === queue &&
+        lastIndex === queueIndex &&
+        lastCurrent === current &&
+        lastTransport === transport &&
+        lastPriority === priority
+      )
+        return;
+      lastQueue = queue;
+      lastIndex = queueIndex;
+      lastCurrent = current;
+      lastTransport = transport;
+      lastPriority = priority;
+      const upcoming = musicUpcoming(queue, queueIndex, 200);
+      if (priority && transport.repeat !== "one") {
+        const at = upcoming.indexOf(priority);
+        if (at >= 0) upcoming.splice(at, 1);
+        upcoming.unshift(priority);
+      }
+      clientRef.current?.publishListenQueue(
+        build(queue[queueIndex] ?? current, upcoming, transport),
+      );
+    };
+    publish();
+    const off = subscribeMusic(publish);
+    const offTransport = subscribeTransport(publish);
+    return () => {
+      off();
+      offTransport();
+    };
+  }, [isHost, sessionId, clientRef]);
+
   const settleUntil = useRef(0);
+  const latestState = useRef<SyncState | null>(null);
+  const loadingMedia = useRef<string | null>(null);
   const loadToken = useRef(0);
   const pendingMix = useRef<ListenMix | null>(null);
   const followerRef = useRef<ListenMixFollower | null>(null);
@@ -90,7 +156,7 @@ export function useListenSession(params: ListenSessionParams): void {
       if (!client) return;
       const music = getMusicState();
       const track = music.current;
-      if (!track) return;
+      if (!track || track.connectorId === "local" || track.id.startsWith("local:")) return;
       if (music.phase !== "playing" && music.phase !== "paused") return;
       const audio = getMusicAudioSettingsSnapshot();
       const next = listenStateFromTrack(
@@ -119,43 +185,58 @@ export function useListenSession(params: ListenSessionParams): void {
   useEffect(() => {
     if (!following) {
       settleUntil.current = 0;
+      loadingMedia.current = null;
+      latestState.current = null;
       loadToken.current += 1;
       return;
     }
     if (!syncState) return;
     if (syncState.updatedBy === clientId) return;
     const music = getMusicState();
-    const action = listenActionFor(syncState, {
-      track: music.current
-        ? { id: music.current.id, connectorId: music.current.connectorId ?? null }
-        : null,
-      positionSeconds: music.currentTime,
-      playing: music.phase === "playing",
-    });
+    latestState.current = syncState;
+    if (loadingMedia.current === syncState.mediaId) return;
+    const action = listenActionFor(
+      { ...syncState, positionSeconds: currentListenPosition(syncState) },
+      {
+        track: music.current,
+        positionSeconds: music.currentTime,
+        playing: music.phase === "playing",
+      },
+    );
     if (action.kind === "none") return;
     const now = Date.now();
-    if ((action.kind === "load" || action.kind === "seek") && now < settleUntil.current) return;
     if (action.kind === "play" || action.kind === "pause") {
       applyTransport(action.kind === "play");
       return;
     }
     if (action.kind === "seek") {
-      settleUntil.current = now + SETTLE_MS;
-      seekMusic(action.positionSeconds);
-      applyTransport(syncState.playing);
-      return;
+      return reconcileListenSeek(settleUntil.current, syncState.playing, applyTransport, () => {
+        const position = currentListenPosition(syncState);
+        if (Math.abs(getMusicState().currentTime - position) > LISTEN_DRIFT_SECONDS) {
+          settleUntil.current = Date.now() + SETTLE_MS;
+          seekMusic(position);
+        }
+        applyTransport(syncState.playing);
+      });
     }
     settleUntil.current = now + SETTLE_MS;
     const token = (loadToken.current += 1);
+    loadingMedia.current = syncState.mediaId;
     const wanted = action;
     void playMusic(musicTrackFrom(wanted.track))
       .then(() => {
         if (token !== loadToken.current) return;
         settleUntil.current = Date.now() + SETTLE_MS;
-        if (wanted.positionSeconds > LISTEN_DRIFT_SECONDS) seekMusic(wanted.positionSeconds);
-        applyTransport(wanted.playing);
+        const latest = latestState.current;
+        if (!latest || latest.mediaId !== syncState.mediaId) return;
+        const position = currentListenPosition(latest);
+        if (position > LISTEN_DRIFT_SECONDS) seekMusic(position);
+        applyTransport(latest.playing);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (token === loadToken.current) loadingMedia.current = null;
+      });
   }, [following, syncState, clientId]);
 
   useEffect(() => {

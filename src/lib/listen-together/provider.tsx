@@ -8,6 +8,15 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import type { ListenQueue } from "@/lib/listen-together/queue";
+import { emitListToast } from "@/components/lists/list-toast";
+import type { ListenJoin } from "@/lib/together/client";
+import { isTauri } from "@tauri-apps/api/core";
+import { buildInviteUrl, onListenInvite, type ParsedInvite } from "@/lib/together/invite";
+import { HARBOR_PUBLIC_RELAY } from "@/lib/together/relay-version";
+import { getMusicState, subscribeMusic } from "@/lib/music/player";
+import { useSyncExternalStore } from "react";
+import { setListenInvite } from "@/lib/discord/presence";
 import { TogetherClient, type RoomSnapshot } from "@/lib/together/client";
 import { useSelfIdentity } from "@/lib/together/use-self-identity";
 import { useSettings } from "@/lib/settings";
@@ -59,6 +68,8 @@ export type ListenTogetherValue = {
   /** Null until a room is started or joined. Nothing connects on its own. */
   room: string | null;
   listeners: number;
+  guestQueue: ListenQueue | null;
+  followingQueue: boolean;
   nowPlaying: ListenTrackRef | null;
   isHost: boolean;
   busy: boolean;
@@ -75,6 +86,8 @@ export type ListenTogetherValue = {
 const EMPTY: ListenTogetherValue = {
   room: null,
   listeners: 0,
+  guestQueue: null,
+  followingQueue: false,
   nowPlaying: null,
   isHost: false,
   busy: false,
@@ -98,7 +111,23 @@ export function ListenTogetherProvider({ children }: { children: ReactNode }) {
   const { settings } = useSettings();
   const { player } = useView();
   const identity = useSelfIdentity();
-  const relayUrl = settings.togetherRelayUrl;
+  const [invite, setInvite] = useState<ParsedInvite | null>(null);
+  const relayUrl = invite?.relayUrl || settings.togetherRelayUrl || HARBOR_PUBLIC_RELAY;
+  const autoRoom = useRef<string | null>(null);
+  const suppressed = useRef(false);
+  const musicPhase = useSyncExternalStore(subscribeMusic, () => {
+    const { current, phase } = getMusicState();
+    if (!current || current.connectorId === "local" || current.id.startsWith("local:"))
+      return "idle";
+    return phase;
+  });
+  const eligible =
+    isTauri() &&
+    settings.discordRichPresence &&
+    settings.discordMusicPresence &&
+    settings.discordShowPartyJoin &&
+    !settings.discordHideTitle &&
+    !player;
 
   const clientId = useRef(loadListenClientId()).current;
   const clientRef = useRef<TogetherClient | null>(null);
@@ -117,13 +146,7 @@ export function ListenTogetherProvider({ children }: { children: ReactNode }) {
       clientRef.current = null;
       return;
     }
-    const client = new TogetherClient(
-      relayUrl,
-      clientId,
-      loadName(),
-      identity.avatar,
-      identity.color,
-    );
+    const client = new TogetherClient(relayUrl, clientId, loadName());
     clientRef.current = client;
     const off = client.on(() => setSnapshot(client.getSnapshot()));
     return () => {
@@ -132,9 +155,16 @@ export function ListenTogetherProvider({ children }: { children: ReactNode }) {
       clientRef.current = null;
       setSnapshot(null);
     };
+  }, [relayUrl, clientId]);
+
+  useEffect(() => {
+    clientRef.current?.setProfile(identity.avatar, identity.color);
   }, [relayUrl, clientId, identity.avatar, identity.color]);
 
   const leave = useCallback(() => {
+    suppressed.current = true;
+    autoRoom.current = null;
+    setInvite(null);
     clientRef.current?.leave();
     setRoom(null);
     setBusy(false);
@@ -147,7 +177,7 @@ export function ListenTogetherProvider({ children }: { children: ReactNode }) {
   }, [watching, room, leave]);
 
   const enter = useCallback(
-    (code: string) => {
+    (code: string, mode?: ListenJoin) => {
       const client = clientRef.current;
       if (!client) {
         setError(t("Listen Together needs a relay. Set one up in Watch Together first."));
@@ -159,7 +189,7 @@ export function ListenTogetherProvider({ children }: { children: ReactNode }) {
       }
       setError(null);
       setBusy(true);
-      client.join(code);
+      client.join(code, mode);
       setRoom(code);
     },
     [t],
@@ -188,11 +218,90 @@ export function ListenTogetherProvider({ children }: { children: ReactNode }) {
     if (snapshot?.room) setBusy(false);
   }, [snapshot?.room]);
 
-  useListenSession({ room, clientId, snapshot, clientRef });
+  useEffect(
+    () =>
+      onListenInvite((next) => {
+        if (watching) {
+          setError(t("Leave the video player before joining a listening room."));
+          return;
+        }
+        if (
+          next.roomCode === room &&
+          next.relayUrl === relayUrl &&
+          next.sessionId === snapshot?.listenSessionId
+        )
+          return;
+        autoRoom.current = null;
+        suppressed.current = true;
+        setInvite(next);
+      }),
+    [watching, room, relayUrl, snapshot?.listenSessionId, t],
+  );
+
+  useEffect(() => {
+    if (invite)
+      enter(
+        invite.roomCode,
+        invite.sessionId ? { listenMode: "guest", sessionId: invite.sessionId } : undefined,
+      );
+  }, [invite, enter, relayUrl]);
+
+  const joined = snapshot?.state === "joined" && snapshot.room === room;
+  const expired =
+    invite?.roomCode === room && !!invite && joined && snapshot.hostClientId === clientId;
+  useEffect(() => {
+    const ended = snapshot?.state === "error" && !snapshot.room && snapshot.lastError;
+    if (!room || (!expired && !ended)) return;
+    leave();
+    const message = t(ended || "Listening session ended");
+    setError(message);
+    emitListToast(message, "error");
+  }, [expired, snapshot, room, leave, t]);
+
+  useEffect(() => {
+    if (invite) return;
+    if (!eligible || musicPhase === "idle" || musicPhase === "error") {
+      if (autoRoom.current) leave();
+      if (musicPhase === "idle") suppressed.current = false;
+      return;
+    }
+    if (!room && !autoRoom.current && !suppressed.current && musicPhase === "playing") {
+      autoRoom.current = generateListenRoomCode();
+      enter(autoRoom.current, { listenMode: "host" });
+    }
+  }, [room, musicPhase, eligible, invite, enter, leave]);
+
+  const advertised =
+    eligible &&
+    !invite &&
+    joined &&
+    room &&
+    snapshot.hostClientId === clientId &&
+    snapshot.listenSessionId &&
+    snapshot.syncState?.mediaId &&
+    (musicPhase === "playing" || musicPhase === "paused")
+      ? buildInviteUrl(relayUrl, room, undefined, snapshot.listenSessionId)
+      : null;
+  useEffect(() => {
+    setListenInvite(advertised);
+    return () => setListenInvite(null);
+  }, [advertised]);
+
+  useListenSession({
+    room: expired || (invite && invite.roomCode !== room) ? null : room,
+    clientId,
+    snapshot,
+    clientRef,
+  });
 
   const value = useMemo<ListenTogetherValue>(
     () => ({
       room,
+      followingQueue: !!room && !!invite?.sessionId,
+      guestQueue:
+        room && invite?.sessionId === snapshot?.listenSessionId
+          ? (snapshot?.listenQueue ?? null)
+          : null,
       listeners: snapshot ? listenListenerCount(snapshot) : 0,
       nowPlaying: listenTrackFromState(snapshot?.syncState ?? null),
       isHost: !!snapshot && snapshot.hostClientId === clientId,
@@ -205,7 +314,7 @@ export function ListenTogetherProvider({ children }: { children: ReactNode }) {
       join,
       leave,
     }),
-    [room, snapshot, busy, error, watching, relayUrl, clientId, start, join, leave],
+    [room, invite, snapshot, busy, error, watching, relayUrl, clientId, start, join, leave],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

@@ -107,9 +107,14 @@ export type ParticipantLocation =
       episode?: { season: number; episode: number; name?: string };
     };
 
+import type { ListenQueue } from "@/lib/listen-together/queue";
+
 export type ClientMessage =
   | {
       t: "hello";
+      listenMode?: "host" | "resume" | "guest";
+      sessionId?: string;
+      resumeKey?: string;
       room: RoomCode;
       clientId: string;
       name: string;
@@ -124,6 +129,8 @@ export type ClientMessage =
       avatar?: string | null;
       color?: string | null;
     }
+  | { t: "listen-queue"; queue: ListenQueue }
+  | { t: "get-listen-queue" }
   | { t: "leave"; room: RoomCode; clientId: string }
   | { t: "state"; room: RoomCode; clientId: string; state: SyncState }
   | { t: "cmd"; room: RoomCode; clientId: string; command: RoomCommand }
@@ -166,6 +173,10 @@ export type ClientMessage =
 export type ServerMessage =
   | {
       t: "joined";
+      sessionId?: string;
+      resumeKey?: string;
+      queue?: ListenQueue | null;
+      observedAt?: number;
       room: RoomCode;
       participants: Participant[];
       state: SyncState | null;
@@ -185,7 +196,10 @@ export type ServerMessage =
   | { t: "host"; hostClientId: string | null }
   | { t: "host-leaving"; from: string; name: string; at: number }
   | { t: "summon"; from: string; name: string; target: SummonTarget; at: number }
-  | { t: "state"; state: SyncState; srvAt?: number }
+  | { t: "listen-queue"; queue: ListenQueue | null }
+  | { t: "queue-changed" | "queue-accepted"; revision: number }
+  | { t: "session-ended" }
+  | { t: "state"; state: SyncState; srvAt?: number; observedAt?: number }
   | { t: "cmd"; from: string; command: RoomCommand }
   | { t: "chat"; from: string; name: string; text: string; at: number }
   | { t: "invite"; from: string; name: string; invite: PlayInvite; at: number }

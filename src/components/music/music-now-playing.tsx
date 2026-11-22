@@ -1,3 +1,5 @@
+import { ListenAlongUpNext } from "./listen-along-up-next";
+import { useListenTogether } from "@/lib/listen-together/provider";
 import { isMusicLiked } from "@/lib/music/liked";
 import { artistCreditParts } from "@/lib/music/search-artists";
 import { MusicArtistLink } from "./music-artist-link";
@@ -287,6 +289,7 @@ export const MusicNowPlaying = memo(function MusicNowPlaying({
   const t = useT();
   const { settings } = useSettings();
   // The catalog state without the clock: a position tick must not redraw the whole window.
+  const { followingQueue } = useListenTogether();
   const player = useMusicPlayback();
   const transport = useMusicTransport();
   const appearance = useMusicAppearance();
@@ -1092,6 +1095,8 @@ export const MusicNowPlaying = memo(function MusicNowPlaying({
                       transportCodec={speaker.active ? speaker.transportCodec : undefined}
                       audioSettings={speaker.active ? undefined : audio.settings}
                     />
+                  ) : followingQueue ? (
+                    <ListenAlongUpNext />
                   ) : (
                     <MusicQueueContinuation remaining={upNext.length}>
                       {upNext.length > 0 && (

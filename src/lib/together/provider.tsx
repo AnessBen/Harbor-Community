@@ -33,6 +33,7 @@ import type {
 import { createCommandSender } from "./seek-coalesce";
 import {
   clearInviteParams,
+  emitTogetherInvite,
   onTogetherInvite,
   parseInviteFromLocation,
   type ParsedInvite,
@@ -305,7 +306,7 @@ export function TogetherProvider({ children }: { children: ReactNode }) {
     const invite = parseInviteFromLocation();
     if (invite) {
       clearInviteParams();
-      acceptInvite(invite);
+      emitTogetherInvite(invite);
     }
     return stop;
   }, [update]);

@@ -31,7 +31,7 @@ function publishTransport(patch: Partial<MusicTransport>): void {
   for (const listener of transportListeners) listener();
 }
 
-function subscribeTransport(listener: () => void): () => void {
+export function subscribeTransport(listener: () => void): () => void {
   transportListeners.add(listener);
   return () => {
     transportListeners.delete(listener);

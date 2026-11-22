@@ -1,3 +1,5 @@
+import { ListenAlongUpNext } from "./listen-along-up-next";
+import { useListenTogether } from "@/lib/listen-together/provider";
 import { getMusicSourceCandidates, musicPlaybackSource } from "@/lib/music/sources";
 import { replaceQueueTrack, selectableSources } from "@/lib/music/queue-source";
 import { MusicTrackLabels } from "./music-track-labels";
@@ -269,6 +271,7 @@ export function MusicQueue({
   onClose: () => void;
   onArtist?: (track: MusicTrack) => void;
 }) {
+  const { followingQueue, guestQueue } = useListenTogether();
   const t = useT();
   const player = useMusicPlayer();
   const { shuffle } = useMusicTransport();
@@ -414,7 +417,15 @@ export function MusicQueue({
           <h2 ref={heading} tabIndex={-1} id="music-queue-title">
             {t("music.transport.queue")}
           </h2>
-          <p>{t("music.queue.count", { count: upcoming.length })}</p>
+          <p>
+            {t("music.queue.count", {
+              count: followingQueue
+                ? (guestQueue?.entries.filter(
+                    (entry) => entry.entryId !== guestQueue.currentEntryId,
+                  ).length ?? 0)
+                : upcoming.length,
+            })}
+          </p>
         </div>
         <button
           type="button"
@@ -426,46 +437,52 @@ export function MusicQueue({
         </button>
       </header>
       <div className="music-queue-scroll">
-        {player.current && (
-          <section className="music-queue-current">
-            <h3>{t("music.queue.nowPlaying")}</h3>
-            <ol>{row(player.current, playingAt, true)}</ol>
-          </section>
-        )}
-        <section className="music-queue-upcoming">
-          <div className="music-queue-section-head">
-            <h3>{t("music.row.upNext")}</h3>
-            <button
-              type="button"
-              disabled={!upcoming.length}
-              onClick={() => {
-                setMusicPriorityNext(null);
-                setMusicQueue(playingAt >= 0 ? queue.slice(0, playingAt + 1) : []);
-              }}
-            >
-              {t("music.transport.clearQueue")}
-            </button>
-          </div>
-          {shuffle && !musicPriorityNext() && (
-            <p className="music-queue-note">{t("music.queue.shuffleNote")}</p>
-          )}
-          {upcoming.length ? (
-            <>
-              <p className="music-queue-note">{t("music.queue.dragHint")}</p>
-              <ol>{upcoming.map((track, at) => row(track, firstUpcoming + at))}</ol>
-            </>
-          ) : (
-            <p className="music-queue-empty">{t("music.queue.empty")}</p>
-          )}
-        </section>
-        {history.length > 0 && (
-          <details className="music-queue-history">
-            <summary>
-              {t("music.queue.previous")}
-              <span>{history.length}</span>
-            </summary>
-            <ol>{history.map((track, index) => row(track, index))}</ol>
-          </details>
+        {followingQueue ? (
+          <ListenAlongUpNext />
+        ) : (
+          <>
+            {player.current && (
+              <section className="music-queue-current">
+                <h3>{t("music.queue.nowPlaying")}</h3>
+                <ol>{row(player.current, playingAt, true)}</ol>
+              </section>
+            )}
+            <section className="music-queue-upcoming">
+              <div className="music-queue-section-head">
+                <h3>{t("music.row.upNext")}</h3>
+                <button
+                  type="button"
+                  disabled={!upcoming.length}
+                  onClick={() => {
+                    setMusicPriorityNext(null);
+                    setMusicQueue(playingAt >= 0 ? queue.slice(0, playingAt + 1) : []);
+                  }}
+                >
+                  {t("music.transport.clearQueue")}
+                </button>
+              </div>
+              {shuffle && !musicPriorityNext() && (
+                <p className="music-queue-note">{t("music.queue.shuffleNote")}</p>
+              )}
+              {upcoming.length ? (
+                <>
+                  <p className="music-queue-note">{t("music.queue.dragHint")}</p>
+                  <ol>{upcoming.map((track, at) => row(track, firstUpcoming + at))}</ol>
+                </>
+              ) : (
+                <p className="music-queue-empty">{t("music.queue.empty")}</p>
+              )}
+            </section>
+            {history.length > 0 && (
+              <details className="music-queue-history">
+                <summary>
+                  {t("music.queue.previous")}
+                  <span>{history.length}</span>
+                </summary>
+                <ol>{history.map((track, index) => row(track, index))}</ol>
+              </details>
+            )}
+          </>
         )}
       </div>
     </div>,

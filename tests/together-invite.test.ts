@@ -4,6 +4,7 @@ import {
   buildInviteUrl,
   emitTogetherInvite,
   onTogetherInvite,
+  onListenInvite,
   parseTogetherDeepLink,
   type ParsedInvite,
 } from "../src/lib/together/invite";
@@ -65,4 +66,35 @@ test("a launch invite is delivered once when the provider subscribes", () => {
   emitTogetherInvite({ ...invite, roomCode: "XYZ789" });
   assert.equal(received[1].roomCode, "XYZ789");
   stopNext();
+});
+
+test("cold-start listening invites survive the watch provider mounting first", () => {
+  const url = new URL(buildInviteUrl("wss://relay.example.test", "ltabc234"));
+  const invite = parseTogetherDeepLink(`harbor://together?${url.searchParams}`);
+  assert.ok(invite);
+  emitTogetherInvite(invite);
+  const watch: ParsedInvite[] = [];
+  const listen: ParsedInvite[] = [];
+  const stopWatch = onTogetherInvite((value) => watch.push(value));
+  const stopListen = onListenInvite((value) => listen.push(value));
+  stopWatch();
+  stopListen();
+  assert.deepEqual(watch, []);
+  assert.deepEqual(listen, [{ relayUrl: "wss://relay.example.test", roomCode: "LTABC234" }]);
+});
+
+test("Listen Along carries the public session ID into Harbor and rejects ambiguous invites", () => {
+  const sessionId = "5a28e411-6243-4de2-8828-03249824bc9b";
+  const relayUrl = "wss://relay.example.test";
+  const roomCode = "LTABC234";
+  const query = new URL(buildInviteUrl(relayUrl, roomCode, undefined, sessionId)).searchParams;
+  const parse = () => parseTogetherDeepLink(`harbor://together?${query}`);
+  assert.deepEqual(parse(), { relayUrl, roomCode, sessionId });
+  query.append("harbor-session", sessionId);
+  assert.equal(parse(), null);
+  query.set("harbor-session", "");
+  assert.equal(parse(), null);
+  query.set("harbor-session", sessionId);
+  query.set("harbor-room", "ABC234");
+  assert.equal(parse(), null);
 });

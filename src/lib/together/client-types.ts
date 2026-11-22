@@ -1,3 +1,4 @@
+import type { ListenQueue } from "@/lib/listen-together/queue";
 import type {
   Participant,
   ParticipantLocation,
@@ -19,6 +20,8 @@ export type RoomSnapshot = {
   started: boolean;
   relayVersion: number | null;
   lastError: string | null;
+  listenSessionId?: string;
+  listenQueue?: ListenQueue | null;
 };
 
 export type RoomEvent =
