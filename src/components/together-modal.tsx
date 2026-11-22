@@ -248,17 +248,9 @@ export function TogetherPopover({
             onStart={listen.start}
             onLeave={listen.leave}
             isHost={listen.isHost}
+            allowGuestQueue={listen.allowGuestQueue}
+            onGuestQueueChange={listen.setGuestQueueAllowed}
           />
-        )}
-        {view === "default" && listen.isHost && listen.allowGuestQueue !== undefined && (
-          <label className="flex items-center gap-2 text-sm text-ink">
-            <input
-              type="checkbox"
-              checked={listen.allowGuestQueue}
-              onChange={(event) => listen.setGuestQueueAllowed(event.target.checked)}
-            />
-            {t("Let listeners add songs to the queue")}
-          </label>
         )}
         {view === "default" && listen.isHost && listen.suggestions.length > 0 && (
           <section className="space-y-2 rounded-lg bg-canvas/50 p-3">
