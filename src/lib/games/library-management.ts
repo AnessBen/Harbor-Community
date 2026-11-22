@@ -55,7 +55,10 @@ export function managementFile(game: QuickGame): string | null {
         : game.source === "shortcut"
           ? game.shortcut.executable.replace(/^"(.*)"$/, "$1")
           : "";
-  return /^(?:[a-z]:[\\/]|\/)/i.test(value) && !/[\x00-\x1f]/.test(value) ? value : null;
+  const absolute =
+    /^(?:[a-z]:[\\/]|\/)/i.test(value) ||
+    /^\\\\[^\\/]+[\\/][^\\/]+[\\/]/.test(value);
+  return absolute && !/[\x00-\x1f]/.test(value) ? value : null;
 }
 
 export function canOpenGameFolder(game: QuickGame): boolean {

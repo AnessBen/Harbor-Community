@@ -9,6 +9,46 @@ export function quickCollectionGame(game: QuickGame): PersonalCollectionGame | n
   if (game.source === "retro") return romCollectionGame(game.local);
   return game.game ?? null;
 }
+/**
+ * Resolve the right-click folder target from the exact local game, not a
+ * same-named Steam/IGDB catalog match. A custom card can render before its
+ * quick-library projection is populated, but the profile's custom entry is
+ * already available.
+ */
+export function collectionFolderTarget(
+  game: PersonalCollectionGame,
+  quick: QuickGame[],
+  custom: CustomGame[],
+): QuickGame | null {
+  const identity = game.libraryEntryId ?? game.id;
+  const entry = quick.find((item) => {
+    if (item.id !== identity) return false;
+    if (game.local?.kind === "custom")
+      return item.source === "custom" && item.custom.id === game.local.id;
+    if (game.local?.kind === "rom")
+      return (
+        item.source === "retro" &&
+        item.local.system === game.local.system &&
+        item.local.path === game.local.path
+      );
+    return true;
+  });
+  if (entry) return entry;
+  if (game.local?.kind !== "custom" || game.id !== `custom:${game.local.id}`) return null;
+  const customId = game.local.id;
+  const local = custom.find((item) => item.id === customId);
+  if (!local) return null;
+  return {
+    id: game.id,
+    name: local.name,
+    favorite: local.pinned,
+    lastPlayed: local.lastPlayed,
+    ready: false,
+    source: "custom",
+    custom: local,
+  };
+}
+
 export function customCollectionGame(game: CustomGame): PersonalCollectionGame {
   return {
     id: `custom:${game.id}`,

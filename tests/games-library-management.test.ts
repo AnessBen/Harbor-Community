@@ -77,6 +77,14 @@ test("browser menu offers no native actions or accidental install deletion", () 
 });
 test("local file reveal never evaluates a shortcut command line or URL", () => {
   assert.equal(managementFile(custom), "D:\\Games\\Example\\Game.exe");
+  assert.equal(
+    managementFile({
+      ...custom,
+      custom: { config: { executable: "\\\\server\\share\\Games\\Local.exe" } },
+    } as QuickGame),
+    "\\\\server\\share\\Games\\Local.exe",
+    "a UNC executable accepted by the custom library should offer Open game folder",
+  );
   const shortcut = (executable: string) =>
     ({ ...steam, source: "shortcut", shortcut: { executable } }) as unknown as QuickGame;
   assert.equal(managementFile(shortcut('"D:\\Games\\A B.exe"')), "D:\\Games\\A B.exe");

@@ -14,6 +14,7 @@ import {
 } from "../src/lib/games/personal-collections.ts";
 import {
   customCollectionGame,
+  collectionFolderTarget,
   quickCollectionGame,
   romCollectionGame,
   resolveCollectionLibrary,
@@ -102,6 +103,33 @@ test("sidebar quick games convert to the same collection identities", () => {
   );
   assert.equal(quickCollectionGame({ source: "saved", game: catalog } as QuickGame), catalog);
   assert.equal(quickCollectionGame({ source: "shortcut" } as QuickGame), null);
+});
+
+test("right-click local game folder action survives a missing quick-library row", () => {
+  const local = pc({ linked: catalog });
+  const snapshot = customCollectionGame(local);
+  const fallback = collectionFolderTarget(snapshot, [], [local]);
+  assert.equal(fallback?.source, "custom");
+  assert.equal(fallback?.id, `custom:${id}`);
+  if (fallback?.source === "custom")
+    assert.equal(fallback.custom.config.executable, "W:/Library/game.exe");
+
+  const quick = {
+    id: `custom:${id}`,
+    source: "custom",
+    custom: local,
+    name: local.name,
+    ready: true,
+  } as QuickGame;
+  assert.equal(collectionFolderTarget(snapshot, [quick], []), quick);
+  assert.equal(
+    collectionFolderTarget(snapshot, [{ ...quick, source: "saved" } as QuickGame], [local])?.source,
+    "custom",
+    "a catalog-only row cannot replace the local game",
+  );
+  assert.equal(collectionFolderTarget(snapshot, [], [pc({ id: otherId, linked: catalog })]), null);
+  assert.equal(collectionFolderTarget(snapshot, [], []), null);
+  assert.equal(collectionFolderTarget(catalog, [], [local]), null);
 });
 
 test("copies with shared names or catalog matches stay distinct and keep exact local identities", () => {

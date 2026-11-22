@@ -14,6 +14,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { useT } from "@/lib/i18n";
 import { canOpenGameFolder, menuPosition, openGameFolder } from "@/lib/games/library-management";
 import { gameIdentities } from "@/lib/games/recommendations";
+import { collectionFolderTarget } from "@/lib/games/personal-collection-library";
 import type { PersonalCollectionGame } from "@/lib/games/personal-collections";
 import { useOptionalGameAccess } from "./game-access";
 import "./game-library-context-menu.css";
@@ -95,9 +96,9 @@ function GameCollectionMenu({
     aliases = new Set(gameIdentities(target.game)),
     savedGame = access?.saved.find((game) => gameIdentities(game).some((id) => aliases.has(id)));
   const root = useRef<HTMLDivElement>(null);
-  const game = access?.quick.find(
-    (entry) => entry.id === (target.game.libraryEntryId ?? target.game.id),
-  );
+  const game = access
+    ? collectionFolderTarget(target.game, access.quick, access.customLibrary.data.games)
+    : null;
   const [folderFailed, setFolderFailed] = useState<MenuTarget | null>(null);
   const showFolderError = folderFailed === target;
   const [position, setPosition] = useState({ left: target.x, top: target.y });
