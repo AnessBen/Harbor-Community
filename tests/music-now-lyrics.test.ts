@@ -97,7 +97,8 @@ test("the lyrics panel reads the live engine rather than its own copy", () => {
     TSX,
     /import \{ loadTrackLyrics, lyricIndexAt, type LyricLine \} from "@\/lib\/music\/lyrics"/,
   );
-  assert.match(TSX, /loadTrackLyrics\(current\)/);
+  assert.match(TSX, /loadTrackLyrics\(current, controller\.signal\)/);
+  assert.match(TSX, /controller\.abort\(\)/);
   // The lyric-only subcomponent reads the live clock without rerendering the entire dock.
   assert.match(TSX, /const clock = useMusicClock\(\)/);
   assert.match(TSX, /lyricIndexAt\(lines, shiftedLyricTime\(clock, lyricOffset\)\)/);

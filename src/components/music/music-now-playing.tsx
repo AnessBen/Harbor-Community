@@ -533,8 +533,9 @@ export const MusicNowPlaying = memo(function MusicNowPlaying({
   useEffect(() => {
     if (!current) return;
     let alive = true;
+    const controller = new AbortController();
     setHasLyrics(null);
-    void loadTrackLyrics(current)
+    void loadTrackLyrics(current, controller.signal)
       .then((lines) => {
         if (alive) setHasLyrics(!!lines && lines.length > 0);
       })
@@ -543,6 +544,7 @@ export const MusicNowPlaying = memo(function MusicNowPlaying({
       });
     return () => {
       alive = false;
+      controller.abort();
     };
   }, [current]);
   useEffect(() => {
@@ -553,12 +555,13 @@ export const MusicNowPlaying = memo(function MusicNowPlaying({
   useEffect(() => {
     if (panel !== "lyrics" || !current) return;
     let alive = true;
+    const controller = new AbortController();
     setLyrics([]);
     setLyricsState("loading");
     const giveUp = window.setTimeout(() => {
       if (alive) setLyricsState((state) => (state === "loading" ? "empty" : state));
     }, 9000);
-    void loadTrackLyrics(current).then((lines) => {
+    void loadTrackLyrics(current, controller.signal).then((lines) => {
       if (!alive) return;
       window.clearTimeout(giveUp);
       setLyrics(lines ?? []);
@@ -566,6 +569,7 @@ export const MusicNowPlaying = memo(function MusicNowPlaying({
     });
     return () => {
       alive = false;
+      controller.abort();
       window.clearTimeout(giveUp);
     };
   }, [panel, current]);

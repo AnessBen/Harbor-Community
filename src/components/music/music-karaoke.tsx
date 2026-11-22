@@ -71,6 +71,7 @@ export function MusicKaraoke({
       return;
     }
     let live = true;
+    const controller = new AbortController();
     setLines(null);
     setStatus("loading");
     const bail = window.setTimeout(() => {
@@ -78,7 +79,7 @@ export function MusicKaraoke({
       live = false;
       setStatus("missing");
     }, WAIT_MS);
-    void loadTrackLyrics(track)
+    void loadTrackLyrics(track, controller.signal)
       .then((found) => {
         if (!live) return;
         if (found && found.length > 0 && sung(found)) {
@@ -94,6 +95,7 @@ export function MusicKaraoke({
       .finally(() => window.clearTimeout(bail));
     return () => {
       live = false;
+      controller.abort();
       window.clearTimeout(bail);
     };
   }, [open, key]);

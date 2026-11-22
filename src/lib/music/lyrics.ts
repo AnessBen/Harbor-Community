@@ -14,7 +14,15 @@ const API = "https://lrclib.net/api";
 const CACHE_MAX = 160;
 const STAMP = /^\s*\[(\d{1,4}):([0-5]?\d)(?:[.:](\d{1,3}))?\]/;
 
-const cache = new Map<string, Promise<LyricLine[] | null>>();
+const CACHE_MISS_TTL_MS = 60_000;
+type LyricsRequest = {
+  promise: Promise<LyricLine[] | null>;
+  controller: AbortController;
+  consumers: number;
+  settled: boolean;
+  expiresAt: number;
+};
+const cache = new Map<string, LyricsRequest>();
 
 const text = (value: unknown): string => (typeof value === "string" ? value : "");
 const seconds = (value: unknown): number =>
@@ -72,13 +80,16 @@ function identity(track: MusicTrack): string {
   return `${source}|${named}`.toLowerCase();
 }
 
-async function json(url: string): Promise<unknown> {
+async function json(url: string, signal?: AbortSignal): Promise<unknown> {
   for (let attempt = 0; attempt < 2; attempt++) {
+    if (signal?.aborted) throw new Error("Lyrics lookup cancelled");
     try {
       const response = await safeFetch(url, {
         headers: { Accept: "application/json" },
-        // Search answers are 200-325 KB and have been measured at 1.5-3.9 s; 4 s aborted them.
-        signal: AbortSignal.timeout(8000),
+        // Skipped tracks should not occupy connections needed for the new song.
+        signal: signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(8000)])
+          : AbortSignal.timeout(8000),
       });
       if (response.status === 404) return null;
       if (!response.ok) {
@@ -88,7 +99,7 @@ async function json(url: string): Promise<unknown> {
       }
       return await response.json();
     } catch (error) {
-      if (attempt === 1 || error instanceof LyricsRequestError) throw error;
+      if (signal?.aborted || attempt === 1 || error instanceof LyricsRequestError) throw error;
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
   }
@@ -161,7 +172,7 @@ export function lyricTitle(title: string, artist: string): string {
   return cleaned || text(title).trim();
 }
 
-async function fetchLyrics(track: MusicTrack): Promise<LyricLine[] | null> {
+async function fetchLyrics(track: MusicTrack, signal?: AbortSignal): Promise<LyricLine[] | null> {
   const artist = text(track.artist).trim();
   const title = lyricTitle(track.title, artist);
   if (!artist || !title) return null;
@@ -180,26 +191,78 @@ async function fetchLyrics(track: MusicTrack): Promise<LyricLine[] | null> {
   // seconds off, so every get variant is cheaper than one rejected search.
   for (const url of attempts) {
     if (!url) continue;
-    const found = chooseLyrics(rowsOf(await json(url)), duration);
+    const found = chooseLyrics(rowsOf(await json(url, signal)), duration);
     if (found) return found;
   }
-  return chooseLyrics(rowsOf(await json(`${API}/search?${query}`)), duration);
+  return chooseLyrics(rowsOf(await json(`${API}/search?${query}`, signal)), duration);
 }
 
-export function loadTrackLyrics(track: MusicTrack): Promise<LyricLine[] | null> {
-  if (!track || typeof track !== "object") return Promise.resolve(null);
+export function loadTrackLyrics(
+  track: MusicTrack,
+  signal?: AbortSignal,
+): Promise<LyricLine[] | null> {
+  if (!track || typeof track !== "object" || signal?.aborted) return Promise.resolve(null);
   const key = identity(track);
-  const held = cache.get(key);
-  if (held) return held;
-  const pending = fetchLyrics(track).catch(() => {
-    // A failed request is not evidence that the song has no lyrics.
-    if (cache.get(key) === pending) cache.delete(key);
-    return null;
-  });
-  cache.set(key, pending);
-  if (cache.size > CACHE_MAX) {
-    const oldest = cache.keys().next();
-    if (!oldest.done) cache.delete(oldest.value);
+  let request = cache.get(key);
+  if (request && request.expiresAt <= Date.now()) {
+    cache.delete(key);
+    request = undefined;
   }
-  return pending;
+  if (!request) {
+    const entry: LyricsRequest = {
+      promise: Promise.resolve(null),
+      controller: new AbortController(),
+      consumers: 0,
+      settled: false,
+      expiresAt: Infinity,
+    };
+    entry.promise = fetchLyrics(track, entry.controller.signal)
+      .then((lines) => {
+        // A transient miss must not become a permanent "no lyrics" result.
+        if (!lines) entry.expiresAt = Date.now() + CACHE_MISS_TTL_MS;
+        return lines;
+      })
+      .catch(() => {
+        // Errors and cancelled requests are not evidence of missing lyrics.
+        if (cache.get(key) === entry) cache.delete(key);
+        return null;
+      })
+      .finally(() => {
+        entry.settled = true;
+      });
+    cache.set(key, entry);
+    request = entry;
+    if (cache.size > CACHE_MAX) {
+      const oldest = cache.keys().next();
+      if (!oldest.done) cache.delete(oldest.value);
+    }
+  }
+
+  const active = request;
+  active.consumers += 1;
+  // Callers without an abort signal also own their share of the lookup. A
+  // different panel closing must not cancel the request they are awaiting.
+  if (!signal) {
+    return active.promise.finally(() => {
+      active.consumers -= 1;
+    });
+  }
+  return new Promise((resolve) => {
+    let finished = false;
+    const done = (lines: LyricLine[] | null) => {
+      if (finished) return;
+      finished = true;
+      signal.removeEventListener("abort", cancel);
+      active.consumers -= 1;
+      if (active.consumers === 0 && !active.settled) {
+        if (cache.get(key) === active) cache.delete(key);
+        active.controller.abort();
+      }
+      resolve(lines);
+    };
+    const cancel = () => done(null);
+    signal.addEventListener("abort", cancel, { once: true });
+    if (signal.aborted) cancel();
+    else void active.promise.then(done);
+  });
 }

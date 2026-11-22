@@ -298,8 +298,9 @@ export function MusicVideoSurface({
     setLyricsMissing(false);
     if (!lyricsOn || !ready) return;
     let live = true;
+    const controller = new AbortController();
     setLyricsBusy(true);
-    void loadTrackLyrics(track)
+    void loadTrackLyrics(track, controller.signal)
       .then((lines) => {
         if (!live) return;
         setLyrics(lines && lines.length > 0 ? lines : null);
@@ -313,6 +314,7 @@ export function MusicVideoSurface({
       });
     return () => {
       live = false;
+      controller.abort();
     };
   }, [lyricsOn, ready, key]);
   useEffect(() => {

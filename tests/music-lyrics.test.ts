@@ -16,7 +16,7 @@ const KING_VON = [
   "[00:18] Evil twins",
 ].join("\n");
 
-function build(safeFetch: (url: string) => Promise<unknown>) {
+function build(safeFetch: (url: string, init?: { signal?: AbortSignal }) => Promise<unknown>) {
   const calls: string[] = [];
   const input = readFileSync(new URL("../src/lib/music/lyrics.ts", import.meta.url), "utf8");
   const output = ts.transpileModule(input, {
@@ -27,9 +27,9 @@ function build(safeFetch: (url: string) => Promise<unknown>) {
     (name: string) => {
       assert.equal(name, "@/lib/safe-fetch");
       return {
-        safeFetch: async (url: string) => {
+        safeFetch: async (url: string, init?: { signal?: AbortSignal }) => {
           calls.push(url);
-          return safeFetch(url);
+          return safeFetch(url, init);
         },
       };
     },
@@ -252,4 +252,72 @@ test("the lyrics request uses the cleaned song title", async () => {
   assert.deepEqual(lines, [{ at: 2, text: "Cleaned" }]);
   assert.ok(calls[0].includes("track_name=Smart"), calls[0]);
   assert.ok(!calls[0].includes("OFFICIAL"), calls[0]);
+});
+
+
+test("skipping a song aborts its obsolete lyrics request and fetches the next song", async () => {
+  let cancelled = 0;
+  const { lyrics, calls } = build(async (url, init) => {
+    if (url.includes("Evil%20Twins")) {
+      return new Promise((_, reject) => {
+        const stop = () => {
+          cancelled += 1;
+          reject(new Error("cancelled"));
+        };
+        if (init?.signal?.aborted) stop();
+        else init?.signal?.addEventListener("abort", stop, { once: true });
+      });
+    }
+    return ok({ duration: 116, syncedLyrics: "[00:02]New song" });
+  });
+  const previous = new AbortController();
+  const abandoned = lyrics.loadTrackLyrics(track({ id: "previous-song" }), previous.signal);
+  previous.abort();
+  assert.equal(await abandoned, null);
+  assert.equal(cancelled, 1);
+  assert.deepEqual(
+    await lyrics.loadTrackLyrics(track({ id: "new-song", title: "New Song" })),
+    [{ at: 2, text: "New song" }],
+  );
+  assert.equal(calls.length, 2);
+});
+
+test("one lyrics viewer leaving does not cancel another viewer of the same song", async () => {
+  let respond!: (value: unknown) => void;
+  let upstreamCancelled = false;
+  const { lyrics, calls } = build(async (_url, init) => {
+    return new Promise((resolve) => {
+      respond = resolve;
+      init?.signal?.addEventListener("abort", () => { upstreamCancelled = true; }, { once: true });
+    });
+  });
+  const panel = new AbortController();
+  const karaoke = new AbortController();
+  const panelRequest = lyrics.loadTrackLyrics(track({ id: "shared" }), panel.signal);
+  const karaokeRequest = lyrics.loadTrackLyrics(track({ id: "shared" }), karaoke.signal);
+  panel.abort();
+  assert.equal(await panelRequest, null);
+  assert.equal(upstreamCancelled, false);
+  respond(ok({ duration: 116, syncedLyrics: "[00:03]Shared" }));
+  assert.deepEqual(await karaokeRequest, [{ at: 3, text: "Shared" }]);
+  assert.equal(calls.length, 1);
+});
+
+
+test("a cancellable viewer cannot abort another caller without a signal", async () => {
+  let respond!: (value: unknown) => void;
+  let cancelled = false;
+  const { lyrics, calls } = build(async (_url, init) => new Promise((resolve) => {
+    respond = resolve;
+    init?.signal?.addEventListener("abort", () => { cancelled = true; }, { once: true });
+  }));
+  const viewer = new AbortController();
+  const cancelMe = lyrics.loadTrackLyrics(track({ id: "legacy-and-viewer" }), viewer.signal);
+  const keepMe = lyrics.loadTrackLyrics(track({ id: "legacy-and-viewer" }));
+  viewer.abort();
+  assert.equal(await cancelMe, null);
+  assert.equal(cancelled, false);
+  respond(ok({ duration: 116, syncedLyrics: "[00:04]Kept alive" }));
+  assert.deepEqual(await keepMe, [{ at: 4, text: "Kept alive" }]);
+  assert.equal(calls.length, 1);
 });
