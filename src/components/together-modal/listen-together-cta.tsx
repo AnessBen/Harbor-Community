@@ -35,12 +35,7 @@ export function ListenTogetherCta({
 
   return (
     <div className="min-w-0 rounded-xl border border-accent/40 bg-accent/10">
-      <button
-        type="button"
-        onClick={live ? onLeave : onStart}
-        disabled={!live && busy}
-        className="group flex w-full items-center gap-3 rounded-xl p-2 text-start transition-colors hover:bg-accent/15 disabled:opacity-50 disabled:hover:bg-accent/10"
-      >
+      <div className="flex w-full items-center gap-3 p-2 text-start">
         <div className="relative grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-md bg-canvas/60 text-accent ring-1 ring-edge-soft/60">
           {artwork ? (
             <img
@@ -81,14 +76,20 @@ export function ListenTogetherCta({
           )}
         </div>
 
-        <span className="me-1 flex h-9 shrink-0 px-3 items-center justify-center rounded-full bg-ink text-canvas transition-transform group-hover:scale-105">
+        <button
+          type="button"
+          onClick={live ? onLeave : onStart}
+          disabled={!live && busy}
+          aria-label={live ? undefined : t("Start sharing")}
+          className="me-1 flex h-9 shrink-0 items-center justify-center rounded-full bg-ink px-3 text-canvas transition-transform enabled:hover:scale-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50 motion-reduce:transition-none"
+        >
           {live ? (
             t(isHost ? "Stop sharing" : "Leave room")
           ) : (
             <Plus size={14} strokeWidth={2.4} aria-hidden="true" />
           )}
-        </span>
-      </button>
+        </button>
+      </div>
       {live && isHost && (
         <div className="space-y-1 border-t border-accent/20 px-3 py-2">
           <label className="flex min-h-8 cursor-pointer items-center justify-between gap-3 rounded-md text-xs font-medium text-ink-muted hover:text-ink has-disabled:cursor-not-allowed has-disabled:opacity-60">
