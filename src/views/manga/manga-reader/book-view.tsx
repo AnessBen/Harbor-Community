@@ -422,14 +422,17 @@ export function BookFlip({
         },
         next: () => {
           try {
-            local?.nextPage?.();
+            // Vendor flip directions are physical, but our API uses reading order.
+            if (rtl) local?.prevPage?.();
+            else local?.nextPage?.();
           } catch {
             /* noop */
           }
         },
         prev: () => {
           try {
-            local?.prevPage?.();
+            if (rtl) local?.nextPage?.();
+            else local?.prevPage?.();
           } catch {
             /* noop */
           }

@@ -1156,7 +1156,9 @@ export function HarborReader({
     let wheel = 0;
     let reset = 0;
     const onWheel = (event: WheelEvent) => {
-      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX) || !paragraphs.length) return;
+      // PDF pages have no rendered paragraph blocks, even when text extraction succeeded.
+      // Keep native wheel scrolling instead of intercepting events we cannot navigate.
+      if (pdfPage || Math.abs(event.deltaY) <= Math.abs(event.deltaX) || !paragraphs.length) return;
       event.preventDefault();
       wheel += event.deltaY;
       window.clearTimeout(reset);
@@ -1194,7 +1196,7 @@ export function HarborReader({
       root.removeEventListener("wheel", onWheel);
       window.clearTimeout(reset);
     };
-  }, [paragraphs.length, persistReadingPosition, readingMode, updateTrace]);
+  }, [paragraphs.length, pdfPage, persistReadingPosition, readingMode, updateTrace]);
 
   useEffect(() => {
     const root = scroller.current;
