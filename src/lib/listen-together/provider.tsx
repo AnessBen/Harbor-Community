@@ -18,16 +18,16 @@ import { getMusicState, subscribeMusic } from "@/lib/music/player";
 import { useSyncExternalStore } from "react";
 import { setListenInvite } from "@/lib/discord/presence";
 import { TogetherClient, type RoomSnapshot } from "@/lib/together/client";
+import { useTogether } from "@/lib/together/provider";
 import { useSelfIdentity } from "@/lib/together/use-self-identity";
 import { useSettings } from "@/lib/settings";
 import { useT } from "@/lib/i18n";
 import { useView } from "@/lib/view";
 import { generateListenRoomCode, isListenRoomCode, normalizeListenRoomCode } from "./room";
 import { listenTrackFromState, type ListenTrackRef } from "./track-state";
-import { listenListenerCount } from "./session";
+import { listenListenerCount, listenMembershipChanges } from "./session";
 import { useListenSession } from "./use-listen-session";
 
-const LISTEN_NAME_KEY = "harbor.together.name";
 const LISTEN_CLIENT_KEY = "harbor.listen-together.clientId";
 
 function randomId(): string {
@@ -51,16 +51,6 @@ function loadListenClientId(): string {
     return id;
   } catch {
     return randomId();
-  }
-}
-
-function loadName(): string {
-  try {
-    return (
-      localStorage.getItem(LISTEN_NAME_KEY) ?? `Guest ${Math.floor(Math.random() * 9000 + 1000)}`
-    );
-  } catch {
-    return "Guest";
   }
 }
 
@@ -111,6 +101,7 @@ export function ListenTogetherProvider({ children }: { children: ReactNode }) {
   const { settings } = useSettings();
   const { player } = useView();
   const identity = useSelfIdentity();
+  const { displayName } = useTogether();
   const [invite, setInvite] = useState<ParsedInvite | null>(null);
   const relayUrl = invite?.relayUrl || settings.togetherRelayUrl || HARBOR_PUBLIC_RELAY;
   const autoRoom = useRef<string | null>(null);
@@ -131,6 +122,8 @@ export function ListenTogetherProvider({ children }: { children: ReactNode }) {
 
   const clientId = useRef(loadListenClientId()).current;
   const clientRef = useRef<TogetherClient | null>(null);
+  const displayNameRef = useRef(displayName);
+  displayNameRef.current = displayName;
   const [snapshot, setSnapshot] = useState<RoomSnapshot | null>(null);
   const [room, setRoom] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -146,7 +139,7 @@ export function ListenTogetherProvider({ children }: { children: ReactNode }) {
       clientRef.current = null;
       return;
     }
-    const client = new TogetherClient(relayUrl, clientId, loadName());
+    const client = new TogetherClient(relayUrl, clientId, displayNameRef.current);
     clientRef.current = client;
     const off = client.on(() => setSnapshot(client.getSnapshot()));
     return () => {
@@ -160,6 +153,25 @@ export function ListenTogetherProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     clientRef.current?.setProfile(identity.avatar, identity.color);
   }, [relayUrl, clientId, identity.avatar, identity.color]);
+
+  useEffect(() => {
+    clientRef.current?.setName(displayName);
+  }, [displayName, relayUrl, clientId]);
+
+  useEffect(() => {
+    const client = clientRef.current;
+    if (!client) return;
+    let previous = client.getSnapshot();
+    return client.on((event) => {
+      if (event.kind !== "snapshot") return;
+      const next = event.snapshot;
+      for (const change of listenMembershipChanges(previous, next, clientId)) {
+        const message = change.joined ? "{name} joined Listen Along" : "{name} left Listen Along";
+        emitListToast(t(message, { name: change.name }));
+      }
+      previous = next;
+    });
+  }, [relayUrl, clientId, t]);
 
   const leave = useCallback(() => {
     suppressed.current = true;
@@ -200,8 +212,9 @@ export function ListenTogetherProvider({ children }: { children: ReactNode }) {
       setError(t("Leave the video player before starting a listening room."));
       return;
     }
-    enter(generateListenRoomCode());
-  }, [enter, watching, t]);
+    suppressed.current = false;
+    enter(generateListenRoomCode(), eligible ? { listenMode: "host" } : undefined);
+  }, [enter, eligible, watching, t]);
 
   const join = useCallback(
     (code: string) => {
@@ -262,7 +275,7 @@ export function ListenTogetherProvider({ children }: { children: ReactNode }) {
     if (invite) return;
     if (!eligible || musicPhase === "idle" || musicPhase === "error") {
       if (autoRoom.current) leave();
-      if (musicPhase === "idle") suppressed.current = false;
+      if (!eligible || musicPhase === "idle") suppressed.current = false;
       return;
     }
     if (!room && !autoRoom.current && !suppressed.current && musicPhase === "playing") {

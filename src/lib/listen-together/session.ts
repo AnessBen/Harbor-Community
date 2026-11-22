@@ -92,3 +92,28 @@ export function reconcileListenSeek(
   }
   applySeek();
 }
+
+export function listenMembershipChanges(
+  previous: RoomSnapshot,
+  next: RoomSnapshot,
+  self: string,
+): { joined: boolean; name: string }[] {
+  if (
+    previous.state !== "joined" ||
+    next.state !== "joined" ||
+    previous.room !== next.room ||
+    previous.listenSessionId !== next.listenSessionId ||
+    previous.participants === next.participants
+  )
+    return [];
+  const changes = [];
+  for (const participant of next.participants) {
+    if (participant.id !== self && !previous.participants.some((p) => p.id === participant.id))
+      changes.push({ joined: true, name: participant.name });
+  }
+  for (const participant of previous.participants) {
+    if (participant.id !== self && !next.participants.some((p) => p.id === participant.id))
+      changes.push({ joined: false, name: participant.name });
+  }
+  return changes;
+}

@@ -30,6 +30,7 @@ import type { MusicAudioSettingsValue } from "../src/lib/music/audio-settings";
 import {
   LISTEN_DRIFT_SECONDS,
   listenActionFor,
+  listenMembershipChanges,
   reconcileListenSeek,
   listenShouldPublish,
 } from "../src/lib/listen-together/session";
@@ -457,4 +458,35 @@ test("a paused host's last seek survives settling, and a replaced or cancelled s
   reconcileListenSeek(3500, true, apply, () => positions.push(120))?.();
   t.mock.timers.tick(1000);
   assert.deepEqual(positions, [80]);
+});
+
+test("listening toasts name arrivals and departures without announcing the initial roster or renames", () => {
+  const member = (id: string, name: string) => ({ id, name, joinedAt: 1, ready: false });
+  const self = member("self", "Host");
+  const guest = member("guest", "Sam");
+  const before = {
+    state: "joined" as const,
+    room: "LTABC234",
+    participants: [self],
+    syncState: null,
+    hostClientId: "self",
+    started: false,
+    relayVersion: null,
+    lastError: null,
+  };
+  const joined = { ...before, participants: [self, guest] };
+  const renamed = { ...joined, participants: [self, member("guest", "Alex")] };
+  assert.deepEqual(listenMembershipChanges(before, joined, "self"), [
+    { joined: true, name: "Sam" },
+  ]);
+  assert.deepEqual(listenMembershipChanges(joined, renamed, "self"), []);
+  assert.deepEqual(listenMembershipChanges(renamed, before, "self"), [
+    { joined: false, name: "Alex" },
+  ]);
+  assert.deepEqual(listenMembershipChanges({ ...before, state: "connecting" }, joined, "self"), []);
+  assert.deepEqual(
+    listenMembershipChanges(joined, { ...before, state: "disconnected" }, "self"),
+    [],
+  );
+  assert.deepEqual(listenMembershipChanges(joined, before, "guest"), []);
 });

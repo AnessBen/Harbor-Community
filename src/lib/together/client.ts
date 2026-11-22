@@ -507,6 +507,7 @@ export class TogetherClient {
         const incoming = msg.participant;
         if (
           incoming.id !== this.clientId &&
+          !this.listenJoin &&
           incoming.name === this.name &&
           this.clientId > incoming.id &&
           this.handleNameCollision(nextParticipants)
