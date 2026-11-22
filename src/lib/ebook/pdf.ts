@@ -302,22 +302,32 @@ export async function pdfPageContent(
   }
 }
 
-export async function pdfFlipbookPages(path: string, signal?: AbortSignal): Promise<string[]> {
+/** Render one PDF book page only when the flipbook asks for its texture. */
+export async function pdfFlipbookPageBitmap(
+  path: string,
+  pageNumber: number,
+  signal?: AbortSignal,
+): Promise<ImageBitmap> {
   const lease = await acquire(path, signal);
   try {
-    const pages: string[] = [];
-    for (let pageNumber = 1; pageNumber <= lease.document.numPages; pageNumber += 1) {
-      throwIfAborted(signal);
-      const page = await renderPage(
-        lease.document,
-        pageNumber,
-        { maxWidth: 1200, maxHeight: 1600, maxPixels: 2_500_000 },
-        signal,
-        false,
-      );
-      pages.push(page.image);
+    if (!Number.isInteger(pageNumber) || pageNumber < 1 || pageNumber > lease.document.numPages) {
+      throw new PdfDocumentError("That PDF page does not exist.", "corrupt");
     }
-    return pages;
+    const page = await renderPage(
+      lease.document,
+      pageNumber,
+      { maxWidth: 1200, maxHeight: 1600, maxPixels: 2_500_000 },
+      signal,
+      false,
+    );
+    throwIfAborted(signal);
+    const blob = await (await fetch(page.image)).blob();
+    const bitmap = await createImageBitmap(blob);
+    if (signal?.aborted) {
+      bitmap.close();
+      throw abortError();
+    }
+    return bitmap;
   } catch (error) {
     throw pdfError(error, signal);
   } finally {

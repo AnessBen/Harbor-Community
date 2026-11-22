@@ -151,6 +151,7 @@ export function BookFlip({
   zoom = 1,
   pageHeaders,
   instantTurns = false,
+  pageAspectRatio,
   onProgress,
   onReady,
   onError,
@@ -165,6 +166,8 @@ export function BookFlip({
   zoom?: number;
   pageHeaders?: Record<string, Record<string, string>>;
   instantTurns?: boolean;
+  /** Known height / width avoids probing synthetic on-demand PDF texture URLs. */
+  pageAspectRatio?: number;
   onProgress: (page: number, spread: string) => void;
   onReady?: (api: BookApi) => void;
   onError?: (error: unknown) => void;
@@ -320,7 +323,10 @@ export function BookFlip({
           if (cancelled) return;
         }
       }
-      const aspect = await sampledAspect(pages);
+      const aspect =
+        pageAspectRatio && Number.isFinite(pageAspectRatio)
+          ? pageAspectRatio
+          : await sampledAspect(pages);
       await loadFlipbook();
       if (cancelled || !ref.current) return;
       guardPageLoaded();
@@ -499,7 +505,7 @@ export function BookFlip({
       }
       ref.current?.replaceChildren();
     };
-  }, [pages, rtl, bg, resumePage, instanceName]);
+  }, [pages, rtl, bg, resumePage, instanceName, pageAspectRatio]);
 
   return (
     <div

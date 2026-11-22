@@ -36,7 +36,8 @@ import { copyText } from "@/lib/clipboard-text";
 import type { EBookChapter, EBookChapterContent } from "@/lib/ebook/providers";
 import { ebookTextIdentity } from "@/lib/ebook/chapter-locations";
 import { createEBookFlipPages, type EBookFlipPages } from "@/lib/ebook/book-pages";
-import { PdfDocumentError, pdfFlipbookPages } from "@/lib/ebook/pdf";
+import { PdfDocumentError, pdfPageCount } from "@/lib/ebook/pdf";
+import { createPdfFlipbookPageUrls, releasePdfFlipbookPageUrls } from "@/lib/ebook/pdf-flipbook-pages";
 import {
   addEBookBookmark,
   loadEBookAnnotations,
@@ -91,9 +92,11 @@ type EBookFlipLayer = {
   pages: EBookFlipPages;
   resumePage: number;
   presentation: { rtl: boolean; background: string };
+  pageAspectRatio?: number;
 };
 
 const releaseFlipPages = (pages: EBookFlipPages) => {
+  releasePdfFlipbookPageUrls(pages.urls);
   pages.urls.forEach((url) => url.startsWith("blob:") && URL.revokeObjectURL(url));
 };
 
@@ -785,6 +788,7 @@ export function HarborReader({
       targetParagraph: number,
       presentation: { rtl: boolean; background: string },
       resumePage?: number,
+      pageAspectRatio?: number,
     ) => {
       const page = resumePage ?? pageForParagraph(next.paragraphStarts, targetParagraph);
       const layer: EBookFlipLayer = {
@@ -792,6 +796,7 @@ export function HarborReader({
         pages: next,
         resumePage: page,
         presentation,
+        pageAspectRatio,
       };
       const retained = flipLayersRef.current.filter(
         (item) => item.id === activeFlipLayerIdRef.current,
@@ -863,14 +868,19 @@ export function HarborReader({
     const pdfSource = pdfPage ? pdfChapterSource(chapter.id) : null;
     if (pdfSource) {
       const timer = window.setTimeout(() => {
-        void pdfFlipbookPages(pdfSource.path, controller.signal)
-          .then((urls) => {
+        // Keep only lightweight page identifiers; PDF textures are rendered on demand.
+        void pdfPageCount(pdfSource.path, controller.signal)
+          .then((count) => {
             if (controller.signal.aborted || generation !== flipGeneration.current) return;
+            const urls = createPdfFlipbookPageUrls(pdfSource.path, count);
             replaceFlipPages(
               { urls, paragraphStarts: urls.map(() => 0) },
               0,
               { rtl: effectiveDirection === "rtl", background: colors.desk },
-              pdfSource.page - 1,
+              Math.min(count - 1, pdfSource.page - 1),
+              content.pdf && content.pdf.width > 0
+                ? content.pdf.height / content.pdf.width
+                : undefined,
             );
           })
           .catch((error) => {
@@ -1984,6 +1994,7 @@ export function HarborReader({
                   rtl={layer.presentation.rtl}
                   bg={layer.presentation.background}
                   resumePage={layer.resumePage}
+                  pageAspectRatio={layer.pageAspectRatio}
                   soundEnabled={isActive && prefs.pageTurnSound}
                   onReady={(api) => activateFlipLayer(layer.id, api)}
                   onError={() => {

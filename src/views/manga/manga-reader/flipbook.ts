@@ -1,6 +1,7 @@
 import { pageHeadersFor } from "@/lib/manga/plugins/adapter";
 import { chapterImageBlob } from "./chapter-image-cache";
 import { isBatcaveImageUrl } from "./image-request-headers";
+import { isPdfFlipbookPageUrl, loadPdfFlipbookPageBitmap } from "@/lib/ebook/pdf-flipbook-pages";
 
 export type FlipPage = {
   _setAngle?: (deg: number) => void;
@@ -137,27 +138,30 @@ export function guardPageLoaded(): void {
   ) {
     const originalImageFetch = mainProto.fetchAndCacheImage;
     mainProto.fetchAndCacheImage = function (this: FlipMainInstance, url: string): Promise<ImageBitmap> {
-      if (!("__TAURI_INTERNALS__" in window) || !isBatcaveImageUrl(url))
+      const pdfPage = isPdfFlipbookPageUrl(url);
+      if (!pdfPage && (!("__TAURI_INTERNALS__" in window) || !isBatcaveImageUrl(url)))
         return originalImageFetch.call(this, url);
       const cache = (this.imageCache ??= new Map<string, Promise<ImageBitmap>>());
       const existing = cache.get(url);
       if (existing) return existing;
-      const pending = (async () => {
-        const blob = await chapterImageBlob(url, pageHeadersFor(url));
-        const options = this.options;
-        const bitmapOptions: ImageBitmapOptions = {};
-        if (options?.bitmapResizeHeight) bitmapOptions.resizeHeight = options.bitmapResizeHeight;
-        const quality = options?.bitmapResizeQuality;
-        if (
-          quality === "pixelated" ||
-          quality === "low" ||
-          quality === "medium" ||
-          quality === "high"
-        ) {
-          bitmapOptions.resizeQuality = quality;
-        }
-        return createImageBitmap(blob, Object.keys(bitmapOptions).length ? bitmapOptions : undefined);
-      })();
+      const pending = pdfPage
+        ? loadPdfFlipbookPageBitmap(url)
+        : (async () => {
+            const blob = await chapterImageBlob(url, pageHeadersFor(url));
+            const options = this.options;
+            const bitmapOptions: ImageBitmapOptions = {};
+            if (options?.bitmapResizeHeight) bitmapOptions.resizeHeight = options.bitmapResizeHeight;
+            const quality = options?.bitmapResizeQuality;
+            if (
+              quality === "pixelated" ||
+              quality === "low" ||
+              quality === "medium" ||
+              quality === "high"
+            ) {
+              bitmapOptions.resizeQuality = quality;
+            }
+            return createImageBitmap(blob, Object.keys(bitmapOptions).length ? bitmapOptions : undefined);
+          })();
       cache.set(url, pending);
       void pending.catch(() => {
         if (cache.get(url) === pending) cache.delete(url);
