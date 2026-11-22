@@ -29,6 +29,7 @@ import {
   type QuickGame,
 } from "@/lib/games/quick-library";
 import { useGameAccess } from "./game-access";
+import { sidebarGameDestination } from "@/lib/games/sidebar-navigation";
 import { GameArt } from "./game-art";
 import { SteamShortcutIcon } from "./game-steam-shortcut-icon";
 import { customLaunchHealth } from "@/lib/games/custom-launch-health";
@@ -213,16 +214,18 @@ export function GameLibraryDock({ visible: pageVisible }: { visible: boolean }) 
   }, [dockOpen]);
   const open = (game: QuickGame) => {
     close(false);
-    if (game.source === "shortcut") {
-      access.openShortcut(game.id, toggle.current ?? undefined);
-      return;
-    }
-    access.navigate(
-      game.game
-        ? { game: { ...game.game, libraryEntryId: game.id } }
-        : { library: game.source === "retro" ? "retro" : "custom" },
-      pageFocus.current ?? undefined,
-    );
+    const destination = sidebarGameDestination(game);
+    if (destination.kind === "shortcut")
+      access.openShortcut(destination.id, toggle.current ?? undefined);
+    else if (destination.kind === "custom")
+      access.repairCustom(destination.id, toggle.current ?? undefined);
+    else
+      access.navigate(
+        destination.kind === "details"
+          ? { game: destination.game }
+          : { library: destination.mode },
+        pageFocus.current ?? undefined,
+      );
   };
   const favorite = async (game: QuickGame) => {
     const success = game.game

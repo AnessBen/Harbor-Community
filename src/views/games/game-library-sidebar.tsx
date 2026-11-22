@@ -49,6 +49,7 @@ import {
   useLibraryBadges,
 } from "@/lib/games/library-badges";
 import { quickLibrary, type QuickGame } from "@/lib/games/quick-library";
+import { sidebarGameDestination } from "@/lib/games/sidebar-navigation";
 import { quickCollectionGame } from "@/lib/games/personal-collection-library";
 import type { PersonalGameCollectionsState } from "@/hooks/use-personal-game-collections";
 import type { PersonalGameCollection } from "@/lib/games/personal-collections";
@@ -341,11 +342,13 @@ export function GameLibrarySidebar({
     return success;
   };
   const choose = (game: QuickGame, origin: HTMLElement) => {
-    if (game.source === "shortcut") access.openShortcut(game.id, origin);
-    else if (game.game) open({ ...game.game, libraryEntryId: game.id }, origin);
+    const destination = sidebarGameDestination(game);
+    if (destination.kind === "shortcut") access.openShortcut(destination.id, origin);
+    else if (destination.kind === "details") open(destination.game, origin);
+    else if (destination.kind === "custom") access.repairCustom(destination.id, origin);
     else {
-      setMode(game.source === "retro" ? "retro" : "custom");
-      setQuery(game.name);
+      setMode(destination.mode);
+      setQuery(destination.query);
     }
   };
   const pinned = (game: QuickGame) => preferences.value.pinned.includes(game.id);

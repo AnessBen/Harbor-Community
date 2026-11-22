@@ -11,6 +11,7 @@ import {
   sidebarPreferenceKey,
 } from "../src/lib/games/sidebar-preferences.ts";
 import { sidebarStatus } from "../src/lib/games/sidebar-status.ts";
+import { sidebarGameDestination } from "../src/lib/games/sidebar-navigation.ts";
 import type { QuickGame } from "../src/lib/games/quick-library.ts";
 import type { PersonalGameCollection } from "../src/lib/games/personal-collections.ts";
 import { emptyLaunchConfig } from "../src/lib/games/custom-library.ts";
@@ -349,4 +350,46 @@ test("all sidebar copy is translated with matching interpolation variables", asy
       );
     }
   }
+});
+
+test("unlinked Bayonetta opens its local game manager rather than searching the library", () => {
+  const local = {
+    id: "custom:bayonetta",
+    name: "Bayonetta",
+    source: "custom",
+    favorite: false,
+    ready: true,
+    lastPlayed: 0,
+    custom: {
+      id: "bayonetta",
+      name: "Bayonetta",
+      config: { ...emptyLaunchConfig(), executable: "D:/Games/Bayonetta/Bayonetta.exe" },
+      linked: null,
+      artwork: null,
+      pinned: false,
+      hidden: false,
+      addedAt: 1,
+      lastPlayed: 0,
+      measuredSeconds: 0,
+    },
+  } as QuickGame;
+
+  assert.deepEqual(sidebarGameDestination(local), { kind: "custom", id: "bayonetta" });
+  const linked = {
+    ...local,
+    game: { id: "igdb:2925", name: "Bayonetta", capsule: "", platforms: [] },
+  };
+  assert.deepEqual(sidebarGameDestination(linked), {
+    kind: "details",
+    game: { ...linked.game, libraryEntryId: local.id },
+  });
+  assert.deepEqual(sidebarGameDestination({ ...local, source: "shortcut" } as QuickGame), {
+    kind: "shortcut",
+    id: local.id,
+  });
+  assert.deepEqual(sidebarGameDestination({ ...local, id: "rom:test", source: "retro" } as QuickGame), {
+    kind: "library",
+    mode: "retro",
+    query: "Bayonetta",
+  });
 });
