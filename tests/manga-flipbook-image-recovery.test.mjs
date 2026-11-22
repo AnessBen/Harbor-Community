@@ -15,6 +15,7 @@ const compiled = ts.transpileModule(source, {
 function makeHarness({ responseStatuses = [200] } = {}) {
   const calls = [];
   const bitmapCalls = [];
+  const pdfCalls = [];
   let fetchIndex = 0;
   let originals = 0;
   class VendorMain {
@@ -57,12 +58,21 @@ function makeHarness({ responseStatuses = [200] } = {}) {
           },
         };
       }
+      if (name === "@/lib/ebook/pdf-flipbook-pages") {
+        return {
+          isPdfFlipbookPageUrl: (value) => /^harbor-pdf-page:\d+\/\d+$/.test(value),
+          loadPdfFlipbookPageBitmap: async (url) => {
+            pdfCalls.push(url);
+            return { from: "pdf-page", url };
+          },
+        };
+      }
       throw new Error(`Unexpected import: ${name}`);
     },
   });
   new Script(compiled, { filename: "flipbook.transpiled.js" }).runInContext(context);
   return {
-    guard: module.exports.guardPageLoaded, VendorMain, calls, bitmapCalls,
+    guard: module.exports.guardPageLoaded, VendorMain, calls, bitmapCalls, pdfCalls,
     get originals() { return originals; },
   };
 }
@@ -97,4 +107,22 @@ test("vendor image cache removes a failed image promise so the same page can ret
   const bitmap = await vendor.fetchAndCacheImage(url);
   assert.equal(bitmap.from, "native-image");
   assert.equal(h.calls.length, 2);
+});
+
+
+test("PDF flipbook resolves synthetic pages on demand and caches each texture", async () => {
+  const h = makeHarness();
+  h.guard();
+  const vendor = new h.VendorMain();
+  const url = "harbor-pdf-page:9/3";
+  const [a, b] = await Promise.all([vendor.fetchAndCacheImage(url), vendor.fetchAndCacheImage(url)]);
+  assert.equal(a.from, "pdf-page");
+  assert.equal(a, b);
+  assert.deepEqual(h.pdfCalls, [url]);
+  const next = await vendor.fetchAndCacheImage("harbor-pdf-page:9/4");
+  assert.equal(next.from, "pdf-page");
+  assert.deepEqual(h.pdfCalls, [url, "harbor-pdf-page:9/4"]);
+  assert.equal(h.originals, 0);
+  assert.equal(h.calls.length, 0);
+  assert.equal(h.bitmapCalls.length, 0);
 });
