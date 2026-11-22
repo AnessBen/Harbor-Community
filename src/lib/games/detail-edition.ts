@@ -3,8 +3,44 @@ import type { GameDetail, GameSummary } from "./types";
 import { launcherCatalogGame } from "./launchers";
 import { launcherCatalogLookup, matchesLauncherCatalog } from "./launcher-catalog";
 import type { LibraryMetadataMatch } from "./library-metadata";
+import type { CustomGame } from "./custom-library";
 
 export type DisplayGameDetail = Omit<GameDetail, "steamId"> & { steamId?: number };
+
+/**
+ * Some games have been re-listed on Steam, leaving most community guides on
+ * their retired app ID. These verified edition-specific pairs affect only
+ * the Steam Community Guides source, never the store link or launch identity.
+ */
+const legacyCommunityGuides = new Map([
+  [3717330, { igdbId: 12595, appId: 834530 }], // Yakuza Kiwami (Legacy)
+]);
+
+function communityGuideAppId(appId: number | undefined, igdbId: number | undefined) {
+  if (!appId) return undefined;
+  const legacy = legacyCommunityGuides.get(appId);
+  return legacy && legacy.igdbId === igdbId ? legacy.appId : appId;
+}
+
+/**
+ * IGDB detail pages always expose the Guides hub: it includes video and external
+ * written resources even when IGDB has no verified Steam association yet.
+ * Steam-only pages retain availability-based discovery.
+ */
+export function showDetailGuides(
+  game: GameSummary,
+  storeDetail: GameDetail | null,
+  atlas: AtlasGame | null,
+  reviewed: LibraryMetadataMatch | undefined,
+  available: boolean,
+): boolean {
+  return (
+    available ||
+    !!reviewed ||
+    /^igdb:[1-9]\d*$/.test(game.id) ||
+    (!!atlas && !storeDetail)
+  );
+}
 
 /** An IGDB route chooses that edition. An external store link does not change it. */
 export function detailEditionTarget(game: GameSummary): GameSummary {
@@ -19,6 +55,7 @@ export function resolveDetailEdition(
   store: GameDetail | null,
   metadata: AtlasGame | null,
   reviewed?: LibraryMetadataMatch,
+  localGames: CustomGame[] = [],
 ) {
   const target = detailEditionTarget(game);
   const atlas =
@@ -103,8 +140,28 @@ export function resolveDetailEdition(
   };
   // IGDB's exact record provides this association, never a title-based guess.
   const steamLinkId = target.steamId ?? (reviewed ? undefined : atlas?.steamId);
-  // Guides can use the selected IGDB edition's published Steam association even
-  // for reviewed local metadata. This is read-only: never change launch/store identity.
-  const guideSteamId = target.steamId ?? atlas?.steamId;
+  // A locally linked IGDB edition already records its selected Steam association.
+  // Check the exact library entry and selected edition rather than trusting a
+  // bare Steam ID on an IGDB page (which may belong to a different edition).
+  const localEntry = game.libraryEntryId?.startsWith("custom:")
+    ? localGames.find((item) => `custom:${item.id}` === game.libraryEntryId)
+    : undefined;
+  const linked = localEntry?.linked;
+  const localGuideSteamId =
+    linked &&
+    linked.id === game.id &&
+    linked.igdbId === target.igdbId &&
+    (!reviewed || reviewed.igdbId === linked.igdbId) &&
+    Number.isSafeInteger(linked.steamId) &&
+    (linked.steamId ?? 0) > 0
+      ? linked.steamId
+      : undefined;
+  // Guide identity is read-only: never modify the selected edition, store link,
+  // or the custom installation's launch identity. Re-listed Steam editions can
+  // share their original Community guide catalog when the IGDB identity agrees.
+  const guideSteamId = communityGuideAppId(
+    target.steamId ?? localGuideSteamId ?? atlas?.steamId,
+    reviewed?.igdbId ?? target.igdbId ?? atlas?.igdbId,
+  );
   return { target, atlas, storeDetail, detail, portableGame, steamLinkId, guideSteamId };
 }
