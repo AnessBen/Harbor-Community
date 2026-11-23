@@ -353,17 +353,17 @@ test("ElegantFin reserves its pinned rail only outside the Games workspace", () 
   const themeSource = readFileSync(new URL("../src/lib/theme.ts", import.meta.url), "utf8");
   assert.match(
     themeSource,
-    /html\.ef-sidebar-rail:not\(\.ef-games\) \{\s*--ef-rail-space: var\(--ef-rail-width\);/,
+    /\[data-sidebar-rail\]:not\(\[data-games-library\]\) \{\s*--ef-rail-space: var\(--ef-rail-width\);/,
   );
   const harness = mountElegantFin({}, true);
   const shell = harness.document.querySelector("[data-harbor-shell]")!;
-  assert.deepEqual(harness.facts(["ef-sidebar-rail", "ef-games"]), ["ef-sidebar-rail"]);
+  assert.deepEqual(harness.facts(["ef-games"]), []);
   shell.setAttribute("data-games-library", "");
   harness.flush();
-  assert.deepEqual(harness.facts(["ef-sidebar-rail", "ef-games"]), ["ef-sidebar-rail", "ef-games"]);
+  assert.deepEqual(harness.facts(["ef-games"]), ["ef-games"]);
   shell.removeAttribute("data-games-library");
   harness.flush();
-  assert.deepEqual(harness.facts(["ef-sidebar-rail", "ef-games"]), ["ef-sidebar-rail"]);
+  assert.deepEqual(harness.facts(["ef-games"]), []);
   harness.cleanup();
 });
 
@@ -371,7 +371,6 @@ const ELEGANTFIN_FACTS = [
   "ef-games",
   "ef-sidebar",
   "ef-sidebar-shown",
-  "ef-sidebar-rail",
   "ef-sidebar-collapsed",
   "ef-sidebar-expanded",
   "ef-topbar",
@@ -387,7 +386,6 @@ test("ElegantFin keeps the page facts its CSS reads as classes on html", () => {
   assert.deepEqual(facts(), [
     "ef-sidebar",
     "ef-sidebar-shown",
-    "ef-sidebar-rail",
     "ef-sidebar-collapsed",
     "ef-topbar",
   ]);

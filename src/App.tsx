@@ -1804,6 +1804,8 @@ function Shell({ onReady }: { onReady?: () => void }) {
 
   const quickLibraryVisible =
     !kid && !kidsTop && !playerActive && !pickerTop && !bigPicture && !immersive && !chromeHidden;
+  const sidebarShown =
+    !settingsTop && !playerActive && !standaloneLive && !pickerTop && layout === "sidebar";
   return (
     <GameAccessProvider
       profile={activeProfile?.id ?? "default"}
@@ -1814,6 +1816,9 @@ function Shell({ onReady }: { onReady?: () => void }) {
     >
       <div
         data-harbor-shell
+        data-sidebar-rail={
+          sidebarShown && settings.sidebarCollapsed && !chromeHidden ? "" : undefined
+        }
         data-games-library={gamesTop ? "" : undefined}
         data-games-layout={gamesTop ? layout : undefined}
         data-games-navigation={gamesTop && gamesNavigationOpen ? "" : undefined}
@@ -1839,11 +1844,7 @@ function Shell({ onReady }: { onReady?: () => void }) {
         className="relative flex h-full"
       >
         <div data-harbor-native-backdrop className="relative flex h-full min-w-0 flex-1">
-          {!settingsTop &&
-            !playerActive &&
-            !standaloneLive &&
-            !pickerTop &&
-            layout === "sidebar" && <Sidebar />}
+          {sidebarShown && <Sidebar />}
           {!settingsTop &&
             !playerActive &&
             !standaloneLive &&
