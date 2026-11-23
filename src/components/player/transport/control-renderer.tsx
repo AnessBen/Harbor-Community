@@ -385,9 +385,11 @@ export function renderControl(id: PlayerControlId, ctx: ControlContext): ReactNo
       );
     }
     case "prev-episode": {
-      if (ctx.tight || !ctx.showEpisodeNav) return null;
+      if (!ctx.showEpisodeNav) return null;
       const v = ctx.controlVariants?.["prev-episode"] ?? "auto";
-      const iconOnly = v === "condensed" ? true : v === "full" ? false : ctx.mid;
+      // Episode navigation remains available in compact mode; use icon-only
+      // buttons so both directions fit beside the playback control.
+      const iconOnly = ctx.tight || v === "condensed" ? true : v === "full" ? false : ctx.mid;
       return (
         <EpisodeNavBtn
           direction="prev"
@@ -443,9 +445,9 @@ export function renderControl(id: PlayerControlId, ctx: ControlContext): ReactNo
       return <SeekStepBtn direction="forward" seconds={10} onSeekStep={ctx.onSeekStep} />;
     }
     case "next-episode": {
-      if (ctx.tight || !ctx.showEpisodeNav) return null;
+      if (!ctx.showEpisodeNav) return null;
       const v = ctx.controlVariants?.["next-episode"] ?? "auto";
-      const iconOnly = v === "condensed" ? true : v === "full" ? false : ctx.mid;
+      const iconOnly = ctx.tight || v === "condensed" ? true : v === "full" ? false : ctx.mid;
       return (
         <EpisodeNavBtn
           direction="next"
