@@ -7,7 +7,7 @@ use std::{
     sync::OnceLock,
 };
 use windows::{
-    core::{Interface, HSTRING, PCWSTR, PWSTR},
+    core::{Interface, HSTRING, PCWSTR},
     Win32::{
         Foundation::PROPERTYKEY,
         System::{
@@ -22,7 +22,7 @@ use windows::{
         },
         UI::Shell::{
             FOLDERID_Programs, IShellLinkW, PropertiesSystem::IPropertyStore, SHGetKnownFolderPath,
-            ShellLink, KF_FLAG_DEFAULT, SLGP_RAWPATH,
+            SHStrDupW, ShellLink, KF_FLAG_DEFAULT, SLGP_RAWPATH,
         },
     },
 };
@@ -30,7 +30,7 @@ use windows::{
 const DEV_ID: &str = "app.harbor.dev";
 const SHORTCUT_DIR: &str = "Harbor Development";
 const SHORTCUT_NAME: &str = "Harbor.lnk";
-static DEV_IDENTITY: OnceLock<Option<String>> = OnceLock::new();
+static DEV_IDENTITY: OnceLock<String> = OnceLock::new();
 
 fn app_model_key() -> PROPERTYKEY {
     // PKEY_AppUserModel_ID, System.AppUserModel.ID, pid=5.
@@ -76,7 +76,7 @@ fn registered(path: &Path, exe: &Path) -> windows::core::Result<bool> {
     let link: IShellLinkW = unsafe { CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)? };
     let persist: IPersistFile = link.cast()?;
     unsafe { persist.Load(&HSTRING::from(path.as_os_str()), STGM_READ)? };
-    let mut buffer = vec![0u16; 32768];
+    let mut buffer = vec![0u16; 260];
     unsafe { link.GetPath(&mut buffer, std::ptr::null_mut(), SLGP_RAWPATH.0 as u32)? };
     let end = buffer
         .iter()
@@ -111,23 +111,21 @@ fn save(path: &Path, exe: &Path) -> windows::core::Result<()> {
         link.SetDescription(&HSTRING::from("Harbor development notifications"))?;
     }
     let store: IPropertyStore = link.cast()?;
-    let mut text: Vec<u16> = DEV_ID.encode_utf16().chain(Some(0)).collect();
+    let text = unsafe { SHStrDupW(&HSTRING::from(DEV_ID))? };
     let mut property = PROPVARIANT::default();
     property.Anonymous.Anonymous = std::mem::ManuallyDrop::new(PROPVARIANT_0_0 {
         vt: VT_LPWSTR,
         wReserved1: 0,
         wReserved2: 0,
         wReserved3: 0,
-        Anonymous: PROPVARIANT_0_0_0 {
-            pwszVal: PWSTR(text.as_mut_ptr()),
-        },
+        Anonymous: PROPVARIANT_0_0_0 { pwszVal: text },
     });
-    unsafe {
-        store.SetValue(&app_model_key(), &property)?;
-        store.Commit()?;
-    }
-    // The input string belongs to this stack frame. Do not PropVariantClear a
-    // borrowed pointer; the property store has copied its value on SetValue.
+    // Allocate the PROPVARIANT string with the COM allocator and release it
+    // after SetValue, including on failure.
+    let result = unsafe { store.SetValue(&app_model_key(), &property) };
+    let _ = unsafe { PropVariantClear(&raw mut property) };
+    result?;
+    unsafe { store.Commit()? };
     let persist: IPersistFile = link.cast()?;
     unsafe { persist.Save(&HSTRING::from(path.as_os_str()), true)? };
     Ok(())
@@ -150,14 +148,21 @@ fn register(exe: &Path) -> windows::core::Result<()> {
     }
     let temporary = folder.join(format!(".harbor-toast-{}.lnk", uuid::Uuid::new_v4()));
     let result = (|| {
-        save(&temporary, exe)?;
+        save(&temporary, exe).map_err(|e| {
+            windows::core::Error::new(e.code(), format!("Saving development toast shortcut: {e}"))
+        })?;
         unsafe {
             windows::Win32::Storage::FileSystem::MoveFileW(
                 &HSTRING::from(temporary.as_os_str()),
                 &HSTRING::from(shortcut.as_os_str()),
             )?;
         }
-        if !registered(&shortcut, exe)? {
+        if !registered(&shortcut, exe).map_err(|e| {
+            windows::core::Error::new(
+                e.code(),
+                format!("Verifying development toast shortcut: {e}"),
+            )
+        })? {
             return Err(windows::core::Error::from(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "Harbor development notification shortcut failed verification",
@@ -171,31 +176,28 @@ fn register(exe: &Path) -> windows::core::Result<()> {
 
 /// Reuse only after the Windows shortcut has been registered successfully.
 pub(super) fn app_id(exe: &Path) -> Option<String> {
-    DEV_IDENTITY
-        .get_or_init(|| {
-            let path = exe.to_path_buf();
-            // A dedicated STA allows COM shortcut registration even when the
-            // invoking Tauri IPC thread already uses the MTA model.
-            let result = std::thread::spawn(move || {
-                let _apartment = Apartment::enter()?;
-                register(&path)
-            })
-            .join();
-            match result {
-                Ok(Ok(())) => Some(DEV_ID.to_owned()),
-                Ok(Err(error)) => {
-                    eprintln!("[harbor::notify] development toast identity unavailable: {error}");
-                    None
-                }
-                Err(_) => {
-                    eprintln!(
-                        "[harbor::notify] development toast identity initialization panicked"
-                    );
-                    None
-                }
-            }
-        })
-        .clone()
+    if let Some(id) = DEV_IDENTITY.get() {
+        return Some(id.clone());
+    }
+    let text = exe.to_string_lossy();
+    let path = PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(&text));
+    // A dedicated STA allows shortcut registration from the Tauri IPC thread.
+    let result = std::thread::spawn(move || {
+        let _apartment = Apartment::enter()?;
+        register(&path)
+    })
+    .join();
+    match result {
+        Ok(Ok(())) => {
+            let _ = DEV_IDENTITY.set(DEV_ID.to_owned());
+            Some(DEV_ID.to_owned())
+        }
+        Ok(Err(error)) => {
+            eprintln!("[harbor::notify] development toast identity unavailable: {error}");
+            None
+        }
+        Err(_) => None,
+    }
 }
 
 #[cfg(test)]

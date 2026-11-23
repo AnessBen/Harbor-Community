@@ -65,16 +65,63 @@ fn cache_poster_image(bytes: &[u8]) -> Option<std::path::PathBuf> {
 // Installed apps use Tauri's app identity. Unpackaged development builds now
 // register their own Harbor identity instead of displaying "Windows PowerShell".
 #[cfg(windows)]
-fn windows_app_id(app: &tauri::AppHandle) -> Option<String> {
+fn windows_app_id(app: &tauri::AppHandle) -> Result<String, String> {
     use std::path::MAIN_SEPARATOR as SEP;
-    let exe = tauri::utils::platform::current_exe().ok()?;
-    let exe_dir = exe.parent()?.display().to_string();
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let exe_dir = exe
+        .parent()
+        .ok_or("Notification executable has no parent")?
+        .display()
+        .to_string();
     let is_dev = exe_dir.ends_with(format!("{SEP}target{SEP}debug").as_str())
         || exe_dir.ends_with(format!("{SEP}target{SEP}release").as_str());
+    let installed_id = app.config().identifier.clone();
     if is_dev {
-        windows_toast_identity::app_id(&exe)
+        if let Some(dev_id) = windows_toast_identity::app_id(&exe) {
+            // Windows may not have indexed a newly written Start Menu shortcut
+            // yet. Only fall back when that identity is not recognized, never
+            // when the user explicitly disabled its notifications.
+            match windows_notification_setting(&dev_id) {
+                Ok(setting) => {
+                    ensure_windows_enabled(setting)?;
+                    return Ok(dev_id);
+                }
+                Err(error) if error.code().0 == 0x80070490u32 as i32 => {}
+                Err(error) => {
+                    return Err(format!(
+                        "Windows notification identity unavailable: {error}"
+                    ))
+                }
+            }
+        }
+    }
+    // A developer with Harbor already installed can use its registered AUMID.
+    // An unregistered identity is an error, not notify-rust's PowerShell fallback.
+    ensure_windows_enabled(
+        windows_notification_setting(&installed_id)
+            .map_err(|e| format!("Windows could not open Harbor's notification identity: {e}"))?,
+    )?;
+    Ok(installed_id)
+}
+
+#[cfg(windows)]
+fn windows_notification_setting(
+    id: &str,
+) -> windows::core::Result<windows::UI::Notifications::NotificationSetting> {
+    use windows::core::HSTRING;
+    use windows::UI::Notifications::ToastNotificationManager;
+    ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(id))?.Setting()
+}
+
+#[cfg(windows)]
+fn ensure_windows_enabled(
+    setting: windows::UI::Notifications::NotificationSetting,
+) -> Result<(), String> {
+    use windows::UI::Notifications::NotificationSetting;
+    if setting == NotificationSetting::Enabled {
+        Ok(())
     } else {
-        Some(app.config().identifier.clone())
+        Err("Windows notifications are disabled for Harbor. Check Settings > System > Notifications.".into())
     }
 }
 
@@ -92,7 +139,8 @@ pub fn send_clickable_notification(
     let mut notification = Notification::new();
     notification.summary(&title).body(&body);
     #[cfg(windows)]
-    if let Some(app_id) = windows_app_id(&app) {
+    {
+        let app_id = windows_app_id(&app)?;
         notification.app_id(&app_id);
     }
     if let Some(bytes) = image_bytes.filter(|b| !b.is_empty()) {

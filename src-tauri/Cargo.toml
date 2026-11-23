@@ -195,6 +195,7 @@ windows = { version = "0.62", features = [
   "Win32_System_SystemInformation",
   "Win32_System_LibraryLoader",
   "Win32_System_WinRT",
+  "UI_Notifications",
   "Win32_System_WinRT_Direct3D11",
   "Win32_System_WinRT_Graphics_Capture",
   "Win32_Graphics_Direct3D",

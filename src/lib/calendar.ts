@@ -561,7 +561,18 @@ export async function fireWebhook(
     let attempted = 0;
     if (payload.items.length === 0) {
       attempted = 1;
-      if (await sendDesktopNotification("Harbor", payload.text, undefined, HARBOR_ICON_PATH)) {
+      if (isDesktopTauri()) {
+        try {
+          // Do not hide the OS/identity error behind a generic false boolean.
+          const imageBytes = await fetchPosterBytes(HARBOR_ICON_PATH);
+          await invoke("send_clickable_notification", {
+            title: "Harbor", body: payload.text, deepLink: null, imageBytes: imageBytes ?? null,
+          });
+          delivered = 1;
+        } catch (error) {
+          return { ok: false, status: 0, error: String(error) };
+        }
+      } else if (await sendDesktopNotification("Harbor", payload.text, undefined, HARBOR_ICON_PATH)) {
         delivered = 1;
       }
     } else {
