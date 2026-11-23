@@ -60,13 +60,13 @@ function toBook(raw: RawBook): GutendexBook | null {
   };
 }
 
-function fetchCatalog(url: string, background: boolean): Promise<Response> {
-  const init = { headers: { Accept: "application/json" } };
+function fetchCatalog(url: string, background: boolean, signal?: AbortSignal): Promise<Response> {
+  const init = { headers: { Accept: "application/json" }, signal };
   return background ? safeFetchBytes(url, init, 20_000, 8 * 1024 * 1024) : safeFetch(url, init);
 }
 
-async function query(path: string, background = false): Promise<GutendexBook[]> {
-  const response = await fetchCatalog(`${GUTENDEX_BASE}${path}`, background);
+async function query(path: string, background = false, signal?: AbortSignal): Promise<GutendexBook[]> {
+  const response = await fetchCatalog(`${GUTENDEX_BASE}${path}`, background, signal);
   if (!response.ok) throw new Error(`Gutendex ${response.status}`);
   const data = (await response.json()) as { results?: RawBook[] };
   return (data.results ?? []).map(toBook).filter((b): b is GutendexBook => !!b && !!b.epubUrl);
@@ -84,12 +84,14 @@ export async function gutendexSearch(
   term: string,
   offset: number,
   background = false,
+  signal?: AbortSignal,
 ): Promise<GutendexBook[]> {
   const trimmed = term.trim();
   if (!trimmed) return gutendexPopular(offset, background);
   return query(
     `/books?search=${encodeURIComponent(trimmed)}&page=${gutendexPage(offset)}`,
     background,
+    signal,
   );
 }
 

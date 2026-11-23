@@ -34,3 +34,40 @@ export function createAsyncIndexCache<K, V>() {
     },
   };
 }
+
+/** Stop awaiting stale or unresponsive providers, even when their SDK ignores AbortSignal. */
+export function withSearchDeadline<T>(
+  start: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+  parentSignal?: AbortSignal,
+): Promise<T> {
+  const controller = new AbortController();
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      parentSignal?.removeEventListener("abort", abort);
+      callback();
+    };
+    const abort = () => {
+      controller.abort();
+      finish(() => reject(new Error("eBook search cancelled or timed out")));
+    };
+    const timer = setTimeout(abort, timeoutMs);
+    parentSignal?.addEventListener("abort", abort, { once: true });
+    if (parentSignal?.aborted) {
+      abort();
+      return;
+    }
+    try {
+      start(controller.signal).then(
+        (value) => finish(() => resolve(value)),
+        (error) => finish(() => reject(error)),
+      );
+    } catch (error) {
+      finish(() => reject(error));
+    }
+  });
+}

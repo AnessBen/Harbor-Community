@@ -326,6 +326,7 @@ export function EBookView() {
   const [collectionsRefreshing, setCollectionsRefreshing] = useState(false);
   const searchSeq = useRef(0);
   const searchTimer = useRef<number | undefined>(undefined);
+  const searchController = useRef<AbortController | null>(null);
   const sourceSeq = useRef(0);
   const providerIdRef = useRef("");
   const cursorRef = useRef<EBookCursor>({});
@@ -501,6 +502,9 @@ export function EBookView() {
   }, [collectionScope, liveCollections]);
 
   const loadSources = useCallback((requestedProvider?: string, requestedTag?: string) => {
+    searchSeq.current += 1;
+    searchController.current?.abort();
+    window.clearTimeout(searchTimer.current);
     const seq = ++sourceSeq.current;
     cursorRef.current = {};
     setHasMore(false);
@@ -632,6 +636,8 @@ export function EBookView() {
     const extensions = subscribeEBookExtensions(loadSources);
     return () => {
       sourceSeq.current += 1;
+      searchSeq.current += 1;
+      searchController.current?.abort();
       window.clearTimeout(searchTimer.current);
       sources();
       extensions();
@@ -709,6 +715,7 @@ export function EBookView() {
     const wasSearching = query.trim().length >= 2;
     setQuery(value);
     const seq = ++searchSeq.current;
+    searchController.current?.abort();
     window.clearTimeout(searchTimer.current);
     if (value.trim().length < 2) {
       setResults(null);
@@ -718,25 +725,30 @@ export function EBookView() {
     cursorRef.current = {};
     setHasMore(false);
     setResults(null);
+    const controller = new AbortController();
+    searchController.current = controller;
     searchTimer.current = window.setTimeout(() => {
+      if (controller.signal.aborted) return;
       void loadSourceEBookPage(
         value.trim(),
         providerId,
         {},
         {
           onSource: (items) => {
-            if (seq === searchSeq.current)
+            if (seq === searchSeq.current && items.length)
               setResults((current) => updateSourceItems(current, items));
           },
           onMetadata: (items) => {
-            if (seq === searchSeq.current)
+            if (seq === searchSeq.current && items.length)
               setResults((current) => updateSourceItems(current, items, true));
           },
         },
         browseTagRef.current,
+        { signal: controller.signal },
       )
         .then((page) => {
-          if (seq === searchSeq.current) {
+          if (seq === searchSeq.current && !controller.signal.aborted) {
+            setResults((current) => updateSourceItems(current, page.items));
             cursorRef.current = page.cursor;
             setHasMore(page.hasMore);
             void page.enriched.then((items) => {
@@ -792,6 +804,7 @@ export function EBookView() {
         },
       },
       browseTagRef.current,
+      { signal: term ? searchController.current?.signal : undefined },
     )
       .then((page) => {
         if (sourceId !== sourceSeq.current || searchId !== searchSeq.current) return;

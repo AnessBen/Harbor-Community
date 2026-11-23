@@ -40,7 +40,7 @@ import {
 import { migrateEBookChapterLocations, savedEBookChapters } from "./reader-state";
 import { pdfBookInfo, pdfPageContent, pdfPageCount } from "./pdf";
 import { applyLocalEBookDetails } from "./local-details";
-import { createAsyncIndexCache } from "./search-performance";
+import { createAsyncIndexCache, withSearchDeadline } from "./search-performance";
 
 export type EBookChapter = {
   id: string;
@@ -74,7 +74,7 @@ type Provider = {
   name: string;
   iconUrl?: string;
   popular(offset: number, tagId?: string): Promise<EBook[]>;
-  search(query: string, offset: number, tagId?: string): Promise<EBook[]>;
+  search(query: string, offset: number, tagId?: string, signal?: AbortSignal): Promise<EBook[]>;
   enrich?(items: EBook[]): Promise<EBook[]>;
   detail(id: string): Promise<EBook | null>;
   chapters(id: string): Promise<EBookChapter[]>;
@@ -439,8 +439,8 @@ function gutendexProvider(source: EBookSource, background = false): Provider {
     return { book, epub: await gutendexPackage(id, book.epubUrl) };
   };
   provider.popular = async (offset) => (await gutendexPopular(offset, background)).map(summary);
-  provider.search = async (query, offset) =>
-    (await gutendexSearch(query, offset, background)).map(summary);
+  provider.search = async (query, offset, _tagId, signal) =>
+    (await gutendexSearch(query, offset, background, signal)).map(summary);
   provider.detail = async (id) => {
     const book = await gutendexDetail(id, background);
     if (!book) return null;
@@ -664,8 +664,8 @@ function pluginProvider(plugin: InstalledPlugin, background = false): Provider {
     worker = new PluginWorker(plugin, { httpPolicy: { background } });
     workers.set(workerKey, worker);
   }
-  const call = (method: string, args: unknown[], timeout = 25_000) =>
-    worker!.call(method, args, timeout);
+  const call = (method: string, args: unknown[], timeout = 25_000, signal?: AbortSignal) =>
+    worker!.call(method, args, timeout, signal);
   const provider = {
     id,
     name: plugin.name,
@@ -690,8 +690,8 @@ function pluginProvider(plugin: InstalledPlugin, background = false): Provider {
     call("popular", [offset, await supportedTag(tagId)]).then((items) =>
       pluginList(provider, items),
     );
-  provider.search = async (query, offset, tagId) =>
-    call("search", [query, offset, await supportedTag(tagId)]).then((items) =>
+  provider.search = async (query, offset, tagId, signal) =>
+    call("search", [query, offset, await supportedTag(tagId)], 25_000, signal).then((items) =>
       pluginList(provider, items),
     );
   provider.detail = (itemId) =>
@@ -734,16 +734,16 @@ function htmlProvider(
       if (value?.trim()) return value.replace(/\s+/g, " ").trim();
     }
   };
-  const documentAt = async (path: string): Promise<Document> => {
-    const init = config.headers ? { headers: config.headers } : undefined;
+  const documentAt = async (path: string, signal?: AbortSignal): Promise<Document> => {
+    const init = config.headers || signal ? { headers: config.headers, signal } : undefined;
     const response = background
       ? await safeFetchBytes(target(path), init, 20_000, 8 * 1024 * 1024)
       : await safeFetch(target(path), init);
     if (!response.ok) throw new Error(`${source.name} HTTP ${response.status}`);
     return new DOMParser().parseFromString(await response.text(), "text/html");
   };
-  const list = async (path: string): Promise<EBook[]> => {
-    const document = await documentAt(path);
+  const list = async (path: string, signal?: AbortSignal): Promise<EBook[]> => {
+    const document = await documentAt(path, signal);
     return Array.from(document.querySelectorAll(config.list.item)).flatMap((element) => {
       const itemId = pick(element, config.list.link);
       if (!itemId) return [];
@@ -764,21 +764,22 @@ function htmlProvider(
       ];
     });
   };
-  const page = async (key: string, path: string, offset: number) => {
+  const page = async (key: string, path: string, offset: number, signal?: AbortSignal) => {
     const offsets = pages.get(key) ?? new Map([[0, 1]]);
     pages.set(key, offsets);
     const number = offsets.get(offset);
     if (!number) return [];
-    const items = await list(path.replaceAll("{page}", String(number)));
+    const items = await list(path.replaceAll("{page}", String(number)), signal);
     if (items.length) offsets.set(offset + items.length, number + 1);
     return items;
   };
   provider.popular = (offset) => page("popular", config.popularPath, offset);
-  provider.search = (query, offset) =>
+  provider.search = (query, offset, _tagId, signal) =>
     page(
       `search:${query}`,
       config.searchPath.replaceAll("{query}", encodeURIComponent(query)),
       offset,
+      signal,
     );
   provider.detail = async (itemId) => {
     const document = await documentAt(itemId);
@@ -955,6 +956,24 @@ export async function loadSourceEBookCatalogPage(
   };
 }
 
+// Network search must not keep the grid waiting indefinitely for a slow API.
+// Local scans are shared instead of timeboxed so the first index can finish.
+const REMOTE_SEARCH_TIMEOUT_MS = 9_000;
+function timedProviderSearch(
+  provider: Provider,
+  query: string,
+  offset: number,
+  tagId?: string,
+  signal?: AbortSignal,
+): Promise<EBook[]> {
+  if (provider.id.startsWith("local:")) return provider.search(query, offset, tagId, signal);
+  return withSearchDeadline(
+    (deadlineSignal) => provider.search(query, offset, tagId, deadlineSignal),
+    REMOTE_SEARCH_TIMEOUT_MS,
+    signal,
+  );
+}
+
 export async function searchSourceEBookCatalog(
   query: string,
   providerId?: string,
@@ -963,7 +982,9 @@ export async function searchSourceEBookCatalog(
   const list = selectedProviders(await providers(options.background), providerId);
   const pages = await Promise.all(
     list.map(async (provider) => {
-      const items = await provider.search(query, 0).catch(() => []);
+      const items = await timedProviderSearch(provider, query, 0).catch(() => []);
+      // Catalog/award lookups may need a local EPUB's cover; only the
+      // interactive search page defers that work until after displaying titles.
       return provider.enrich ? provider.enrich(items).catch(() => items) : items;
     }),
   );
@@ -976,7 +997,7 @@ export async function loadSourceEBookPage(
   cursor: EBookCursor = {},
   events?: EBookLoadEvents,
   tagId?: string,
-  options: { background?: boolean } = {},
+  options: { background?: boolean; signal?: AbortSignal } = {},
 ): Promise<EBookPage> {
   const available = await providers(options.background);
   const list = selectedProviders(available, providerId);
@@ -984,15 +1005,21 @@ export async function loadSourceEBookPage(
     list.map(async (provider) => {
       const offset = cursor[provider.id] ?? 0;
       const items = await (
-        query ? provider.search(query, offset, tagId) : provider.popular(offset, tagId)
+        query
+          ? timedProviderSearch(provider, query, offset, tagId, options.signal)
+          : provider.popular(offset, tagId)
       ).catch(() => []);
       events?.onSource?.(mergeEBookMetadata(items, []));
-      const enriched = query && provider.enrich
-        ? provider.enrich(items).then((covers) => {
-            events?.onMetadata?.(covers);
-            return covers;
-          })
-        : withMetadata(items, events?.onMetadata);
+      const enriched = query
+        ? provider.enrich
+          ? provider.enrich(items).then((covers) => {
+              events?.onMetadata?.(covers);
+              return covers;
+            })
+          : Promise.resolve(items)
+        : provider.enrich
+          ? Promise.resolve(items)
+          : withMetadata(items, events?.onMetadata);
       return { provider, offset, items, enriched };
     }),
   );
@@ -1001,9 +1028,10 @@ export async function loadSourceEBookPage(
     items: sourceItems,
     enriched: Promise.all(pages.map((page) => page.enriched)).then(async (selectedGroups) => {
       const selected = selectedGroups.flat();
-      // A local-only title search needs no remote companion or metadata lookup.
-      if (query && list.every((provider) => provider.id.startsWith("local:")))
-        return dedupeEBooks(selected).map(applyLocalEBookDetails);
+      // Interactive search needs only the providers' own matching results.
+      // Cross-source companion discovery and remote metadata are expensive and
+      // belong to background browse/detail enrichment, not every keystroke.
+      if (query) return dedupeEBooks(selected).map(applyLocalEBookDetails);
       let selectedEntries = selected.flatMap((item) => item.books ?? [item]);
       const authorKeys = (item: EBook) =>
         item.authors
