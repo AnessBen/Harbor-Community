@@ -2140,6 +2140,8 @@ pub fn run() {
             #[cfg(feature = "music")]
             music::music_engine_state,
             #[cfg(feature = "music")]
+            music::trace::music_playback_diagnostics,
+            #[cfg(feature = "music")]
             music::music_home_rows,
             #[cfg(feature = "music")]
             music::music_browse_connector,

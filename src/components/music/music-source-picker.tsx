@@ -12,6 +12,8 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { copyText } from "@/lib/clipboard-text";
 import { Check, ExternalLink, Music2, Unplug, X } from "@/components/icons/music-icons";
 import { ModalShell, useModalExit } from "@/components/modal-shell";
 import { MusicSourceRow } from "@/components/music/music-source-row";
@@ -195,7 +197,7 @@ export function MusicSourcePicker({
       if (!dialog || dialogs.item(dialogs.length - 1) !== dialog) return;
       const buttons = [
         ...dialog.querySelectorAll<HTMLElement>(
-          "button:not(:disabled), input:not(:disabled), a[href], summary",
+          "button:not(:disabled), input:not(:disabled), textarea:not(:disabled), a[href], summary",
         ),
       ].filter((node) => node.getClientRects().length > 0);
       const first = buttons[0],
@@ -240,6 +242,24 @@ export function MusicSourcePicker({
   const failedTrack = request.failedTrack ?? request.track;
   const failedSource = request.failure ? failedTrack.connectorId : undefined;
   const providerLink = musicProviderSearch(failedTrack);
+  const [diagnostics, setDiagnostics] = useState<{
+    status: "idle" | "copying" | "copied" | "failed";
+    report?: string;
+  }>({ status: "idle" });
+  const copyDiagnostics = async () => {
+    setDiagnostics({ status: "copying" });
+    let report: string | undefined;
+    try {
+      report = await invoke<string>("music_playback_diagnostics", {
+        failure: request.failure ?? "",
+        connector: failedTrack.connectorId ?? null,
+      });
+      const copied = await copyText(report);
+      setDiagnostics({ status: copied ? "copied" : "failed", report });
+    } catch {
+      setDiagnostics({ status: "failed", report });
+    }
+  };
 
   const load = useCallback(() => {
     const generation = ++loadGeneration.current;
@@ -372,6 +392,34 @@ export function MusicSourcePicker({
                 <ExternalLink size={13} />
               </button>
             )}
+            <div className="mt-2">
+              <button
+                type="button"
+                disabled={diagnostics.status === "copying"}
+                onClick={() => void copyDiagnostics()}
+                className="inline-flex min-h-9 items-center gap-2 text-xs text-ink underline-offset-4 hover:underline disabled:opacity-50"
+              >
+                {t("music.recovery.copyDiagnostics")}
+              </button>
+              <p role="status" className="text-xs text-ink-muted">
+                {diagnostics.status === "copied"
+                  ? t("music.recovery.diagnosticsCopied")
+                  : diagnostics.status === "failed"
+                    ? t("music.recovery.diagnosticsFailed")
+                    : diagnostics.status === "copying"
+                      ? t("music.recovery.diagnosticsCollecting")
+                      : null}
+              </p>
+              {diagnostics.status === "failed" && diagnostics.report && (
+                <textarea
+                  readOnly
+                  aria-label={t("music.recovery.copyDiagnostics")}
+                  value={diagnostics.report}
+                  onFocus={(event) => event.currentTarget.select()}
+                  className="mt-2 h-24 w-full rounded-md bg-canvas p-2 font-mono text-xs text-ink"
+                />
+              )}
+            </div>
           </section>
         )}
         {!loading && !spotify?.playbackReady && (

@@ -761,6 +761,10 @@ const music: Record<string, string> = {
   "music.spotifyBrowse.body":
     "Playback is paired and working. Browsing currently shares librespot's Spotify quota, which saturates often — sign in with your own Spotify app to give browsing its own quota. Playback stays paired.",
   "music.spotifyBrowse.action": "Use my own Spotify app",
+  "music.recovery.copyDiagnostics": "Copy playback diagnostics",
+  "music.recovery.diagnosticsCopied": "Playback diagnostics copied.",
+  "music.recovery.diagnosticsFailed": "Could not copy diagnostics. If a report appears below, copy it manually.",
+  "music.recovery.diagnosticsCollecting": "Collecting playback diagnostics...",
   "music.recovery.title": "Playback help",
   "music.recovery.failed": "{source} couldn’t play this song",
   "music.recovery.skipping": "Skipping to the next song in {seconds}s",
