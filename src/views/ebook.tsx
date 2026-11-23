@@ -105,6 +105,7 @@ import {
   listEBookProviders,
   loadSourceEBookCatalogPage,
   loadSourceEBookPage,
+  refreshLocalEBookIndexes,
   prefetchSourceEBookContent,
   searchSourceEBookCatalog,
   sourceEBookChapters,
@@ -1260,7 +1261,11 @@ export function EBookView() {
                   aria-label={t("Refresh eBook source")}
                   title={t("Refresh source")}
                   disabled={refreshing}
-                  onClick={() => (query.trim().length >= 2 ? search(query) : loadSources())}
+                  onClick={() => {
+                    refreshLocalEBookIndexes(providerId);
+                    if (query.trim().length >= 2) search(query);
+                    else loadSources();
+                  }}
                   className="grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-white/[0.06] text-ink-muted ring-1 ring-inset ring-edge-soft transition-colors hover:bg-white/[0.10] hover:text-ink disabled:pointer-events-none disabled:opacity-60"
                 >
                   <RefreshCw

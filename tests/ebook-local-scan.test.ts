@@ -13,13 +13,15 @@ const scan = source.slice(
 
 test("the library walk goes deeper than one folder", () => {
   // Author/Book/Book.epub is as common as a flat folder, and one pass found neither.
-  assert.match(scan, /walk\(await localJoin\(dir, item\.name\), item\.name, depth \+ 1\)/);
-  assert.match(scan, /await walk\(source\.location, "", 0\)/, "the chosen folder is the root");
+  assert.match(scan, /dir: source\.location, name: "", depth: 0/, "the chosen folder is the root");
+  assert.match(scan, /depth: depth \+ 1/, "nested folders remain discoverable");
 });
 
 test("the walk is bounded in both depth and breadth", () => {
   // readDir follows symlinks, so an unbounded walk can loop or swallow a whole drive.
-  assert.match(scan, /depth > LOCAL_SCAN_MAX_DEPTH \|\| visited >= LOCAL_SCAN_MAX_DIRS/);
+  assert.match(scan, /queue\.length && visited < LOCAL_SCAN_MAX_DIRS/);
+  assert.match(scan, /depth > LOCAL_SCAN_MAX_DEPTH/);
+  assert.match(scan, /Math\.min\(LOCAL_SCAN_CONCURRENCY, LOCAL_SCAN_MAX_DIRS - visited\)/);
   assert.match(source, /const LOCAL_SCAN_MAX_DEPTH = \d+;/);
   assert.match(source, /const LOCAL_SCAN_MAX_DIRS = \d+;/);
 });
@@ -31,8 +33,14 @@ test("a folder is titled by its own name, never by a split path", () => {
 });
 
 test("loose files at the top stay separate books while a folder groups its volumes", () => {
-  assert.match(scan, /if \(!name\)/, "only the root treats loose files as individual books");
+  assert.match(scan, /!name\s*\? await Promise\.all\(files\.map/, "only the root treats loose files as individual books");
   assert.match(scan, /paths: await Promise\.all\(files\.map/, "a book folder keeps every volume");
+});
+
+test("searches reuse an indexed scan instead of rescanning each keystroke", () => {
+  assert.match(source, /const books = \[\.\.\.\(await indexedLocalBooks\(source\)\)\]/);
+  assert.match(source, /provider\.search = \(query, offset\) => list\(query, offset\)/);
+  assert.match(source, /export function refreshLocalEBookIndexes/);
 });
 
 test("PDF files are part of the local library", () => {

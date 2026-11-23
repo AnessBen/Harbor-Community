@@ -20,7 +20,7 @@ import {
   gutendexSearch,
   type GutendexBook,
 } from "./gutendex";
-import { listEBookSources, type EBookHtmlSourceConfig, type EBookSource } from "./sources";
+import { listEBookSources, subscribeEBookSources, type EBookHtmlSourceConfig, type EBookSource } from "./sources";
 import gutenbergLogo from "@/assets/gutenberg.png";
 import { safeFetch, safeFetchBytes } from "@/lib/safe-fetch";
 import {
@@ -40,6 +40,7 @@ import {
 import { migrateEBookChapterLocations, savedEBookChapters } from "./reader-state";
 import { pdfBookInfo, pdfPageContent, pdfPageCount } from "./pdf";
 import { applyLocalEBookDetails } from "./local-details";
+import { createAsyncIndexCache } from "./search-performance";
 
 export type EBookChapter = {
   id: string;
@@ -74,6 +75,7 @@ type Provider = {
   iconUrl?: string;
   popular(offset: number, tagId?: string): Promise<EBook[]>;
   search(query: string, offset: number, tagId?: string): Promise<EBook[]>;
+  enrich?(items: EBook[]): Promise<EBook[]>;
   detail(id: string): Promise<EBook | null>;
   chapters(id: string): Promise<EBookChapter[]>;
   content(id: string): Promise<EBookChapterContent>;
@@ -83,7 +85,8 @@ type Provider = {
 const workers = new Map<string, PluginWorker>();
 const htmlPages = new Map<string, Map<string, Map<number, number>>>();
 const details = new Map<string, Promise<EBook | null>>();
-const localBooks = new Map<string, Map<string, { title: string; paths: string[] }>>();
+const localBooks = createAsyncIndexCache<string, Map<string, { title: string; paths: string[] }>>();
+subscribeEBookSources(() => localBooks.invalidate());
 const localEpubs = new Map<string, Promise<EpubBook>>();
 const LOCAL_EPUB_CACHE_LIMIT = 6;
 const chapterContentPending = new Map<string, Promise<EBookChapterContent>>();
@@ -344,39 +347,58 @@ const LOCAL_SCAN_MAX_DIRS = 4000;
 const byName = (a: { name: string }, b: { name: string }) =>
   a.name.localeCompare(b.name, undefined, { numeric: true });
 
+// The first walk is bounded and parallel; later searches reuse a shared index.
+const LOCAL_SCAN_CONCURRENCY = 8;
+
 async function scanLocalBooks(
   source: EBookSource,
 ): Promise<Map<string, { title: string; paths: string[] }>> {
   const { readDir } = await import("@tauri-apps/plugin-fs");
   const books = new Map<string, { title: string; paths: string[] }>();
+  const queue = [{ dir: source.location, name: "", depth: 0 }];
   let visited = 0;
-
-  const walk = async (dir: string, name: string, depth: number) => {
-    if (depth > LOCAL_SCAN_MAX_DEPTH || visited >= LOCAL_SCAN_MAX_DIRS) return;
-    visited += 1;
-    const entries = (await readDir(dir).catch(() => [])).sort(byName);
-    const files = entries.filter((item) => item.isFile && /\.(?:epub|pdf)$/i.test(item.name));
-    if (!name)
-      // A book folder is one entry however many volumes it holds, but loose files at the
-      // top of the library are each their own book.
-      for (const file of files) {
-        const path = await localJoin(dir, file.name);
-        books.set(path, { title: localTitle(file.name), paths: [path] });
-      }
-    else if (files.length)
-      books.set(dir, {
-        title: localTitle(name),
-        paths: await Promise.all(files.map((file) => localJoin(dir, file.name))),
-      });
-    for (const item of entries) {
-      if (!item.isDirectory) continue;
-      await walk(await localJoin(dir, item.name), item.name, depth + 1);
+  while (queue.length && visited < LOCAL_SCAN_MAX_DIRS) {
+    const batch = queue.splice(0, Math.min(LOCAL_SCAN_CONCURRENCY, LOCAL_SCAN_MAX_DIRS - visited));
+    visited += batch.length;
+    const results = await Promise.all(batch.map(async ({ dir, name, depth }) => {
+      if (depth > LOCAL_SCAN_MAX_DEPTH) return { found: [] as [string, { title: string; paths: string[] }][], children: [] as typeof queue };
+      const entries = (await readDir(dir).catch(() => [])).sort(byName);
+      const files = entries.filter((item) => item.isFile && /\.(?:epub|pdf)$/i.test(item.name));
+      const found: [string, { title: string; paths: string[] }][] = !name
+        ? await Promise.all(files.map(async (file) => {
+            const path = await localJoin(dir, file.name);
+            return [path, { title: localTitle(file.name), paths: [path] }] as [string, { title: string; paths: string[] }];
+          }))
+        : files.length
+          ? [[dir, {
+              title: localTitle(name),
+              paths: await Promise.all(files.map((file) => localJoin(dir, file.name))),
+            }]]
+          : [];
+      const children = depth < LOCAL_SCAN_MAX_DEPTH
+        ? await Promise.all(entries.filter((item) => item.isDirectory).map(async (item) => ({
+            dir: await localJoin(dir, item.name),
+            name: item.name,
+            depth: depth + 1,
+          })))
+        : [];
+      return { found, children };
+    }));
+    for (const result of results) {
+      for (const [id, book] of result.found) books.set(id, book);
+      queue.push(...result.children);
     }
-  };
-
-  await walk(source.location, "", 0);
-  localBooks.set(source.id, books);
+  }
   return books;
+}
+
+function indexedLocalBooks(source: EBookSource) {
+  return localBooks.read(source.id, () => scanLocalBooks(source));
+}
+
+/** A user-requested refresh makes rescanning explicit, rather than repeating it for every keystroke. */
+export function refreshLocalEBookIndexes(providerId?: string): void {
+  localBooks.invalidate(!providerId || providerId === "all" ? undefined : providerId);
 }
 
 const gutendexEpubs = new Map<string, Promise<EpubBook>>();
@@ -448,7 +470,7 @@ function gutendexProvider(source: EBookSource, background = false): Provider {
 function localProvider(source: EBookSource): Provider {
   const provider = { id: source.id, name: source.name, iconUrl: source.iconUrl } as Provider;
   const find = async (id: string) =>
-    localBooks.get(source.id)?.get(id) ?? (await scanLocalBooks(source)).get(id);
+    localBooks.peek(source.id)?.get(id) ?? (await indexedLocalBooks(source)).get(id);
   const summary = (id: string, book: { title: string; paths: string[] }): EBook => applyLocalEBookDetails({
     id: routeId(provider.id, id),
     source: "source",
@@ -461,27 +483,44 @@ function localProvider(source: EBookSource): Provider {
     genres: [],
     volumes: book.paths.length > 1 ? book.paths.length : undefined,
   });
-  const list = async (query: string, offset: number) => {
-    const books = [...(await scanLocalBooks(source))].filter(([id, book]) =>
-      summary(id, book).title.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
-    );
-    return Promise.all(
-      books.slice(offset, offset + 24).map(async ([id, book]) => {
-        const item = summary(id, book);
-        const firstEpub = book.paths.find((path) => !isPdfPath(path));
-        if (!firstEpub) return item;
+  // EPUB cover extraction reads and parses the archive. Keep it out of the
+  // interactive title-search critical path and enrich the visible page later.
+  const withLocalCovers = async (items: EBook[]): Promise<EBook[]> => {
+    const index = await indexedLocalBooks(source);
+    const enriched = [...items];
+    let next = 0;
+    const worker = async () => {
+      while (next < items.length) {
+        const position = next++;
+        const item = items[position];
+        const book = index.get(item.sourceItemId ?? "");
+        const firstEpub = book?.paths.find((path) => !isPdfPath(path));
+        if (!firstEpub) continue;
         const epub = await localPackage(firstEpub).catch(() => null);
-        if (!epub?.cover) return item;
-        return applyLocalEBookDetails({
+        if (!epub?.cover) continue;
+        enriched[position] = applyLocalEBookDetails({
           ...item,
           cover: epub.cover,
           internalCover: epub.cover,
         });
-      }),
-    );
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(3, items.length) }, () => worker()));
+    return enriched;
   };
-  provider.popular = (offset) => list("", offset);
+  const list = async (query: string, offset: number, includeCovers = false) => {
+    const needle = query.toLocaleLowerCase();
+    const books = [...(await indexedLocalBooks(source))].filter(([id, book]) => {
+      const item = summary(id, book);
+      return item.title.toLocaleLowerCase().includes(needle) ||
+        item.authors.some((author) => author.toLocaleLowerCase().includes(needle));
+    });
+    const page = books.slice(offset, offset + 24).map(([id, book]) => summary(id, book));
+    return includeCovers ? withLocalCovers(page) : page;
+  };
+  provider.popular = (offset) => list("", offset, true);
   provider.search = (query, offset) => list(query, offset);
+  provider.enrich = withLocalCovers;
   provider.detail = async (id) => {
     const book = await find(id);
     if (!book) return null;
@@ -923,7 +962,10 @@ export async function searchSourceEBookCatalog(
 ): Promise<EBook[]> {
   const list = selectedProviders(await providers(options.background), providerId);
   const pages = await Promise.all(
-    list.map((provider) => provider.search(query, 0).catch(() => [])),
+    list.map(async (provider) => {
+      const items = await provider.search(query, 0).catch(() => []);
+      return provider.enrich ? provider.enrich(items).catch(() => items) : items;
+    }),
   );
   return dedupeEBooks(mergeEBookMetadata(pages.flat(), [])).map(applyLocalEBookDetails);
 }
@@ -945,7 +987,13 @@ export async function loadSourceEBookPage(
         query ? provider.search(query, offset, tagId) : provider.popular(offset, tagId)
       ).catch(() => []);
       events?.onSource?.(mergeEBookMetadata(items, []));
-      return { provider, offset, items, enriched: withMetadata(items, events?.onMetadata) };
+      const enriched = query && provider.enrich
+        ? provider.enrich(items).then((covers) => {
+            events?.onMetadata?.(covers);
+            return covers;
+          })
+        : withMetadata(items, events?.onMetadata);
+      return { provider, offset, items, enriched };
     }),
   );
   const sourceItems = dedupeEBooks(pages.flatMap((page) => page.items)).map(applyLocalEBookDetails);
@@ -953,6 +1001,9 @@ export async function loadSourceEBookPage(
     items: sourceItems,
     enriched: Promise.all(pages.map((page) => page.enriched)).then(async (selectedGroups) => {
       const selected = selectedGroups.flat();
+      // A local-only title search needs no remote companion or metadata lookup.
+      if (query && list.every((provider) => provider.id.startsWith("local:")))
+        return dedupeEBooks(selected).map(applyLocalEBookDetails);
       let selectedEntries = selected.flatMap((item) => item.books ?? [item]);
       const authorKeys = (item: EBook) =>
         item.authors
