@@ -358,6 +358,7 @@ const elegantFinCss = `@import url("https://fonts.googleapis.com/css2?family=Int
   --ef-header-glass: rgba(30, 40, 54, 0.8);
   --ef-drawer-glass: rgba(30, 40, 54, 0.92);
   --ef-panel-glass: rgba(30, 40, 54, 0.95);
+  --ef-popup-surface: #1e2836;
   --ef-hairline: #47505c;
   --ef-border-w: 0.06em;
   --ef-rail-width: 72px;
@@ -830,6 +831,32 @@ main.absolute .border-b {
   backdrop-filter: blur(20px) saturate(130%) !important;
   -webkit-backdrop-filter: blur(20px) saturate(130%) !important;
   box-shadow: 0 1.5em 3em rgba(0, 0, 0, 0.45) !important;
+}
+/* Dialogs and portalled menus need opaque content, unlike decorative cards. */
+.modal-panel,
+.modal-panel.bg-surface,
+.modal-panel.bg-elevated,
+[role="dialog"][aria-modal="true"],
+[role="dialog"][aria-modal="true"].bg-surface,
+[role="dialog"][aria-modal="true"].bg-elevated,
+[role="alertdialog"],
+[role="alertdialog"].bg-surface:not(button),
+[role="alertdialog"].bg-elevated:not(button),
+[data-dropdown-menu],
+[data-dropdown-menu].bg-surface,
+[data-dropdown-menu].bg-elevated,
+[role="menu"].bg-surface:not(button),
+[role="menu"].bg-elevated:not(button),
+[data-dropdown-menu].bg-surface:not(button),
+[data-dropdown-menu].bg-elevated:not(button),
+.modal-panel.bg-surface:not(button),
+.modal-panel.bg-elevated:not(button),
+.harbor-wt-modal .modal-panel,
+.harbor-wt-modal > div {
+  background-color: var(--ef-popup-surface) !important;
+  background-image: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 .harbor-search-backdrop {
   background: color-mix(in srgb, var(--ef-drawer-glass) 90%, transparent) !important;
