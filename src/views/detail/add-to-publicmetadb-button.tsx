@@ -91,7 +91,12 @@ export function usePmdbWatchlist(harborId: string, type: "movie" | "series") {
       setTarget(tgt);
       try {
         const list = await resolvePmdbList({ listId, assertCurrent: guard });
-        const items = await fetchPmdbWatchlist({ listId, strict: true, assertCurrent: guard });
+        const items = await fetchPmdbWatchlist({
+          listId,
+          strict: true,
+          cacheForStatus: true,
+          assertCurrent: guard,
+        });
         if (cancelled) return;
         setListName(list?.name || "Watchlist");
         if (!running.current) setInList(pmdbWatchlistContains(items, tgt) != null);
