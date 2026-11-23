@@ -65,6 +65,35 @@ fn owned_file(path: &Path) -> Result<(), &'static str> {
         _ => Err("games_delete_unsafe"),
     }
 }
+// A missing path is not the same as a junction, file, or inaccessible path.
+fn directory_present(path: &Path) -> Result<bool, &'static str> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if safe_type(&meta) && meta.is_dir() => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        _ => Err("games_delete_unsafe"),
+    }
+}
+
+fn recorded_destination(value: &str) -> Result<Option<PathBuf>, &'static str> {
+    let path = Path::new(value);
+    if !path.is_absolute()
+        || value.len() > 4096
+        || path.file_name().is_none()
+        || path
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+        || path
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().starts_with(".harbor-"))
+    {
+        return Err("games_delete_unsafe");
+    }
+    if !directory_present(path.parent().ok_or("games_delete_unsafe")?)? {
+        return Ok(None);
+    }
+    super::transfer_files::destination(value).map(Some)
+}
+
 fn owned_tree(path: &Path) -> Result<(), &'static str> {
     let mut pending = vec![PathBuf::from(path)];
     let mut entries = 0usize;
@@ -117,6 +146,8 @@ pub async fn delete(
     let torrent_records = torrent.list(&request.profile)?;
     let mut files = Vec::<(String, PathBuf, PathBuf)>::new();
     let mut folders = Vec::<(String, PathBuf)>::new();
+    let mut missing_direct = Vec::new();
+    let mut missing_torrents = Vec::new();
     let mut seen_paths = HashSet::new();
     // Only accept records from the same exact game (or download batch when
     // game metadata is absent). Never let a crafted request span other games.
@@ -149,7 +180,10 @@ pub async fn delete(
             id,
         ))?;
         direct.ensure_removable(&request.profile, id)?;
-        let path = super::transfer_files::destination(&record.destination)?;
+        let Some(path) = recorded_destination(&record.destination)? else {
+            missing_direct.push(id.clone());
+            continue;
+        };
         let partial = super::transfer_files::partial(&path, id)?;
         // Never delete a path still owned by a different download record.
         if direct.destination_owned_by_another(id, &path)? || !seen_paths.insert(path.clone()) {
@@ -179,11 +213,17 @@ pub async fn delete(
         let path = PathBuf::from(&record.destination);
         if !path.is_absolute()
             || path.parent().is_none()
-            || !path.is_dir()
+            || path
+                .components()
+                .any(|part| matches!(part, std::path::Component::ParentDir))
             || path.file_name().is_none()
             || !seen_paths.insert(path.clone())
         {
             return Err("games_delete_unsafe");
+        }
+        if !directory_present(&path)? {
+            missing_torrents.push(id.clone());
+            continue;
         }
         // Torrent roots are dedicated folders created by Harbor. Confirm their
         // marker, including profile digest and info hash, before recursive deletion.
@@ -210,6 +250,16 @@ pub async fn delete(
     // the ownership metadata. Partial deletion is reported as an error.
     let file_count = files.len();
     let folder_count = folders.len();
+    // Missing paths only require removing the download records. Existing paths
+    // still pass the full ownership checks before any filesystem deletion.
+    for id in missing_direct {
+        direct.action(&request.profile, &id, "remove")?;
+    }
+    for id in missing_torrents {
+        torrent
+            .action(request.profile.clone(), id, "remove".into())
+            .await?;
+    }
     for (id, path, partial) in files {
         if path.exists() {
             fs::remove_file(&path).map_err(|_| "games_delete_failed")?;

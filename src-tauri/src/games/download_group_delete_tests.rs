@@ -105,3 +105,24 @@ fn group_identity_uses_actual_game_or_batch_and_keeps_unrelated_files_separate()
         group_key(None, None, "torrent", "one")
     );
 }
+
+#[test]
+fn externally_removed_download_roots_can_be_dismissed() {
+    let fixture = Fixture::new();
+    let folder = fixture.0.join("removed");
+    fs::create_dir(&folder).unwrap();
+    let file = folder.join("game.zip");
+    fs::write(&file, "data").unwrap();
+    assert!(directory_present(&folder).unwrap());
+    assert!(recorded_destination(&file.to_string_lossy())
+        .unwrap()
+        .is_some());
+    fs::remove_dir_all(&folder).unwrap();
+    assert!(!directory_present(&folder).unwrap());
+    assert!(recorded_destination(&file.to_string_lossy())
+        .unwrap()
+        .is_none());
+    fs::write(&folder, "not a directory").unwrap();
+    assert!(directory_present(&folder).is_err());
+    assert!(recorded_destination(&file.to_string_lossy()).is_err());
+}
