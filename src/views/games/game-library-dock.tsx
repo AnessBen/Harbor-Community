@@ -221,9 +221,7 @@ export function GameLibraryDock({ visible: pageVisible }: { visible: boolean }) 
       access.repairCustom(destination.id, toggle.current ?? undefined);
     else
       access.navigate(
-        destination.kind === "details"
-          ? { game: destination.game }
-          : { library: destination.mode },
+        destination.kind === "details" ? { game: destination.game } : { library: destination.mode },
         pageFocus.current ?? undefined,
       );
   };

@@ -33,7 +33,11 @@ test("a folder is titled by its own name, never by a split path", () => {
 });
 
 test("loose files at the top stay separate books while a folder groups its volumes", () => {
-  assert.match(scan, /!name\s*\? await Promise\.all\(files\.map/, "only the root treats loose files as individual books");
+  assert.match(
+    scan,
+    /!name\s*\? await Promise\.all\(files\.map/,
+    "only the root treats loose files as individual books",
+  );
   assert.match(scan, /paths: await Promise\.all\(files\.map/, "a book folder keeps every volume");
 });
 

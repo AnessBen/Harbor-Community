@@ -33,40 +33,67 @@ test("switching the playing song to video keeps the full queue and converts ever
   const after = song("after", "After", "Artist");
   const live = { current, queue: [before, current, after], queueIndex: 1 };
   const video = musicVideoPlayback(
-    { ...song("official-mv", "LE SSERAFIM 'Smart' Official MV", "HYBE LABELS", "video"), videoSearch: false },
+    {
+      ...song("official-mv", "LE SSERAFIM 'Smart' Official MV", "HYBE LABELS", "video"),
+      videoSearch: false,
+    },
     live,
   );
   assert.equal(musicVideoSourceSwitch(video, live), true);
   const result = musicWatchQueue(video, [song("suggested", "Suggested", "Artist", "video")], live);
-  assert.deepEqual(result.map((item) => item.id), ["before", "official-mv", "after"]);
-  assert.deepEqual(result.map((item) => item.mediaKind), ["video", "video", "video"]);
-  assert.deepEqual(result.map((item) => item.videoSearch), [true, false, true]);
+  assert.deepEqual(
+    result.map((item) => item.id),
+    ["before", "official-mv", "after"],
+  );
+  assert.deepEqual(
+    result.map((item) => item.mediaKind),
+    ["video", "video", "video"],
+  );
+  assert.deepEqual(
+    result.map((item) => item.videoSearch),
+    [true, false, true],
+  );
   assert.deepEqual(result.map(queueTrackKey), live.queue.map(queueTrackKey));
   assert.equal(result[0].title, before.title);
   assert.equal(result[2].artist, after.artist);
   assert.equal(video.title, current.title);
   assert.equal(video.artist, current.artist);
-  assert.equal(result.some((item) => item.id === "suggested"), false);
+  assert.equal(
+    result.some((item) => item.id === "suggested"),
+    false,
+  );
   assert.equal(live.queue[2].mediaKind, "audio", "never mutate the original playlist");
 });
 
 test("switching videos repeatedly keeps playlist identities and all following songs in video mode", () => {
   const original = song("audio", "Smart", "LE SSERAFIM");
   const first = musicVideoPlayback(
-    { ...song("mv-one", "LE SSERAFIM - Smart Official MV", "HYBE LABELS", "video"), videoSearch: false },
+    {
+      ...song("mv-one", "LE SSERAFIM - Smart Official MV", "HYBE LABELS", "video"),
+      videoSearch: false,
+    },
     { current: original },
   );
   const next = song("next", "Next", "Artist");
   const live = { current: first, queue: [first, next], queueIndex: 0 };
   const second = musicVideoPlayback(
-    { ...song("mv-two", "LE SSERAFIM - Smart Official Video", "HYBE LABELS", "video"), videoSearch: false },
+    {
+      ...song("mv-two", "LE SSERAFIM - Smart Official Video", "HYBE LABELS", "video"),
+      videoSearch: false,
+    },
     live,
   );
   const result = musicWatchQueue(second, [], live);
   assert.equal(musicVideoSourceSwitch(second, live), true);
   assert.equal(queueTrackKey(second), queueTrackKey(original));
-  assert.deepEqual(result.map((item) => item.id), ["mv-two", "next"]);
-  assert.deepEqual(result.map((item) => item.mediaKind), ["video", "video"]);
+  assert.deepEqual(
+    result.map((item) => item.id),
+    ["mv-two", "next"],
+  );
+  assert.deepEqual(
+    result.map((item) => item.mediaKind),
+    ["video", "video"],
+  );
   assert.equal(result[1].videoSearch, true);
 });
 
@@ -79,8 +106,14 @@ test("switching the last song keeps earlier queue history in video mode, not rec
     live,
   );
   const result = musicWatchQueue(video, [song("suggested", "Suggested", "Artist", "video")], live);
-  assert.deepEqual(result.map((item) => item.id), ["earlier", "mv"]);
-  assert.deepEqual(result.map((item) => item.mediaKind), ["video", "video"]);
+  assert.deepEqual(
+    result.map((item) => item.id),
+    ["earlier", "mv"],
+  );
+  assert.deepEqual(
+    result.map((item) => item.mediaKind),
+    ["video", "video"],
+  );
   assert.deepEqual(result.map(queueTrackKey), live.queue.map(queueTrackKey));
 });
 
@@ -91,7 +124,11 @@ test("a one-song queue stays a one-song video queue", () => {
     song("mv", "LE SSERAFIM Smart Official MV", "HYBE LABELS", "video"),
     live,
   );
-  const result = musicWatchQueue(video, [video, song("recommendation", "Elsewhere", "Artist")], live);
+  const result = musicWatchQueue(
+    video,
+    [video, song("recommendation", "Elsewhere", "Artist")],
+    live,
+  );
   assert.equal(result.length, 1);
   assert.equal(result[0].mediaKind, "video");
   assert.equal(queueTrackKey(result[0]), queueTrackKey(current));
@@ -219,8 +256,14 @@ test("Song Mix: selecting a video for an Up Next song preserves the mix, not the
   const result = musicVideoQueueSelection(selectedUpload, requested, live);
   assert.ok(result, "the video belongs to the Up Next song, even though another song is playing");
   assert.deepEqual(result.queue.map(queueTrackKey), live.queue.map(queueTrackKey));
-  assert.deepEqual(result.queue.map((entry) => entry.mediaKind), ["video", "video", "video"]);
-  assert.deepEqual(result.queue.map((entry) => entry.id), ["mix-a", "official-mv", "mix-c"]);
+  assert.deepEqual(
+    result.queue.map((entry) => entry.mediaKind),
+    ["video", "video", "video"],
+  );
+  assert.deepEqual(
+    result.queue.map((entry) => entry.id),
+    ["mix-a", "official-mv", "mix-c"],
+  );
   assert.equal(result.track.id, "official-mv");
   assert.equal(result.track.title, requested.title);
   assert.equal(result.track.artist, requested.artist);

@@ -163,8 +163,13 @@ test("Stardust Crusaders' hero tracker uses verified episode 1 without merging i
   assert.equal(verifiedSeasonStartOwnerFromEpisodes(rows, "tt2359704", 2), "kitsu:8063");
   assert.equal(verifiedSeasonStartOwnerFromEpisodes(rows, "tt2359704", 3), null);
   assert.equal(verifiedSeasonStartOwnerFromEpisodes(rows, "tt9999999", 2), null);
-  assert.equal(verifiedSeasonStartOwnerFromEpisodes([
-    ...rows,
-    { sourceMetaId: "kitsu:8739", imdbId: "tt2359704", imdbSeason: 2, imdbEpisode: 1 },
-  ], "tt2359704", 2), null, "two claimed first cours must remain unresolved");
+  assert.equal(
+    verifiedSeasonStartOwnerFromEpisodes(
+      [...rows, { sourceMetaId: "kitsu:8739", imdbId: "tt2359704", imdbSeason: 2, imdbEpisode: 1 }],
+      "tt2359704",
+      2,
+    ),
+    null,
+    "two claimed first cours must remain unresolved",
+  );
 });

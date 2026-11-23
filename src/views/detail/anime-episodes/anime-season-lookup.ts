@@ -49,8 +49,12 @@ function seasonCandidates(
   if (/^season\s*\d+$/i.test(seasonName.trim())) return [];
 
   return hits.filter((hit) => {
-    if (hit.year == null || Math.abs(hit.year - releaseYear) > 1 ||
-        !/^(tv|ona)$/i.test(hit.subtype ?? "")) return false;
+    if (
+      hit.year == null ||
+      Math.abs(hit.year - releaseYear) > 1 ||
+      !/^(tv|ona)$/i.test(hit.subtype ?? "")
+    )
+      return false;
     const words = new Set(titleTokens(hit.title));
     return base.every((word) => words.has(word)) && arc.every((word) => words.has(word));
   });
@@ -69,15 +73,13 @@ export function matchingKitsuSeasonEntry(
   year: string | undefined,
 ): string | null {
   const candidates = seasonCandidates(hits, seriesName, seasonName, year).filter(
-    (hit) => !/\bpart\s+[2-9]\d*\b/i.test(hit.title) ||
-      /\bpart\s+[2-9]\d*\b/i.test(seasonName),
+    (hit) => !/\bpart\s+[2-9]\d*\b/i.test(hit.title) || /\bpart\s+[2-9]\d*\b/i.test(seasonName),
   );
   const exact = candidates.filter((hit) => hit.year === Number(year));
   if (exact.length > 1) return null;
   if (exact.length === 1) return "kitsu:" + exact[0].id;
   return candidates.length === 1 ? "kitsu:" + candidates[0].id : null;
 }
-
 
 /** A TVDB season may span multiple native cours (e.g. Stardust Crusaders).
  * Lookup matches remain untrusted until their episodes match the exact
@@ -90,8 +92,9 @@ export function matchingKitsuSeasonEntries(
 ): string[] {
   const primary = matchingKitsuSeasonEntry(hits, seriesName, seasonName, year);
   if (!primary) return [];
-  const candidates = seasonCandidates(hits, seriesName, seasonName, year)
-    .sort((a, b) => (a.year ?? 0) - (b.year ?? 0));
+  const candidates = seasonCandidates(hits, seriesName, seasonName, year).sort(
+    (a, b) => (a.year ?? 0) - (b.year ?? 0),
+  );
   const ids = [primary];
   for (const hit of candidates) {
     const id = "kitsu:" + hit.id;

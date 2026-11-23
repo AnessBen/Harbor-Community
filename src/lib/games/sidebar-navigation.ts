@@ -10,8 +10,7 @@ export type SidebarGameDestination =
 /** Keep click targets tied to the actual library entry, never a guessed catalog match. */
 export function sidebarGameDestination(game: QuickGame): SidebarGameDestination {
   if (game.source === "shortcut") return { kind: "shortcut", id: game.id };
-  if (game.game)
-    return { kind: "details", game: { ...game.game, libraryEntryId: game.id } };
+  if (game.game) return { kind: "details", game: { ...game.game, libraryEntryId: game.id } };
   if (game.source === "custom") return { kind: "custom", id: game.custom.id };
   return {
     kind: "library",

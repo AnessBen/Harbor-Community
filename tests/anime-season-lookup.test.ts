@@ -8,7 +8,9 @@ const exports: Record<string, unknown> = {};
 const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText;
-new Function("require", "exports", compiled)(() => { throw new Error("unexpected runtime import"); }, exports);
+new Function("require", "exports", compiled)(() => {
+  throw new Error("unexpected runtime import");
+}, exports);
 const pick = exports.matchingKitsuSeasonEntry as (
   hits: Array<{ id: number; title: string; year: number | null; subtype: string | null }>,
   base: string,
@@ -19,7 +21,12 @@ const pick = exports.matchingKitsuSeasonEntry as (
 const jojo = "JoJo's Bizarre Adventure";
 const hits = [
   { id: 41410, title: "JoJo's Bizarre Adventure: Golden Wind", year: 2018, subtype: "TV" },
-  { id: 42116, title: "JoJo's Bizarre Adventure: Golden Wind Recap", year: 2019, subtype: "special" },
+  {
+    id: 42116,
+    title: "JoJo's Bizarre Adventure: Golden Wind Recap",
+    year: 2019,
+    subtype: "special",
+  },
   { id: 44294, title: "JoJo's Bizarre Adventure: Stone Ocean", year: 2021, subtype: "TV" },
   { id: 46010, title: "JoJo's Bizarre Adventure: Stone Ocean Part 2", year: 2022, subtype: "TV" },
   { id: 49847, title: "Steel Ball Run: JoJo's Bizarre Adventure", year: 2026, subtype: "ONA" },
@@ -40,7 +47,6 @@ test("season search rejects wrong dates, formats, generic names, and ambiguous h
   assert.equal(pick(hits, "Unrelated Anime", "Golden Wind", "2018"), null);
   assert.equal(pick([...hits, { ...hits[0], id: 999 }], jojo, "Golden Wind", "2018"), null);
 });
-
 
 test("season name plus adjacent premiere year is a general fallback when catalog metadata starts a year later", () => {
   const sample = [
@@ -73,18 +79,33 @@ test("Steel Ball Run CW details resolve a common franchise title for older JoJo 
     "Steel Ball Run: JoJo's Bizarre Adventure",
   ]);
   assert.equal(series, "JoJo's Bizarre Adventure");
-  assert.equal(query(series, "Diamond is Unbreakable"),
-    "JoJo's Bizarre Adventure Diamond is Unbreakable");
+  assert.equal(
+    query(series, "Diamond is Unbreakable"),
+    "JoJo's Bizarre Adventure Diamond is Unbreakable",
+  );
   assert.equal(commonSeries("Unrelated Show: Part Two", []), "Unrelated Show: Part Two");
 });
 
 test("Stardust Crusaders season resolves both verified cour candidates", () => {
   const entries = [
     { id: 8063, title: "JoJo's Bizarre Adventure: Stardust Crusaders", year: 2014, subtype: "TV" },
-    { id: 8739, title: "JoJo's Bizarre Adventure: Stardust Crusaders - Battle in Egypt", year: 2015, subtype: "TV" },
-    { id: 11459, title: "JoJo's Bizarre Adventure: Diamond is Unbreakable", year: 2016, subtype: "TV" },
+    {
+      id: 8739,
+      title: "JoJo's Bizarre Adventure: Stardust Crusaders - Battle in Egypt",
+      year: 2015,
+      subtype: "TV",
+    },
+    {
+      id: 11459,
+      title: "JoJo's Bizarre Adventure: Diamond is Unbreakable",
+      year: 2016,
+      subtype: "TV",
+    },
   ];
-  assert.deepEqual(pickCours(entries, jojo, "Stardust Crusaders", "2014"), ["kitsu:8063", "kitsu:8739"]);
+  assert.deepEqual(pickCours(entries, jojo, "Stardust Crusaders", "2014"), [
+    "kitsu:8063",
+    "kitsu:8739",
+  ]);
   assert.deepEqual(pickCours(entries, jojo, "Diamond is Unbreakable", "2016"), ["kitsu:11459"]);
   assert.deepEqual(pickCours(entries, jojo, "Season 2", "2014"), []);
   assert.deepEqual(pickCours(entries, "Wrong Series", "Stardust Crusaders", "2014"), []);

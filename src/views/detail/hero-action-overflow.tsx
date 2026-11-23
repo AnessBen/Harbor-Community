@@ -186,7 +186,11 @@ export function HeroActionOverflow({
                   />
                 )}
                 {anilist && (
-                  <AnilistMenuItems key={`anilist:${anilist.harborId}`} harborId={anilist.harborId} onAction={() => setMenu(null)} />
+                  <AnilistMenuItems
+                    key={`anilist:${anilist.harborId}`}
+                    harborId={anilist.harborId}
+                    onAction={() => setMenu(null)}
+                  />
                 )}
                 {mal && (
                   <MalMenuItems

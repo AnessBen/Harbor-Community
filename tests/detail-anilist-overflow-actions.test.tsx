@@ -20,14 +20,16 @@ const compiled = ts.transpileModule(source, {
 
 type Status = "CURRENT" | "PLANNING" | "COMPLETED" | "PAUSED" | "DROPPED" | "REPEATING";
 
-function harness(input: {
-  connected?: boolean;
-  resolvedId?: number | null;
-  status?: Status | null;
-  saveFails?: boolean;
-  deleteFails?: boolean;
-  fetchFails?: boolean;
-} = {}) {
+function harness(
+  input: {
+    connected?: boolean;
+    resolvedId?: number | null;
+    status?: Status | null;
+    saveFails?: boolean;
+    deleteFails?: boolean;
+    fetchFails?: boolean;
+  } = {},
+) {
   const dom = new JSDOM("<body><div id='app'></div>", {
     url: "http://localhost/",
     pretendToBeVisual: true,
@@ -99,10 +101,12 @@ function harness(input: {
     find,
     async render() {
       await React.act(async () => {
-        root.render(jsx.jsx(AnilistMenuItems, {
-          harborId: "kitsu:11459",
-          onAction: () => calls.push("close"),
-        }));
+        root.render(
+          jsx.jsx(AnilistMenuItems, {
+            harborId: "kitsu:11459",
+            onAction: () => calls.push("close"),
+          }),
+        );
       });
     },
     async click(label: string) {
@@ -123,7 +127,9 @@ test("AniList overflow menu is hidden for disconnected accounts", async () => {
     await h.render();
     assert.equal(h.find("Add to AniList"), undefined);
     assert.deepEqual(h.calls, []);
-  } finally { await h.dispose(); }
+  } finally {
+    await h.dispose();
+  }
 });
 
 test("AniList overflow menu resolves the native season owner and displays its status", async () => {
@@ -135,9 +141,14 @@ test("AniList overflow menu resolves the native season owner and displays its st
     await h.click("AniList · Completed");
     assert.ok(h.find("Watching"));
     assert.ok(h.find("Remove from list"));
-    assert.deepEqual(h.calls, ["resolve:kitsu:11459", "fetch:21450"],
-      "opening a status submenu must never write to AniList");
-  } finally { await h.dispose(); }
+    assert.deepEqual(
+      h.calls,
+      ["resolve:kitsu:11459", "fetch:21450"],
+      "opening a status submenu must never write to AniList",
+    );
+  } finally {
+    await h.dispose();
+  }
 });
 
 test("AniList overflow update confirms success before closing the menu", async () => {
@@ -148,7 +159,9 @@ test("AniList overflow update confirms success before closing the menu", async (
     await h.click("Completed");
     assert.deepEqual(h.calls.slice(-3), ["save:21450:COMPLETED", "notify", "close"]);
     assert.ok(h.find("AniList · Completed"));
-  } finally { await h.dispose(); }
+  } finally {
+    await h.dispose();
+  }
 });
 
 test("AniList overflow add and removal confirm success before closing", async () => {
@@ -157,14 +170,18 @@ test("AniList overflow add and removal confirm success before closing", async ()
     await add.render();
     await add.click("Add to AniList");
     assert.deepEqual(add.calls.slice(-3), ["save:21450:PLANNING", "notify", "close"]);
-  } finally { await add.dispose(); }
+  } finally {
+    await add.dispose();
+  }
   const remove = harness({ status: "PAUSED" });
   try {
     await remove.render();
     await remove.click("AniList · On Hold");
     await remove.click("Remove from list");
     assert.deepEqual(remove.calls.slice(-3), ["remove:900", "notify", "close"]);
-  } finally { await remove.dispose(); }
+  } finally {
+    await remove.dispose();
+  }
 });
 
 test("failed AniList mutations keep the menu open, restore status and explain failure", async () => {
@@ -180,7 +197,9 @@ test("failed AniList mutations keep the menu open, restore status and explain fa
     await h.click("Remove from list");
     assert.ok(h.find("AniList · Watching"));
     assert.equal(h.calls.includes("close"), false);
-  } finally { await h.dispose(); }
+  } finally {
+    await h.dispose();
+  }
 });
 
 test("failed lookup shows an explicit retry action rather than disappearing indefinitely", async () => {
@@ -190,5 +209,7 @@ test("failed lookup shows an explicit retry action rather than disappearing inde
     assert.ok(h.find("Unable to load AniList status. Retry."));
     assert.equal(h.find("Add to AniList"), undefined);
     assert.equal(h.calls.includes("close"), false);
-  } finally { await h.dispose(); }
+  } finally {
+    await h.dispose();
+  }
 });

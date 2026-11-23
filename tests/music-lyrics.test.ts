@@ -254,7 +254,6 @@ test("the lyrics request uses the cleaned song title", async () => {
   assert.ok(!calls[0].includes("OFFICIAL"), calls[0]);
 });
 
-
 test("skipping a song aborts its obsolete lyrics request and fetches the next song", async () => {
   let cancelled = 0;
   const { lyrics, calls } = build(async (url, init) => {
@@ -275,10 +274,9 @@ test("skipping a song aborts its obsolete lyrics request and fetches the next so
   previous.abort();
   assert.equal(await abandoned, null);
   assert.equal(cancelled, 1);
-  assert.deepEqual(
-    await lyrics.loadTrackLyrics(track({ id: "new-song", title: "New Song" })),
-    [{ at: 2, text: "New song" }],
-  );
+  assert.deepEqual(await lyrics.loadTrackLyrics(track({ id: "new-song", title: "New Song" })), [
+    { at: 2, text: "New song" },
+  ]);
   assert.equal(calls.length, 2);
 });
 
@@ -288,7 +286,13 @@ test("one lyrics viewer leaving does not cancel another viewer of the same song"
   const { lyrics, calls } = build(async (_url, init) => {
     return new Promise((resolve) => {
       respond = resolve;
-      init?.signal?.addEventListener("abort", () => { upstreamCancelled = true; }, { once: true });
+      init?.signal?.addEventListener(
+        "abort",
+        () => {
+          upstreamCancelled = true;
+        },
+        { once: true },
+      );
     });
   });
   const panel = new AbortController();
@@ -303,14 +307,22 @@ test("one lyrics viewer leaving does not cancel another viewer of the same song"
   assert.equal(calls.length, 1);
 });
 
-
 test("a cancellable viewer cannot abort another caller without a signal", async () => {
   let respond!: (value: unknown) => void;
   let cancelled = false;
-  const { lyrics, calls } = build(async (_url, init) => new Promise((resolve) => {
-    respond = resolve;
-    init?.signal?.addEventListener("abort", () => { cancelled = true; }, { once: true });
-  }));
+  const { lyrics, calls } = build(
+    async (_url, init) =>
+      new Promise((resolve) => {
+        respond = resolve;
+        init?.signal?.addEventListener(
+          "abort",
+          () => {
+            cancelled = true;
+          },
+          { once: true },
+        );
+      }),
+  );
   const viewer = new AbortController();
   const cancelMe = lyrics.loadTrackLyrics(track({ id: "legacy-and-viewer" }), viewer.signal);
   const keepMe = lyrics.loadTrackLyrics(track({ id: "legacy-and-viewer" }));

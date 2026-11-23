@@ -39,7 +39,10 @@ import type { EBookChapter, EBookChapterContent } from "@/lib/ebook/providers";
 import { ebookTextIdentity } from "@/lib/ebook/chapter-locations";
 import { createEBookFlipPages, type EBookFlipPages } from "@/lib/ebook/book-pages";
 import { PdfDocumentError, pdfPageCount } from "@/lib/ebook/pdf";
-import { createPdfFlipbookPageUrls, releasePdfFlipbookPageUrls } from "@/lib/ebook/pdf-flipbook-pages";
+import {
+  createPdfFlipbookPageUrls,
+  releasePdfFlipbookPageUrls,
+} from "@/lib/ebook/pdf-flipbook-pages";
 import {
   addEBookBookmark,
   loadEBookAnnotations,
@@ -570,9 +573,12 @@ export function PdfPageView({
       // handler. Capture it before other window listeners and WebView zoom.
       event.preventDefault();
       event.stopImmediatePropagation();
-      setZoom((value) => Math.max(0.5, Math.min(3,
-        Math.round((value + (event.deltaY < 0 ? 0.1 : -0.1)) * 100) / 100,
-      )));
+      setZoom((value) =>
+        Math.max(
+          0.5,
+          Math.min(3, Math.round((value + (event.deltaY < 0 ? 0.1 : -0.1)) * 100) / 100),
+        ),
+      );
     };
     window.addEventListener("wheel", onWheel, { capture: true, passive: false });
     return () => window.removeEventListener("wheel", onWheel, { capture: true });
@@ -592,41 +598,82 @@ export function PdfPageView({
   }, [pdf.width, width]);
 
   return (
-    <div ref={host} data-pdf-page-view className="mx-auto flex w-full min-w-0 flex-col items-center gap-4">
+    <div
+      ref={host}
+      data-pdf-page-view
+      className="mx-auto flex w-full min-w-0 flex-col items-center gap-4"
+    >
       <div className="flex flex-wrap items-center justify-center gap-2 rounded-full bg-black/70 px-3 py-2 text-xs text-white shadow-lg backdrop-blur">
-        <button type="button" aria-label="Fit PDF page" aria-pressed={fit === "page"}
-          onClick={() => { setFit("page"); setZoom(1); }}
-          className={`rounded-full px-3 py-1.5 ${fit === "page" ? "bg-white/25" : "hover:bg-white/15"}`}>
+        <button
+          type="button"
+          aria-label="Fit PDF page"
+          aria-pressed={fit === "page"}
+          onClick={() => {
+            setFit("page");
+            setZoom(1);
+          }}
+          className={`rounded-full px-3 py-1.5 ${fit === "page" ? "bg-white/25" : "hover:bg-white/15"}`}
+        >
           Fit page
         </button>
-        <button type="button" aria-label="Fit PDF width" aria-pressed={fit === "width"}
-          onClick={() => { setFit("width"); setZoom(1); }}
-          className={`rounded-full px-3 py-1.5 ${fit === "width" ? "bg-white/25" : "hover:bg-white/15"}`}>
+        <button
+          type="button"
+          aria-label="Fit PDF width"
+          aria-pressed={fit === "width"}
+          onClick={() => {
+            setFit("width");
+            setZoom(1);
+          }}
+          className={`rounded-full px-3 py-1.5 ${fit === "width" ? "bg-white/25" : "hover:bg-white/15"}`}
+        >
           Fit width
         </button>
         <span className="mx-1 h-4 w-px bg-white/25" aria-hidden="true" />
-        <button type="button" aria-label="Zoom out PDF" disabled={zoom <= 0.5}
+        <button
+          type="button"
+          aria-label="Zoom out PDF"
+          disabled={zoom <= 0.5}
           onClick={() => setZoom((value) => Math.max(0.5, Math.round((value - 0.15) * 100) / 100))}
-          className="rounded-full p-1.5 hover:bg-white/15 disabled:opacity-40">
+          className="rounded-full p-1.5 hover:bg-white/15 disabled:opacity-40"
+        >
           <ZoomOut size={16} />
         </button>
-        <button type="button" aria-label="Reset PDF zoom" onClick={() => setZoom(1)}
-          className="min-w-12 rounded-full px-2 py-1.5 hover:bg-white/15">{Math.round(zoom * 100)}%</button>
-        <button type="button" aria-label="Zoom in PDF" disabled={zoom >= 3}
+        <button
+          type="button"
+          aria-label="Reset PDF zoom"
+          onClick={() => setZoom(1)}
+          className="min-w-12 rounded-full px-2 py-1.5 hover:bg-white/15"
+        >
+          {Math.round(zoom * 100)}%
+        </button>
+        <button
+          type="button"
+          aria-label="Zoom in PDF"
+          disabled={zoom >= 3}
           onClick={() => setZoom((value) => Math.min(3, Math.round((value + 0.15) * 100) / 100))}
-          className="rounded-full p-1.5 hover:bg-white/15 disabled:opacity-40">
+          className="rounded-full p-1.5 hover:bg-white/15 disabled:opacity-40"
+        >
           <ZoomIn size={16} />
         </button>
       </div>
       <div data-pdf-viewport className="w-full min-w-0 overflow-x-auto pb-6">
-        <div className="flex w-full" style={{ justifyContent: width > availableWidth ? "flex-start" : "center" }}>
-          <div ref={root} data-pdf-paper className="relative shrink-0 bg-white shadow-[0_18px_65px_rgba(0,0,0,.38)]"
-            style={{ width: `${width}px` }}>
+        <div
+          className="flex w-full"
+          style={{ justifyContent: width > availableWidth ? "flex-start" : "center" }}
+        >
+          <div
+            ref={root}
+            data-pdf-paper
+            className="relative shrink-0 bg-white shadow-[0_18px_65px_rgba(0,0,0,.38)]"
+            style={{ width: `${width}px` }}
+          >
             <img src={image} alt="" className="block h-auto w-full" draggable={false} />
             {pdf.textLayer && (
-              <div className="pdf-text-layer"
+              <div
+                className="pdf-text-layer"
                 style={{ "--scale-factor": scale } as CSSProperties}
-                dangerouslySetInnerHTML={{ __html: pdf.textLayer }} />
+                dangerouslySetInnerHTML={{ __html: pdf.textLayer }}
+              />
             )}
           </div>
         </div>
@@ -2107,9 +2154,11 @@ export function HarborReader({
           <article
             ref={article}
             dir={effectiveDirection}
-            className={pdfPage
+            className={
+              pdfPage
                 ? "relative mx-auto flex min-h-full w-full flex-col items-center justify-center px-0 py-5"
-                : "relative mx-auto min-h-[calc(100vh-8rem)] select-text rounded-[2px] px-7 py-14 shadow-[0_28px_90px_rgba(0,0,0,.42)] transition-[width,background-color] duration-300 sm:px-14"}
+                : "relative mx-auto min-h-[calc(100vh-8rem)] select-text rounded-[2px] px-7 py-14 shadow-[0_28px_90px_rgba(0,0,0,.42)] transition-[width,background-color] duration-300 sm:px-14"
+            }
             style={
               {
                 width: pdfPage ? "min(100%, 1120px)" : `min(100%, ${prefs.width}px)`,
@@ -2139,17 +2188,19 @@ export function HarborReader({
                 />
               </section>
             )}
-            {!pdfPage && <header className="mb-12 border-b pb-7" style={{ borderColor: `${colors.muted}35` }}>
-              <div
-                className="mb-2 text-xs font-semibold uppercase tracking-[.24em]"
-                style={{ color: colors.muted }}
-              >
-                {t("Harbor Reader")}
-              </div>
-              <h1 className="text-balance text-[1.85em] font-semibold leading-tight">
-                {readerTitle}
-              </h1>
-            </header>}
+            {!pdfPage && (
+              <header className="mb-12 border-b pb-7" style={{ borderColor: `${colors.muted}35` }}>
+                <div
+                  className="mb-2 text-xs font-semibold uppercase tracking-[.24em]"
+                  style={{ color: colors.muted }}
+                >
+                  {t("Harbor Reader")}
+                </div>
+                <h1 className="text-balance text-[1.85em] font-semibold leading-tight">
+                  {readerTitle}
+                </h1>
+              </header>
+            )}
             {!pdfPage &&
               paragraphs.map((text, index) => (
                 <p

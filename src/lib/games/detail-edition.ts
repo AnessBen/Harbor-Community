@@ -34,12 +34,7 @@ export function showDetailGuides(
   reviewed: LibraryMetadataMatch | undefined,
   available: boolean,
 ): boolean {
-  return (
-    available ||
-    !!reviewed ||
-    /^igdb:[1-9]\d*$/.test(game.id) ||
-    (!!atlas && !storeDetail)
-  );
+  return available || !!reviewed || /^igdb:[1-9]\d*$/.test(game.id) || (!!atlas && !storeDetail);
 }
 
 /** An IGDB route chooses that edition. An external store link does not change it. */

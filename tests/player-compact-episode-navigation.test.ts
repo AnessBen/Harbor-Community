@@ -38,11 +38,7 @@ test("next episode stays available in tight transport layouts", () => {
   const next = controlCase("next-episode", "pick-another");
 
   assert.match(next, /if \(!ctx\.showEpisodeNav\) return null;/);
-  assert.doesNotMatch(
-    next,
-    /if\s*\(\s*ctx\.tight\s*\|\|/,
-    "tight mode must not hide next episode",
-  );
+  assert.doesNotMatch(next, /if\s*\(\s*ctx\.tight\s*\|\|/, "tight mode must not hide next episode");
   assert.match(
     next,
     /const iconOnly = ctx\.tight \|\| v === "condensed"/,

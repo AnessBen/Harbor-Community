@@ -44,13 +44,7 @@ const MAL_LABELS: Record<MalListStatus, string> = {
   dropped: "Dropped",
 };
 
-const MAL_ORDER: MalListStatus[] = [
-  "watching",
-  "plan_to_watch",
-  "completed",
-  "on_hold",
-  "dropped",
-];
+const MAL_ORDER: MalListStatus[] = ["watching", "plan_to_watch", "completed", "on_hold", "dropped"];
 
 const ANILIST_LABELS: Record<MediaListStatus, string> = {
   CURRENT: "Watching",
@@ -220,13 +214,7 @@ export function SimklMenuItems({
 }
 
 /** Keep the MyAnimeList actions reachable when the detail hero moves into overflow. */
-export function MalMenuItems({
-  harborId,
-  onAction,
-}: {
-  harborId: string;
-  onAction: () => void;
-}) {
+export function MalMenuItems({ harborId, onAction }: { harborId: string; onAction: () => void }) {
   const t = useT();
   const { isConnected } = useMal();
   const trackerStatusVersion = useTrackerStatusVersion();
@@ -338,11 +326,7 @@ export function MalMenuItems({
               onClick={() => void setTo(entryStatus)}
             />
           ))}
-          <StatusRow
-            label={t("Remove from list")}
-            danger
-            onClick={() => void remove()}
-          />
+          <StatusRow label={t("Remove from list")} danger onClick={() => void remove()} />
         </>
       )}
     </>
@@ -487,15 +471,15 @@ export function AnilistMenuItems({
             />
           ))}
           {entryId != null && (
-            <StatusRow
-              label={t("Remove from list")}
-              danger
-              onClick={() => void remove()}
-            />
+            <StatusRow label={t("Remove from list")} danger onClick={() => void remove()} />
           )}
         </>
       )}
-      {error && <p role="alert" className="px-3 py-1 text-xs text-danger">{error}</p>}
+      {error && (
+        <p role="alert" className="px-3 py-1 text-xs text-danger">
+          {error}
+        </p>
+      )}
     </>
   );
 }

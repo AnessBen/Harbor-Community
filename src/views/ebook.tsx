@@ -410,16 +410,17 @@ export function EBookView() {
     return items;
   }, [collectionBooks, sourceItems, localDetailsVersion]);
   const displaySaved = useMemo(
-    () => saved.map((ebook) => applyLocalEBookDetails(
-      currentItems.get(ebook.id) ?? mergeEBookMetadata([ebook], [])[0],
-    )),
+    () =>
+      saved.map((ebook) =>
+        applyLocalEBookDetails(currentItems.get(ebook.id) ?? mergeEBookMetadata([ebook], [])[0]),
+      ),
     [currentItems, saved, localDetailsVersion],
   );
   const displayFavorites = useMemo(
     () =>
-      favorites.map((ebook) => applyLocalEBookDetails(
-        currentItems.get(ebook.id) ?? mergeEBookMetadata([ebook], [])[0],
-      )),
+      favorites.map((ebook) =>
+        applyLocalEBookDetails(currentItems.get(ebook.id) ?? mergeEBookMetadata([ebook], [])[0]),
+      ),
     [currentItems, favorites, localDetailsVersion],
   );
   const continueBookmarks = useMemo(() => {
@@ -2861,7 +2862,7 @@ function EBookDetails({
   const [localEditVersion, setLocalEditVersion] = useState(0);
   const [editingLocalDetails, setEditingLocalDetails] = useState(false);
   const ebook = useMemo(
-    () => originalEbook ? applyLocalEBookDetails(originalEbook) : null,
+    () => (originalEbook ? applyLocalEBookDetails(originalEbook) : null),
     [originalEbook, localEditVersion],
   );
   const detailBestsellers = useNytList();
@@ -3392,12 +3393,15 @@ function EBookDetails({
                     {saved ? <Library size={19} /> : <Bookmark size={19} />}
                     {saved ? t("Bookmarked") : t("Bookmark")}
                   </button>
-                    {isLocalEBook(ebook) && (
-                      <button type="button" onClick={() => setEditingLocalDetails(true)}
-                        className="inline-flex h-12 items-center gap-2.5 rounded-full bg-white/[0.06] px-5 text-[14px] font-semibold text-ink ring-1 ring-inset ring-edge-soft transition-colors hover:bg-white/[0.10]">
-                        <Pencil size={17} /> Edit details
-                      </button>
-                    )}
+                  {isLocalEBook(ebook) && (
+                    <button
+                      type="button"
+                      onClick={() => setEditingLocalDetails(true)}
+                      className="inline-flex h-12 items-center gap-2.5 rounded-full bg-white/[0.06] px-5 text-[14px] font-semibold text-ink ring-1 ring-inset ring-edge-soft transition-colors hover:bg-white/[0.10]"
+                    >
+                      <Pencil size={17} /> Edit details
+                    </button>
+                  )}
                   {sourceOptions.length > 0 && sourceRoute && (
                     <EBookDetailDropdown
                       options={sourceOptions.map((source) => ({
@@ -3586,12 +3590,16 @@ function EBookDetails({
           onClose={() => setReading(null)}
         />
       )}
-      {editingLocalDetails && isLocalEBook(ebook) && createPortal(
-        <EBookLocalDetailsEditor ebook={ebook}
-          onClose={() => setEditingLocalDetails(false)}
-          onSaved={() => setLocalEditVersion((value) => value + 1)} />,
-        document.body,
-      )}
+      {editingLocalDetails &&
+        isLocalEBook(ebook) &&
+        createPortal(
+          <EBookLocalDetailsEditor
+            ebook={ebook}
+            onClose={() => setEditingLocalDetails(false)}
+            onSaved={() => setLocalEditVersion((value) => value + 1)}
+          />,
+          document.body,
+        )}
       {showScrollTop && !reading && (
         <div
           style={{

@@ -24,9 +24,7 @@ export function watchedKeysForNativeEntry(
   );
   const cap = total != null && total > 0 ? Math.min(aired.length, total) : aired.length;
   const count = completed ? cap : Math.max(0, Math.min(progress, cap));
-  return new Set(
-    aired.slice(0, count).map((ep) => String(ep.seasonNumber ?? 1) + ":" + ep.number),
-  );
+  return new Set(aired.slice(0, count).map((ep) => String(ep.seasonNumber ?? 1) + ":" + ep.number));
 }
 
 type EntrySets = {
@@ -57,11 +55,14 @@ export function useEntryTrackerWatched(episodes: KitsuEpisode[]): EntrySets {
     return [...byId].map(([id, rows]) => ({ id, rows }));
   }, [episodes]);
 
-  const key = groups.map(({ id, rows }) =>
-    id + "=" + rows.map((ep) =>
-      [ep.id, ep.seasonNumber, ep.number, ep.airdate].join(":")
-    ).join(",")
-  ).join("|");
+  const key = groups
+    .map(
+      ({ id, rows }) =>
+        id +
+        "=" +
+        rows.map((ep) => [ep.id, ep.seasonNumber, ep.number, ep.airdate].join(":")).join(","),
+    )
+    .join("|");
 
   useEffect(() => {
     if (groups.length < 2 || (!anilistConnected && !malConnected)) return;
@@ -71,25 +72,33 @@ export function useEntryTrackerWatched(episodes: KitsuEpisode[]): EntrySets {
         const [anilist, mal] = await Promise.all([
           anilistConnected
             ? resolveAnilistMediaId(id)
-              .then((mediaId) => mediaId == null ? null : fetchAnilistEntry(mediaId))
-              .then((entry) => entry?.entry
-                ? watchedKeysForNativeEntry(
-                    rows, entry.entry.progress,
-                    entry.entry.status === "COMPLETED", entry.episodes,
-                  )
-                : null)
-              .catch(() => null)
+                .then((mediaId) => (mediaId == null ? null : fetchAnilistEntry(mediaId)))
+                .then((entry) =>
+                  entry?.entry
+                    ? watchedKeysForNativeEntry(
+                        rows,
+                        entry.entry.progress,
+                        entry.entry.status === "COMPLETED",
+                        entry.episodes,
+                      )
+                    : null,
+                )
+                .catch(() => null)
             : Promise.resolve(null),
           malConnected
             ? resolveMalMediaId(id)
-              .then((malId) => malId == null ? null : fetchMalEntry(malId))
-              .then((entry) => entry?.entry
-                ? watchedKeysForNativeEntry(
-                    rows, entry.entry.numEpisodesWatched,
-                    entry.entry.status === "completed", entry.numEpisodes,
-                  )
-                : null)
-              .catch(() => null)
+                .then((malId) => (malId == null ? null : fetchMalEntry(malId)))
+                .then((entry) =>
+                  entry?.entry
+                    ? watchedKeysForNativeEntry(
+                        rows,
+                        entry.entry.numEpisodesWatched,
+                        entry.entry.status === "completed",
+                        entry.numEpisodes,
+                      )
+                    : null,
+                )
+                .catch(() => null)
             : Promise.resolve(null),
         ]);
         return { id, anilist, mal };

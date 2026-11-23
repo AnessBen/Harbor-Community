@@ -1,7 +1,9 @@
 import { lastPlayedEpisode } from "@/lib/resume";
 import { getAnimeCwId } from "@/lib/anime-cw-ids";
 import {
-  nativeSeasonRows, nativeSeasonOwnerId, verifiedSeasonOwnerFromEpisodes,
+  nativeSeasonRows,
+  nativeSeasonOwnerId,
+  verifiedSeasonOwnerFromEpisodes,
   verifiedSeasonStartOwnerFromEpisodes,
 } from "./anime-episodes/anime-season-key";
 import {
@@ -404,7 +406,11 @@ export const AnimeEpisodes = memo(function AnimeEpisodes({
       : null;
   }, [imdbId, catalogResume, seasonHint, currentId, meta.name]);
   const seasonLookupSeries = useMemo(
-    () => seasonLookupSeriesName(meta.name, franchise.map((entry) => entry.meta.name)),
+    () =>
+      seasonLookupSeriesName(
+        meta.name,
+        franchise.map((entry) => entry.meta.name),
+      ),
     [meta.name, franchise],
   );
   const seasonLookupKey = [meta.id, tvdbPanel.panel?.activeKey ?? "", seasonLookupSeries].join(":");
@@ -413,9 +419,7 @@ export const AnimeEpisodes = memo(function AnimeEpisodes({
     !premiereEntry &&
     !savedSeasonEntry &&
     !seasonEntry;
-  const [searchedSeason, setSearchedSeason] = useState<{ key: string; ids: string[] } | null>(
-    null,
-  );
+  const [searchedSeason, setSearchedSeason] = useState<{ key: string; ids: string[] } | null>(null);
   useEffect(() => {
     if (!needsSeasonLookup || !tvdbActiveSeason?.name) return;
     let cancelled = false;
@@ -741,9 +745,11 @@ export const AnimeEpisodes = memo(function AnimeEpisodes({
     seasonHint,
   );
   const selectedCanonicalEntryId = tvdbPanel.panel
-    ? (verifiedNativeOwner ?? verifiedDisplayOwner ?? verifiedFirstCourOwner ??
-       (requiresSeasonOwner ? null : displaySourceId ?? activeEntryId))
-    : displaySourceId ?? (activeIsAnchor ? null : activeEntryId);
+    ? (verifiedNativeOwner ??
+      verifiedDisplayOwner ??
+      verifiedFirstCourOwner ??
+      (requiresSeasonOwner ? null : (displaySourceId ?? activeEntryId)))
+    : (displaySourceId ?? (activeIsAnchor ? null : activeEntryId));
   useEffect(() => {
     onCanonicalEntry?.(selectedCanonicalEntryId, requiresSeasonOwner);
   }, [selectedCanonicalEntryId, requiresSeasonOwner, onCanonicalEntry]);

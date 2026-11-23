@@ -141,9 +141,7 @@ export function MusicWatch({
         current.phase === "error" ||
         !isMusicTrackPrimed(track)
       ) {
-        const selected = queueTarget
-          ? musicVideoQueueSelection(track, queueTarget, current)
-          : null;
+        const selected = queueTarget ? musicVideoQueueSelection(track, queueTarget, current) : null;
         const video =
           selected?.track ??
           musicVideoQueueEntries([

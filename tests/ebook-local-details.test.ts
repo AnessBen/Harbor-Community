@@ -16,10 +16,16 @@ const map = new Map<string, string>();
 Object.defineProperty(globalThis, "localStorage", {
   configurable: true,
   value: {
-    get length() { return map.size; },
+    get length() {
+      return map.size;
+    },
     getItem: (key: string) => map.get(key) ?? null,
-    setItem: (key: string, value: string) => { map.set(key, String(value)); },
-    removeItem: (key: string) => { map.delete(key); },
+    setItem: (key: string, value: string) => {
+      map.set(key, String(value));
+    },
+    removeItem: (key: string) => {
+      map.delete(key);
+    },
     key: (index: number) => [...map.keys()][index] ?? null,
   },
 });
@@ -65,21 +71,45 @@ test("local book details persist as overrides without modifying the original boo
 test("editing is restricted to local books and oversized cover data is rejected", () => {
   const external = { ...source, source: "openlibrary" as const, providerId: "openlibrary" };
   assert.equal(isLocalEBook(external), false);
-  assert.throws(() => saveLocalEBookDetails(external, {
-    title: "Bad", authors: [], description: "", genres: [],
-  }), /Only local/);
-  assert.throws(() => saveLocalEBookDetails(source, {
-    title: "  ", authors: [], description: "", genres: [],
-  }), /title cannot be empty/);
-  assert.throws(() => saveLocalEBookDetails(source, {
-    title: "PDF", authors: [], description: "", genres: [],
-    cover: "data:image/png;base64,abcd",
-  }), /cover is too large/);
+  assert.throws(
+    () =>
+      saveLocalEBookDetails(external, {
+        title: "Bad",
+        authors: [],
+        description: "",
+        genres: [],
+      }),
+    /Only local/,
+  );
+  assert.throws(
+    () =>
+      saveLocalEBookDetails(source, {
+        title: "  ",
+        authors: [],
+        description: "",
+        genres: [],
+      }),
+    /title cannot be empty/,
+  );
+  assert.throws(
+    () =>
+      saveLocalEBookDetails(source, {
+        title: "PDF",
+        authors: [],
+        description: "",
+        genres: [],
+        cover: "data:image/png;base64,abcd",
+      }),
+    /cover is too large/,
+  );
 });
 
 test("the persisted local override survives a simulated reload", () => {
   saveLocalEBookDetails(source, {
-    title: "Library title", authors: [], description: "", genres: [],
+    title: "Library title",
+    authors: [],
+    description: "",
+    genres: [],
   });
   const saved = map.get("harbor.ebook.local-details.v1");
   assert.ok(saved);

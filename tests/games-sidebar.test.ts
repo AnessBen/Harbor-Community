@@ -387,9 +387,12 @@ test("unlinked Bayonetta opens its local game manager rather than searching the 
     kind: "shortcut",
     id: local.id,
   });
-  assert.deepEqual(sidebarGameDestination({ ...local, id: "rom:test", source: "retro" } as QuickGame), {
-    kind: "library",
-    mode: "retro",
-    query: "Bayonetta",
-  });
+  assert.deepEqual(
+    sidebarGameDestination({ ...local, id: "rom:test", source: "retro" } as QuickGame),
+    {
+      kind: "library",
+      mode: "retro",
+      query: "Bayonetta",
+    },
+  );
 });

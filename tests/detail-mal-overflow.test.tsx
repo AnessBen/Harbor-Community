@@ -11,7 +11,10 @@ import * as jsx from "react/jsx-runtime";
 import * as icons from "lucide-react";
 import { createRoot } from "react-dom/client";
 
-const source = readFileSync(new URL("../src/views/detail/overflow-sync-items.tsx", import.meta.url), "utf8");
+const source = readFileSync(
+  new URL("../src/views/detail/overflow-sync-items.tsx", import.meta.url),
+  "utf8",
+);
 const compiled = ts.transpileModule(source, {
   compilerOptions: {
     module: ts.ModuleKind.CommonJS,
@@ -23,13 +26,15 @@ const compiled = ts.transpileModule(source, {
 
 type Status = "watching" | "plan_to_watch" | "completed" | "on_hold" | "dropped";
 
-function harness(input: {
-  connected?: boolean;
-  resolvedId?: number | null;
-  status?: Status | null;
-  saveFails?: boolean;
-  removeFails?: boolean;
-} = {}) {
+function harness(
+  input: {
+    connected?: boolean;
+    resolvedId?: number | null;
+    status?: Status | null;
+    saveFails?: boolean;
+    removeFails?: boolean;
+  } = {},
+) {
   const dom = new JSDOM("<body><div id='app'></div>", {
     url: "http://localhost/",
     pretendToBeVisual: true,
@@ -57,7 +62,9 @@ function harness(input: {
       },
       fetchListEntry: async (id: number) => {
         calls.push("fetch:" + id);
-        return { entry: input.status == null ? null : { status: input.status, numEpisodesWatched: 0 } };
+        return {
+          entry: input.status == null ? null : { status: input.status, numEpisodesWatched: 0 },
+        };
       },
       saveListEntry: async ({ malId, status }: { malId: number; status: Status }) => {
         calls.push("save:" + malId + ":" + status);
@@ -90,18 +97,20 @@ function harness(input: {
   assert.ok(MalMenuItems, "MAL overflow item is exported");
   const root = createRoot(document.getElementById("app")!);
   const find = (label: string): HTMLButtonElement | undefined =>
-    Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(
-      (item) => item.textContent?.includes(label),
+    Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((item) =>
+      item.textContent?.includes(label),
     );
   return {
     calls,
     find,
     async render() {
       await React.act(async () => {
-        root.render(jsx.jsx(MalMenuItems, {
-          harborId: "anilist:789",
-          onAction: () => calls.push("close"),
-        }));
+        root.render(
+          jsx.jsx(MalMenuItems, {
+            harborId: "anilist:789",
+            onAction: () => calls.push("close"),
+          }),
+        );
       });
     },
     async click(label: string) {
@@ -120,9 +129,15 @@ function harness(input: {
 
 test("detail overflow preserves the MAL tracker action in compact layouts", () => {
   const detail = readFileSync(new URL("../src/views/detail.tsx", import.meta.url), "utf8");
-  const overflow = readFileSync(new URL("../src/views/detail/hero-action-overflow.tsx", import.meta.url), "utf8");
+  const overflow = readFileSync(
+    new URL("../src/views/detail/hero-action-overflow.tsx", import.meta.url),
+    "utf8",
+  );
   assert.match(detail, /actionStage < 2 && animeIdentity && animeTrackerId/);
-  assert.match(detail, /mal=\{animeIdentity && animeTrackerId \? \{ harborId: animeTrackerId \} : null\}/);
+  assert.match(
+    detail,
+    /mal=\{animeIdentity && animeTrackerId \? \{ harborId: animeTrackerId \} : null\}/,
+  );
   assert.match(overflow, /\{showSync && \(/);
   assert.match(overflow, /\{mal && \(\s*<MalMenuItems/);
 });

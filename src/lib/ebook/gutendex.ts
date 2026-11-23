@@ -65,7 +65,11 @@ function fetchCatalog(url: string, background: boolean, signal?: AbortSignal): P
   return background ? safeFetchBytes(url, init, 20_000, 8 * 1024 * 1024) : safeFetch(url, init);
 }
 
-async function query(path: string, background = false, signal?: AbortSignal): Promise<GutendexBook[]> {
+async function query(
+  path: string,
+  background = false,
+  signal?: AbortSignal,
+): Promise<GutendexBook[]> {
   const response = await fetchCatalog(`${GUTENDEX_BASE}${path}`, background, signal);
   if (!response.ok) throw new Error(`Gutendex ${response.status}`);
   const data = (await response.json()) as { results?: RawBook[] };

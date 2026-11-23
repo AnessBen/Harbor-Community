@@ -19,49 +19,60 @@ function harness() {
   const exports: Record<string, any> = {};
 
   new Function("require", "exports", compiled)((id: string) => {
-    if (id === "@/lib/active-profile-id")
-      return { activeProfileId: () => profile };
-    if (id === "./session") return {
-      getSession: () => ({ userName: username }),
-      subscribeSession: (fn: () => void) => {
-        sessionChanged = fn;
-        return () => {};
-      },
-    };
-    if (id === "./client") return {
-      malRequest: async (path: string, options?: { method?: string }) => {
-        const method = options?.method ?? "GET";
-        events.push(method + ":" + path);
-        if (method === "GET") {
-          if (deferRead) await deferRead;
-          if (rejectReads) throw new Error("MAL unavailable");
-          return {
-            id: Number(path.split("/")[2].split("?")[0]),
-            num_episodes: 24,
-            my_list_status: {
-              status,
-              num_episodes_watched: status === "completed" ? 24 : 3,
-            },
-          };
-        }
-        if (method === "PATCH") {
-          status = "completed";
-          return { status: "completed", num_episodes_watched: 24 };
-        }
-        if (method === "DELETE") return undefined;
-        throw new Error("Unexpected method: " + method);
-      },
-    };
+    if (id === "@/lib/active-profile-id") return { activeProfileId: () => profile };
+    if (id === "./session")
+      return {
+        getSession: () => ({ userName: username }),
+        subscribeSession: (fn: () => void) => {
+          sessionChanged = fn;
+          return () => {};
+        },
+      };
+    if (id === "./client")
+      return {
+        malRequest: async (path: string, options?: { method?: string }) => {
+          const method = options?.method ?? "GET";
+          events.push(method + ":" + path);
+          if (method === "GET") {
+            if (deferRead) await deferRead;
+            if (rejectReads) throw new Error("MAL unavailable");
+            return {
+              id: Number(path.split("/")[2].split("?")[0]),
+              num_episodes: 24,
+              my_list_status: {
+                status,
+                num_episodes_watched: status === "completed" ? 24 : 3,
+              },
+            };
+          }
+          if (method === "PATCH") {
+            status = "completed";
+            return { status: "completed", num_episodes_watched: 24 };
+          }
+          if (method === "DELETE") return undefined;
+          throw new Error("Unexpected method: " + method);
+        },
+      };
     throw new Error("Unexpected dependency: " + id);
   }, exports);
 
   return {
     events,
-    setAccount(value: string) { username = value; },
-    setProfile(value: string) { profile = value; },
-    invalidateSession() { sessionChanged(); },
-    setRejectReads(value: boolean) { rejectReads = value; },
-    setDeferredRead(value: Promise<void> | null) { deferRead = value; },
+    setAccount(value: string) {
+      username = value;
+    },
+    setProfile(value: string) {
+      profile = value;
+    },
+    invalidateSession() {
+      sessionChanged();
+    },
+    setRejectReads(value: boolean) {
+      rejectReads = value;
+    },
+    setDeferredRead(value: Promise<void> | null) {
+      deferRead = value;
+    },
     fetch: exports.fetchListEntry as (id: number, strict?: boolean) => Promise<any>,
     save: exports.saveListEntry as (data: { malId: number; status: string }) => Promise<any>,
     remove: exports.deleteListEntry as (id: number) => Promise<boolean>,
@@ -71,8 +82,10 @@ function harness() {
 test("simultaneous MAL detail, menu and progress reads share one API request", async () => {
   const h = harness();
   const [a, b, c] = await Promise.all([h.fetch(101), h.fetch(101), h.fetch(101)]);
-  assert.deepEqual([a.entry.status, b.entry.status, c.entry.status],
-    ["watching", "watching", "watching"]);
+  assert.deepEqual(
+    [a.entry.status, b.entry.status, c.entry.status],
+    ["watching", "watching", "watching"],
+  );
   assert.equal(h.events.length, 1);
   await h.fetch(101);
   assert.equal(h.events.length, 1, "repeat lookup reuses the recent result");
@@ -87,8 +100,10 @@ test("MAL writes invalidate cached entry state and preserve strict behavior", as
   assert.equal((await h.fetch(102)).entry.status, "completed");
   assert.equal(await h.remove(102), true);
   await h.fetch(102);
-  assert.deepEqual(h.events.map((event) => event.split(":")[0]),
-    ["GET", "PATCH", "GET", "DELETE", "GET"]);
+  assert.deepEqual(
+    h.events.map((event) => event.split(":")[0]),
+    ["GET", "PATCH", "GET", "DELETE", "GET"],
+  );
 });
 
 test("MAL status cache is isolated by both account and Harbor profile", async () => {
@@ -115,7 +130,9 @@ test("failed MAL lookups retry and do not poison the shared cache", async () => 
 test("an invalidated in-flight MAL read cannot overwrite a newer result", async () => {
   const h = harness();
   let release!: () => void;
-  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
   h.setDeferredRead(gate);
   const stale = h.fetch(105);
   h.invalidateSession();
@@ -139,5 +156,7 @@ test("MAL status cache expires after its short TTL", async () => {
     now += 1_001;
     await h.fetch(106);
     assert.equal(h.events.length, 2);
-  } finally { Date.now = originalNow; }
+  } finally {
+    Date.now = originalNow;
+  }
 });

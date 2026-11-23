@@ -290,7 +290,9 @@ export function AddToAnilistButton({ harborId, title }: { harborId: string; titl
             {t("Remove from list")}
           </button>
           {actionError && (
-            <p role="alert" className="px-4 py-2 text-xs text-danger">{actionError}</p>
+            <p role="alert" className="px-4 py-2 text-xs text-danger">
+              {actionError}
+            </p>
           )}
         </div>
       </AnchoredMenu>

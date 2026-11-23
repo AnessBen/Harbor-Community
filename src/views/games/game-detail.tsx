@@ -121,7 +121,11 @@ import { wowClassicEdition } from "@/lib/games/wow-classic";
 import { WOW_CLASSIC_ART, WOW_RETAIL_ART } from "@/lib/games/wow-art";
 import { MusicGlyph } from "@/components/icons/music-glyph";
 import { useGameAccess } from "./game-access";
-import { detailEditionTarget, resolveDetailEdition, showDetailGuides } from "@/lib/games/detail-edition";
+import {
+  detailEditionTarget,
+  resolveDetailEdition,
+  showDetailGuides,
+} from "@/lib/games/detail-edition";
 import { romGameArtwork } from "@/lib/games/rom-editorial";
 import { GameReleaseDetails } from "./game-release-details";
 
@@ -369,13 +373,14 @@ export function GameDetailPage({
     revision,
     classicEdition,
   ]);
-  const { atlas, storeDetail, detail, portableGame, steamLinkId, guideSteamId } = resolveDetailEdition(
-    game,
-    loadedStore,
-    loadedAtlas,
-    reviewedMetadata,
-    customLibrary.data.games,
-  );
+  const { atlas, storeDetail, detail, portableGame, steamLinkId, guideSteamId } =
+    resolveDetailEdition(
+      game,
+      loadedStore,
+      loadedAtlas,
+      reviewedMetadata,
+      customLibrary.data.games,
+    );
   const favorited = !!prefs.get(portableGame.id).pinned;
   const pokemon = pokemonEdition(
     portableGame.name,

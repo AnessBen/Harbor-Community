@@ -51,7 +51,10 @@ test("a partial second cour never inherits completed progress from the first cou
 });
 
 test("multi-cour watched progress stays scoped to a native source ID", () => {
-  const progress = readFileSync("src/views/detail/anime-episodes/use-anime-progress-map.ts", "utf8");
+  const progress = readFileSync(
+    "src/views/detail/anime-episodes/use-anime-progress-map.ts",
+    "utf8",
+  );
   const detail = readFileSync("src/views/detail/anime-episodes.tsx", "utf8");
   assert.match(progress, /entryAnilistBySource\?\.get\(ep\.sourceMetaId \?\? ""\)/);
   assert.match(progress, /entryMalBySource\?\.get\(ep\.sourceMetaId \?\? ""\)/);

@@ -137,7 +137,10 @@ export function guardPageLoaded(): void {
     !mainProto.__harborChapterImageGuard
   ) {
     const originalImageFetch = mainProto.fetchAndCacheImage;
-    mainProto.fetchAndCacheImage = function (this: FlipMainInstance, url: string): Promise<ImageBitmap> {
+    mainProto.fetchAndCacheImage = function (
+      this: FlipMainInstance,
+      url: string,
+    ): Promise<ImageBitmap> {
       const pdfPage = isPdfFlipbookPageUrl(url);
       if (!pdfPage && (!("__TAURI_INTERNALS__" in window) || !isBatcaveImageUrl(url)))
         return originalImageFetch.call(this, url);
@@ -150,7 +153,8 @@ export function guardPageLoaded(): void {
             const blob = await chapterImageBlob(url, pageHeadersFor(url));
             const options = this.options;
             const bitmapOptions: ImageBitmapOptions = {};
-            if (options?.bitmapResizeHeight) bitmapOptions.resizeHeight = options.bitmapResizeHeight;
+            if (options?.bitmapResizeHeight)
+              bitmapOptions.resizeHeight = options.bitmapResizeHeight;
             const quality = options?.bitmapResizeQuality;
             if (
               quality === "pixelated" ||
@@ -160,7 +164,10 @@ export function guardPageLoaded(): void {
             ) {
               bitmapOptions.resizeQuality = quality;
             }
-            return createImageBitmap(blob, Object.keys(bitmapOptions).length ? bitmapOptions : undefined);
+            return createImageBitmap(
+              blob,
+              Object.keys(bitmapOptions).length ? bitmapOptions : undefined,
+            );
           })();
       cache.set(url, pending);
       void pending.catch(() => {

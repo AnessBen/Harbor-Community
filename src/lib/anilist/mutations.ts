@@ -161,15 +161,17 @@ export function fetchListEntry(mediaId: number, strict = false): Promise<ListEnt
   const pending = entryPending.get(key);
   if (pending) return pending;
   const generation = entryGeneration;
-  const request = fetchListEntryUncached(mediaId).then((info) => {
-    if (generation === entryGeneration && entryPending.get(key) === request) {
-      entryCache.set(key, { at: Date.now(), info });
-      if (entryCache.size > 128) entryCache.delete(entryCache.keys().next().value!);
-    }
-    return info;
-  }).finally(() => {
-    if (entryPending.get(key) === request) entryPending.delete(key);
-  });
+  const request = fetchListEntryUncached(mediaId)
+    .then((info) => {
+      if (generation === entryGeneration && entryPending.get(key) === request) {
+        entryCache.set(key, { at: Date.now(), info });
+        if (entryCache.size > 128) entryCache.delete(entryCache.keys().next().value!);
+      }
+      return info;
+    })
+    .finally(() => {
+      if (entryPending.get(key) === request) entryPending.delete(key);
+    });
   entryPending.set(key, request);
   return request;
 }

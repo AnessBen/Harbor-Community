@@ -11,7 +11,10 @@ test("PDF book page references represent the whole document without rendering it
   const urls = createPdfFlipbookPageUrls("C:/books/test.pdf", 4);
   assert.equal(urls.length, 4);
   const prefix = urls[0].replace(/\/1$/, "");
-  assert.deepEqual(urls, [1, 2, 3, 4].map((n) => `${prefix}/${n}`));
+  assert.deepEqual(
+    urls,
+    [1, 2, 3, 4].map((n) => `${prefix}/${n}`),
+  );
   assert.equal(isPdfFlipbookPageUrl(urls[0]), true);
   assert.equal(isPdfFlipbookPageUrl("https://example.com/page.jpg"), false);
   releasePdfFlipbookPageUrls(urls);

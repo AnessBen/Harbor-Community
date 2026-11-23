@@ -6,7 +6,10 @@ import { createAsyncIndexCache, withSearchDeadline } from "../src/lib/ebook/sear
 test("concurrent local searches reuse the same scan, including an empty index", async () => {
   const cache = createAsyncIndexCache<string, string[]>();
   let scans = 0;
-  const scan = async () => { scans++; return ["book.epub"]; };
+  const scan = async () => {
+    scans++;
+    return ["book.epub"];
+  };
   const [first, second] = await Promise.all([
     cache.read("local:books", scan),
     cache.read("local:books", scan),
@@ -15,7 +18,10 @@ test("concurrent local searches reuse the same scan, including an empty index", 
   assert.deepEqual(first, second);
   await cache.read("local:books", scan);
   assert.equal(scans, 1);
-  const empty = async () => { scans++; return []; };
+  const empty = async () => {
+    scans++;
+    return [];
+  };
   assert.deepEqual(await cache.read("local:empty", empty), []);
   await cache.read("local:empty", empty);
   assert.equal(scans, 2);
@@ -24,7 +30,13 @@ test("concurrent local searches reuse the same scan, including an empty index", 
 test("refresh prevents an old scan from overwriting the new index", async () => {
   const cache = createAsyncIndexCache<string, string>();
   let completeOld!: (value: string) => void;
-  const oldScan = cache.read("local:books", () => new Promise((resolve) => { completeOld = resolve; }));
+  const oldScan = cache.read(
+    "local:books",
+    () =>
+      new Promise((resolve) => {
+        completeOld = resolve;
+      }),
+  );
   await Promise.resolve();
   cache.invalidate("local:books");
   const fresh = await cache.read("local:books", async () => "fresh");
@@ -36,20 +48,21 @@ test("refresh prevents an old scan from overwriting the new index", async () => 
 
 test("a failed scan is retryable", async () => {
   const cache = createAsyncIndexCache<string, string>();
-  await assert.rejects(cache.read("library", async () => { throw Error("bad scan"); }));
+  await assert.rejects(
+    cache.read("library", async () => {
+      throw Error("bad scan");
+    }),
+  );
   assert.equal(await cache.read("library", async () => "recovered"), "recovered");
 });
 
 test("remote deadline stops waiting for an unresponsive provider", async () => {
   let providerSignal: AbortSignal | undefined;
   await assert.rejects(
-    withSearchDeadline(
-      (signal) => {
-        providerSignal = signal;
-        return new Promise<string>(() => {});
-      },
-      10,
-    ),
+    withSearchDeadline((signal) => {
+      providerSignal = signal;
+      return new Promise<string>(() => {});
+    }, 10),
     /timed out/,
   );
   assert.equal(providerSignal?.aborted, true);
@@ -80,7 +93,10 @@ test("interactive provider searches stream results without waiting for cross-sou
   assert.ok(start >= 0 && end > start);
   assert.match(search, /events\?\.onSource\?\.\(mergeEBookMetadata\(items, \[\]\)\)/);
   assert.match(search, /timedProviderSearch\(provider, query, offset, tagId, options\.signal\)/);
-  assert.match(search, /if \(query\) return dedupeEBooks\(selected\)\.map\(applyLocalEBookDetails\)/);
+  assert.match(
+    search,
+    /if \(query\) return dedupeEBooks\(selected\)\.map\(applyLocalEBookDetails\)/,
+  );
   assert.match(search, /provider\.enrich\(items\)/);
 });
 
@@ -90,5 +106,8 @@ test("provider cancellation reaches Gutenberg, HTML sources and plugin workers",
   assert.match(providers, /gutendexSearch\(query, offset, background, signal\)/);
   assert.match(providers, /page\(\s*`search:\$\{query\}`,[\s\S]*?offset,\s*signal/);
   assert.match(providers, /worker!\.call\(method, args, timeout, signal\)/);
-  assert.match(gutendex, /fetchCatalog\(\x60\$\{GUTENDEX_BASE\}\$\{path\}\x60, background, signal\)/);
+  assert.match(
+    gutendex,
+    /fetchCatalog\(\x60\$\{GUTENDEX_BASE\}\$\{path\}\x60, background, signal\)/,
+  );
 });

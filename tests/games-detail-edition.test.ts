@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { detailEditionTarget, resolveDetailEdition, showDetailGuides } from "../src/lib/games/detail-edition.ts";
+import {
+  detailEditionTarget,
+  resolveDetailEdition,
+  showDetailGuides,
+} from "../src/lib/games/detail-edition.ts";
 import { parseAtlasGame, parseAtlasSummary } from "../src/lib/games/igdb-data.ts";
 import type { GameDetail, GameSummary } from "../src/lib/games/types.ts";
 import { emptyLaunchConfig, type CustomGame } from "../src/lib/games/custom-library.ts";
@@ -90,7 +94,11 @@ test("an explicit IGDB edition keeps original metadata even when its Steam port 
   assert.deepEqual(result.detail?.requirements, { minimum: "", recommended: "" });
   assert.ok(result.detail?.release.includes("1992"));
   assert.equal(result.steamLinkId, 99);
-  assert.equal(result.guideSteamId, 99, "the exact IGDB Steam association can supply written guides");
+  assert.equal(
+    result.guideSteamId,
+    99,
+    "the exact IGDB Steam association can supply written guides",
+  );
 });
 
 test("Explore re-listed Yakuza Kiwami uses the original Community guides without changing its edition", () => {
@@ -100,7 +108,11 @@ test("Explore re-listed Yakuza Kiwami uses the original Community guides without
     external_games: [{ uid: "3717330", external_game_source: 1 }],
   };
   const exploreSummary = parseAtlasSummary(exploreRow)!;
-  assert.equal(exploreSummary.id, "steam:3717330", "Explore can route an IGDB result through the newer Steam ID");
+  assert.equal(
+    exploreSummary.id,
+    "steam:3717330",
+    "Explore can route an IGDB result through the newer Steam ID",
+  );
   assert.equal(exploreSummary.igdbId, 12595);
   const exploreAtlas = parseAtlasGame(exploreRow);
 
@@ -108,7 +120,11 @@ test("Explore re-listed Yakuza Kiwami uses the original Community guides without
   assert.equal(newer.target.steamId, 3717330);
   assert.equal(newer.portableGame.steamId, 3717330);
   assert.equal(newer.steamLinkId, 3717330, "retain the official newer Steam listing");
-  assert.equal(newer.guideSteamId, 834530, "browse the older, more complete Community guide catalog");
+  assert.equal(
+    newer.guideSteamId,
+    834530,
+    "browse the older, more complete Community guide catalog",
+  );
   const guidesUrl = steamGuidesUrl(newer.guideSteamId!, "", 1, defaultSteamGuideFilters("en"));
   assert.equal(
     new URL(guidesUrl).pathname,
@@ -116,13 +132,25 @@ test("Explore re-listed Yakuza Kiwami uses the original Community guides without
     "the Explore Original guides link must match the linked local Steam game's URL",
   );
 
-  const explicitIgdb = resolveDetailEdition({ ...exploreSummary, id: "igdb:12595" }, null, exploreAtlas);
+  const explicitIgdb = resolveDetailEdition(
+    { ...exploreSummary, id: "igdb:12595" },
+    null,
+    exploreAtlas,
+  );
   assert.equal(explicitIgdb.portableGame.id, "igdb:12595");
   assert.equal(explicitIgdb.portableGame.steamId, undefined);
   assert.equal(explicitIgdb.steamLinkId, 3717330);
   assert.equal(explicitIgdb.guideSteamId, 834530);
-  assert.equal(resolveDetailEdition({ ...exploreSummary, igdbId: 12596 }, null, null).guideSteamId, 3717330, "do not remap a different IGDB edition");
-  assert.equal(resolveDetailEdition({ ...exploreSummary, steamId: 999 }, null, null).guideSteamId, 999, "unrelated Steam games are unchanged");
+  assert.equal(
+    resolveDetailEdition({ ...exploreSummary, igdbId: 12596 }, null, null).guideSteamId,
+    3717330,
+    "do not remap a different IGDB edition",
+  );
+  assert.equal(
+    resolveDetailEdition({ ...exploreSummary, steamId: 999 }, null, null).guideSteamId,
+    999,
+    "unrelated Steam games are unchanged",
+  );
 });
 
 test("a linked local IGDB edition retains the exact Steam guides catalog without IGDB external metadata", () => {
@@ -151,19 +179,47 @@ test("a linked local IGDB edition retains the exact Steam guides catalog without
   const atlasWithoutSteam = parseAtlasGame({ id: 12595, name: "Yakuza Kiwami" });
   for (const atlas of [null, atlasWithoutSteam]) {
     const result = resolveDetailEdition(selectedLocal, null, atlas, undefined, [local]);
-    assert.equal(result.guideSteamId, 834530, "use the exact locally linked Steam edition for guides");
+    assert.equal(
+      result.guideSteamId,
+      834530,
+      "use the exact locally linked Steam edition for guides",
+    );
     assert.equal(result.target.steamId, undefined);
     assert.equal(result.portableGame.steamId, undefined);
-    assert.equal(result.steamLinkId, undefined, "guides must not change the official store association");
+    assert.equal(
+      result.steamLinkId,
+      undefined,
+      "guides must not change the official store association",
+    );
   }
-  const resolve = (game: GameSummary, localGames = [local], reviewed?: { igdbId: number; name: string; capsule: string; platforms: string[] }) =>
-    resolveDetailEdition(game, null, null, reviewed, localGames).guideSteamId;
+  const resolve = (
+    game: GameSummary,
+    localGames = [local],
+    reviewed?: { igdbId: number; name: string; capsule: string; platforms: string[] },
+  ) => resolveDetailEdition(game, null, null, reviewed, localGames).guideSteamId;
   assert.equal(resolve(selectedLocal, []), undefined, "the selected local record must be present");
   assert.equal(resolve({ ...selectedLocal, libraryEntryId: "custom:other" }), undefined);
   assert.equal(resolve({ ...selectedLocal, id: "igdb:12596" }), undefined);
-  assert.equal(resolve(selectedLocal, [{ ...local, linked: { ...linked, steamId: 999 } }]), 999, "the current local record, not a stale UI snapshot, supplies the guide ID");
-  assert.equal(resolve(selectedLocal, [local], { igdbId: 42, name: "Another edition", capsule: "", platforms: [] }), undefined, "reviewed metadata must not use guides from another edition");
-  assert.equal(resolve({ ...selectedLocal, libraryEntryId: undefined }), undefined, "ordinary IGDB pages cannot trust an unverified embedded Steam ID");
+  assert.equal(
+    resolve(selectedLocal, [{ ...local, linked: { ...linked, steamId: 999 } }]),
+    999,
+    "the current local record, not a stale UI snapshot, supplies the guide ID",
+  );
+  assert.equal(
+    resolve(selectedLocal, [local], {
+      igdbId: 42,
+      name: "Another edition",
+      capsule: "",
+      platforms: [],
+    }),
+    undefined,
+    "reviewed metadata must not use guides from another edition",
+  );
+  assert.equal(
+    resolve({ ...selectedLocal, libraryEntryId: undefined }),
+    undefined,
+    "ordinary IGDB pages cannot trust an unverified embedded Steam ID",
+  );
 });
 
 test("missing or stale atlas data cannot fall back to another edition or validate its Steam link", () => {

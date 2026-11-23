@@ -120,21 +120,22 @@ export function fetchListEntry(malId: number, strict = false): Promise<ListEntry
   if (strict) return fetchListEntryUncached(malId, true);
   const key = statusKey(malId);
   const hit = statusCache.get(key);
-  if (hit && Date.now() - hit.at < STATUS_CACHE_TTL_MS)
-    return Promise.resolve(hit.info);
+  if (hit && Date.now() - hit.at < STATUS_CACHE_TTL_MS) return Promise.resolve(hit.info);
   const inflight = statusPending.get(key);
   if (inflight) return inflight;
 
   const generation = statusGeneration;
-  const request = fetchListEntryUncached(malId).then((info) => {
-    if (generation === statusGeneration && statusPending.get(key) === request) {
-      statusCache.set(key, { at: Date.now(), info });
-      if (statusCache.size > 128) statusCache.delete(statusCache.keys().next().value!);
-    }
-    return info;
-  }).finally(() => {
-    if (statusPending.get(key) === request) statusPending.delete(key);
-  });
+  const request = fetchListEntryUncached(malId)
+    .then((info) => {
+      if (generation === statusGeneration && statusPending.get(key) === request) {
+        statusCache.set(key, { at: Date.now(), info });
+        if (statusCache.size > 128) statusCache.delete(statusCache.keys().next().value!);
+      }
+      return info;
+    })
+    .finally(() => {
+      if (statusPending.get(key) === request) statusPending.delete(key);
+    });
   statusPending.set(key, request);
   return request;
 }

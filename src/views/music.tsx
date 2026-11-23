@@ -278,7 +278,7 @@ function MusicViewContent({ active }: { active: boolean }) {
     (track: MusicTrack, queue: MusicTrack[]) => {
       watchFromVideos.current = discoveryPage === "videos";
       const queueTarget = watchFromVideos.current
-        ? videoSelectionTarget.current ?? undefined
+        ? (videoSelectionTarget.current ?? undefined)
         : undefined;
       videoSelectionTarget.current = null;
       if (watchFromVideos.current) setDiscoveryPage(null);

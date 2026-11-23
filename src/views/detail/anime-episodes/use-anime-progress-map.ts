@@ -75,11 +75,17 @@ export function useAnimeProgressMap({
         ep.imdbId ?? null,
         traktWatched,
         undefined,
-        isCurrent ? anilistWatched : isEntry
-          ? entryAnilistWatched : entryAnilistBySource?.get(ep.sourceMetaId ?? ""),
+        isCurrent
+          ? anilistWatched
+          : isEntry
+            ? entryAnilistWatched
+            : entryAnilistBySource?.get(ep.sourceMetaId ?? ""),
         undefined,
-        isCurrent ? malWatched : isEntry
-          ? entryMalWatched : entryMalBySource?.get(ep.sourceMetaId ?? ""),
+        isCurrent
+          ? malWatched
+          : isEntry
+            ? entryMalWatched
+            : entryMalBySource?.get(ep.sourceMetaId ?? ""),
         ep.imdbSeason,
         ep.imdbEpisode,
         pmdbWatched,

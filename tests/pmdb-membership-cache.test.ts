@@ -31,56 +31,82 @@ function harness() {
   };
 
   new Function("require", "exports", compiled)((id: string) => {
-    if (id === "@/lib/active-profile-id")
-      return { activeProfileId: () => profile };
-    if (id === "./session") return {
-      getSession: () => session,
-      isAuthenticated: () => !!session.apiKey,
-    };
-    if (id === "./lists") return {
-      capturePmdbListOwner: guard,
-      clearPmdbListsCache: () => { events.push("clear-lists"); },
-      getPmdbDefaultListId: () => defaultList,
-      subscribePmdbLists: (fn: () => void) => {
-        listChanged = fn;
-        return () => {};
-      },
-      resolvePmdbList: async ({ listId }: { listId?: string | null }) => {
-        const selected = listId ?? defaultList;
-        events.push("list:" + selected);
-        return { id: selected, type: "watchlist" };
-      },
-      fetchPmdbListItems: async (id: string) => {
-        events.push("items:" + id);
-        if (deferItems) await deferItems;
-        if (rejectItems) throw new Error("PMDB unavailable");
-        return members.filter((item) => item.list_id === id).map((item) => ({ ...item }));
-      },
-      changePmdbList: async (target: { tmdb_id: number; media_type: "tv" }, add: boolean) => {
-        events.push(add ? "add" : "remove");
-        if (add)
-          members.push({ id: "item-new", tmdb_id: target.tmdb_id,
-            media_type: target.media_type, list_id: defaultList });
-        else
-          members.splice(0, members.length,
-            ...members.filter((item) => item.tmdb_id !== target.tmdb_id));
-        listChanged();
-      },
-    };
+    if (id === "@/lib/active-profile-id") return { activeProfileId: () => profile };
+    if (id === "./session")
+      return {
+        getSession: () => session,
+        isAuthenticated: () => !!session.apiKey,
+      };
+    if (id === "./lists")
+      return {
+        capturePmdbListOwner: guard,
+        clearPmdbListsCache: () => {
+          events.push("clear-lists");
+        },
+        getPmdbDefaultListId: () => defaultList,
+        subscribePmdbLists: (fn: () => void) => {
+          listChanged = fn;
+          return () => {};
+        },
+        resolvePmdbList: async ({ listId }: { listId?: string | null }) => {
+          const selected = listId ?? defaultList;
+          events.push("list:" + selected);
+          return { id: selected, type: "watchlist" };
+        },
+        fetchPmdbListItems: async (id: string) => {
+          events.push("items:" + id);
+          if (deferItems) await deferItems;
+          if (rejectItems) throw new Error("PMDB unavailable");
+          return members.filter((item) => item.list_id === id).map((item) => ({ ...item }));
+        },
+        changePmdbList: async (target: { tmdb_id: number; media_type: "tv" }, add: boolean) => {
+          events.push(add ? "add" : "remove");
+          if (add)
+            members.push({
+              id: "item-new",
+              tmdb_id: target.tmdb_id,
+              media_type: target.media_type,
+              list_id: defaultList,
+            });
+          else
+            members.splice(
+              0,
+              members.length,
+              ...members.filter((item) => item.tmdb_id !== target.tmdb_id),
+            );
+          listChanged();
+        },
+      };
     if (id === "./mappings") return { getTmdbForExternal: async () => null };
     throw new Error("Unexpected dependency: " + id);
   }, exports);
 
   return {
     events,
-    setReject(value: boolean) { rejectItems = value; },
-    setDeferred(value: Promise<void> | null) { deferItems = value; },
-    setAccount(value: string) { session = { apiKey: value }; listChanged(); },
-    setProfile(value: string) { profile = value; },
-    setDefaultList(value: string) { defaultList = value; listChanged(); },
-    notifyListChanged() { listChanged(); },
+    setReject(value: boolean) {
+      rejectItems = value;
+    },
+    setDeferred(value: Promise<void> | null) {
+      deferItems = value;
+    },
+    setAccount(value: string) {
+      session = { apiKey: value };
+      listChanged();
+    },
+    setProfile(value: string) {
+      profile = value;
+    },
+    setDefaultList(value: string) {
+      defaultList = value;
+      listChanged();
+    },
+    notifyListChanged() {
+      listChanged();
+    },
     fetch: exports.fetchPmdbWatchlist as (options?: {
-      listId?: string | null; strict?: boolean; cacheForStatus?: boolean;
+      listId?: string | null;
+      strict?: boolean;
+      cacheForStatus?: boolean;
       assertCurrent?: () => void;
     }) => Promise<Array<{ id: string; tmdb_id: number; media_type: "tv" }>>,
     contains: exports.pmdbWatchlistContains as (
@@ -88,10 +114,12 @@ function harness() {
       target: { tmdb_id: number; media_type: "tv" },
     ) => unknown,
     add: exports.addToPmdbWatchlist as (
-      target: { tmdb_id: number; media_type: "tv" }, opts?: { strict?: boolean },
+      target: { tmdb_id: number; media_type: "tv" },
+      opts?: { strict?: boolean },
     ) => Promise<boolean>,
     remove: exports.removeFromPmdbWatchlist as (
-      target: { tmdb_id: number; media_type: "tv" }, opts?: { strict?: boolean },
+      target: { tmdb_id: number; media_type: "tv" },
+      opts?: { strict?: boolean },
     ) => Promise<boolean>,
     clear: exports.clearPmdbWatchlistCache as () => void,
   };
@@ -108,8 +136,11 @@ test("simultaneous PMDB hero and overflow membership checks share a validated re
   assert.equal(again[0].tmdb_id, 900);
   assert.equal(h.events.filter((event) => event === "items:watchlist-a").length, 1);
   await h.fetch({ strict: true });
-  assert.equal(h.events.filter((event) => event === "items:watchlist-a").length, 2,
-    "authoritative uncached read must still reach PMDB");
+  assert.equal(
+    h.events.filter((event) => event === "items:watchlist-a").length,
+    2,
+    "authoritative uncached read must still reach PMDB",
+  );
 });
 
 test("PMDB membership cache invalidates after successful add and remove", async () => {
@@ -146,7 +177,9 @@ test("failed PMDB list reads retry instead of caching false membership", async (
 test("PMDB stale in-flight membership cannot repopulate the invalidated cache", async () => {
   const h = harness();
   let release!: () => void;
-  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
   h.setDeferred(gate);
   const stale = h.fetch(opts);
   h.notifyListChanged();
@@ -167,12 +200,19 @@ test("cached PMDB hits still verify the account guard and expire after 15 second
     Date.now = () => now;
     await h.fetch(opts);
     let checks = 0;
-    await h.fetch({ ...opts, assertCurrent: () => { checks++; } });
+    await h.fetch({
+      ...opts,
+      assertCurrent: () => {
+        checks++;
+      },
+    });
     assert.ok(checks > 0);
     now += 15_001;
     await h.fetch(opts);
     assert.equal(h.events.filter((event) => event.startsWith("items:")).length, 2);
-  } finally { Date.now = originalNow; }
+  } finally {
+    Date.now = originalNow;
+  }
 });
 
 test("PMDB cache clear and list read paths remain separate from authoritative writes", async () => {
@@ -183,8 +223,11 @@ test("PMDB cache clear and list read paths remain separate from authoritative wr
   assert.equal(h.events.filter((event) => event.startsWith("items:")).length, 2);
   assert.ok(h.events.includes("clear-lists"));
   const lists = readFileSync("src/lib/publicmetadb/lists.ts", "utf8");
-  assert.match(lists, /const items = await fetchPmdbListItems\(list\.id, guard\)/,
-    "removal must locate its item from a fresh server read");
+  assert.match(
+    lists,
+    /const items = await fetchPmdbListItems\(list\.id, guard\)/,
+    "removal must locate its item from a fresh server read",
+  );
   const button = readFileSync("src/views/detail/add-to-publicmetadb-button.tsx", "utf8");
   assert.match(button, /cacheForStatus: true/);
 });

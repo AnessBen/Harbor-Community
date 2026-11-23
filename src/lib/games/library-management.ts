@@ -56,8 +56,7 @@ export function managementFile(game: QuickGame): string | null {
           ? game.shortcut.executable.replace(/^"(.*)"$/, "$1")
           : "";
   const absolute =
-    /^(?:[a-z]:[\\/]|\/)/i.test(value) ||
-    /^\\\\[^\\/]+[\\/][^\\/]+[\\/]/.test(value);
+    /^(?:[a-z]:[\\/]|\/)/i.test(value) || /^\\\\[^\\/]+[\\/][^\\/]+[\\/]/.test(value);
   return absolute && !/[\x00-\x1f]/.test(value) ? value : null;
 }
 

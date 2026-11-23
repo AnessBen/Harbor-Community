@@ -27,7 +27,13 @@ function makeHarness({ responseStatuses = [200] } = {}) {
   const module = { exports: {} };
   const window = { FLIPBOOK: { Main: VendorMain }, __TAURI_INTERNALS__: {} };
   const context = createContext({
-    window, module, exports: module.exports, console, setTimeout, URL, Blob,
+    window,
+    module,
+    exports: module.exports,
+    console,
+    setTimeout,
+    URL,
+    Blob,
     createImageBitmap: async (blob, options) => {
       bitmapCalls.push({ blob, options });
       return { from: "native-image", size: blob.size };
@@ -72,8 +78,14 @@ function makeHarness({ responseStatuses = [200] } = {}) {
   });
   new Script(compiled, { filename: "flipbook.transpiled.js" }).runInContext(context);
   return {
-    guard: module.exports.guardPageLoaded, VendorMain, calls, bitmapCalls, pdfCalls,
-    get originals() { return originals; },
+    guard: module.exports.guardPageLoaded,
+    VendorMain,
+    calls,
+    bitmapCalls,
+    pdfCalls,
+    get originals() {
+      return originals;
+    },
   };
 }
 
@@ -84,7 +96,10 @@ test("vendor flipbook uses the shared reader image cache for a protected page", 
   const vendor = new h.VendorMain();
   vendor.options = { bitmapResizeHeight: 2048, bitmapResizeQuality: "high" };
   const url = "https://img.batcave.biz/img/38567/273703/1234.jpg?s=signed";
-  const [a, b] = await Promise.all([vendor.fetchAndCacheImage(url), vendor.fetchAndCacheImage(url)]);
+  const [a, b] = await Promise.all([
+    vendor.fetchAndCacheImage(url),
+    vendor.fetchAndCacheImage(url),
+  ]);
   assert.equal(a.from, "native-image");
   assert.equal(a, b);
   assert.equal(h.calls.length, 1);
@@ -109,13 +124,15 @@ test("vendor image cache removes a failed image promise so the same page can ret
   assert.equal(h.calls.length, 2);
 });
 
-
 test("PDF flipbook resolves synthetic pages on demand and caches each texture", async () => {
   const h = makeHarness();
   h.guard();
   const vendor = new h.VendorMain();
   const url = "harbor-pdf-page:9/3";
-  const [a, b] = await Promise.all([vendor.fetchAndCacheImage(url), vendor.fetchAndCacheImage(url)]);
+  const [a, b] = await Promise.all([
+    vendor.fetchAndCacheImage(url),
+    vendor.fetchAndCacheImage(url),
+  ]);
   assert.equal(a.from, "pdf-page");
   assert.equal(a, b);
   assert.deepEqual(h.pdfCalls, [url]);

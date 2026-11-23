@@ -20,7 +20,12 @@ import {
   gutendexSearch,
   type GutendexBook,
 } from "./gutendex";
-import { listEBookSources, subscribeEBookSources, type EBookHtmlSourceConfig, type EBookSource } from "./sources";
+import {
+  listEBookSources,
+  subscribeEBookSources,
+  type EBookHtmlSourceConfig,
+  type EBookSource,
+} from "./sources";
 import gutenbergLogo from "@/assets/gutenberg.png";
 import { safeFetch, safeFetchBytes } from "@/lib/safe-fetch";
 import {
@@ -360,30 +365,51 @@ async function scanLocalBooks(
   while (queue.length && visited < LOCAL_SCAN_MAX_DIRS) {
     const batch = queue.splice(0, Math.min(LOCAL_SCAN_CONCURRENCY, LOCAL_SCAN_MAX_DIRS - visited));
     visited += batch.length;
-    const results = await Promise.all(batch.map(async ({ dir, name, depth }) => {
-      if (depth > LOCAL_SCAN_MAX_DEPTH) return { found: [] as [string, { title: string; paths: string[] }][], children: [] as typeof queue };
-      const entries = (await readDir(dir).catch(() => [])).sort(byName);
-      const files = entries.filter((item) => item.isFile && /\.(?:epub|pdf)$/i.test(item.name));
-      const found: [string, { title: string; paths: string[] }][] = !name
-        ? await Promise.all(files.map(async (file) => {
-            const path = await localJoin(dir, file.name);
-            return [path, { title: localTitle(file.name), paths: [path] }] as [string, { title: string; paths: string[] }];
-          }))
-        : files.length
-          ? [[dir, {
-              title: localTitle(name),
-              paths: await Promise.all(files.map((file) => localJoin(dir, file.name))),
-            }]]
-          : [];
-      const children = depth < LOCAL_SCAN_MAX_DEPTH
-        ? await Promise.all(entries.filter((item) => item.isDirectory).map(async (item) => ({
-            dir: await localJoin(dir, item.name),
-            name: item.name,
-            depth: depth + 1,
-          })))
-        : [];
-      return { found, children };
-    }));
+    const results = await Promise.all(
+      batch.map(async ({ dir, name, depth }) => {
+        if (depth > LOCAL_SCAN_MAX_DEPTH)
+          return {
+            found: [] as [string, { title: string; paths: string[] }][],
+            children: [] as typeof queue,
+          };
+        const entries = (await readDir(dir).catch(() => [])).sort(byName);
+        const files = entries.filter((item) => item.isFile && /\.(?:epub|pdf)$/i.test(item.name));
+        const found: [string, { title: string; paths: string[] }][] = !name
+          ? await Promise.all(
+              files.map(async (file) => {
+                const path = await localJoin(dir, file.name);
+                return [path, { title: localTitle(file.name), paths: [path] }] as [
+                  string,
+                  { title: string; paths: string[] },
+                ];
+              }),
+            )
+          : files.length
+            ? [
+                [
+                  dir,
+                  {
+                    title: localTitle(name),
+                    paths: await Promise.all(files.map((file) => localJoin(dir, file.name))),
+                  },
+                ],
+              ]
+            : [];
+        const children =
+          depth < LOCAL_SCAN_MAX_DEPTH
+            ? await Promise.all(
+                entries
+                  .filter((item) => item.isDirectory)
+                  .map(async (item) => ({
+                    dir: await localJoin(dir, item.name),
+                    name: item.name,
+                    depth: depth + 1,
+                  })),
+              )
+            : [];
+        return { found, children };
+      }),
+    );
     for (const result of results) {
       for (const [id, book] of result.found) books.set(id, book);
       queue.push(...result.children);
@@ -471,18 +497,19 @@ function localProvider(source: EBookSource): Provider {
   const provider = { id: source.id, name: source.name, iconUrl: source.iconUrl } as Provider;
   const find = async (id: string) =>
     localBooks.peek(source.id)?.get(id) ?? (await indexedLocalBooks(source)).get(id);
-  const summary = (id: string, book: { title: string; paths: string[] }): EBook => applyLocalEBookDetails({
-    id: routeId(provider.id, id),
-    source: "source",
-    providerId: provider.id,
-    sourceItemId: id,
-    providerName: provider.name,
-    title: book.title,
-    authors: [],
-    description: "",
-    genres: [],
-    volumes: book.paths.length > 1 ? book.paths.length : undefined,
-  });
+  const summary = (id: string, book: { title: string; paths: string[] }): EBook =>
+    applyLocalEBookDetails({
+      id: routeId(provider.id, id),
+      source: "source",
+      providerId: provider.id,
+      sourceItemId: id,
+      providerName: provider.name,
+      title: book.title,
+      authors: [],
+      description: "",
+      genres: [],
+      volumes: book.paths.length > 1 ? book.paths.length : undefined,
+    });
   // EPUB cover extraction reads and parses the archive. Keep it out of the
   // interactive title-search critical path and enrich the visible page later.
   const withLocalCovers = async (items: EBook[]): Promise<EBook[]> => {
@@ -512,8 +539,10 @@ function localProvider(source: EBookSource): Provider {
     const needle = query.toLocaleLowerCase();
     const books = [...(await indexedLocalBooks(source))].filter(([id, book]) => {
       const item = summary(id, book);
-      return item.title.toLocaleLowerCase().includes(needle) ||
-        item.authors.some((author) => author.toLocaleLowerCase().includes(needle));
+      return (
+        item.title.toLocaleLowerCase().includes(needle) ||
+        item.authors.some((author) => author.toLocaleLowerCase().includes(needle))
+      );
     });
     const page = books.slice(offset, offset + 24).map(([id, book]) => summary(id, book));
     return includeCovers ? withLocalCovers(page) : page;

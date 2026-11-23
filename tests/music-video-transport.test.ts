@@ -184,8 +184,7 @@ function loadSession(resolveStream: () => Promise<any>) {
       };
     if (name === "./video-pages")
       return { searchMusicVideoPage: async () => ({ tracks: [], next: null }) };
-    if (name === "./video-queue")
-      return { queuedVideoStreamTrack: () => null };
+    if (name === "./video-queue") return { queuedVideoStreamTrack: () => null };
     if (name === "./video-quality")
       return {
         musicVideoQuality: () => "auto",

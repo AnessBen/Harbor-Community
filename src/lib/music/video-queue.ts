@@ -96,7 +96,8 @@ function playingQueueIndex(track: MusicTrack, live: LiveVideoQueue): number {
     live.queueIndex >= 0 &&
     live.queue[live.queueIndex] &&
     queueTrackKey(live.queue[live.queueIndex]) === key
-  ) return live.queueIndex;
+  )
+    return live.queueIndex;
   return live.queue.findIndex((item) => queueTrackKey(item) === key);
 }
 
@@ -143,9 +144,7 @@ export function musicVideoQueueSelection(
   requested: MusicTrack,
   live: LiveVideoQueue,
 ): { track: MusicTrack; queue: MusicTrack[] } | null {
-  const index = live.queue.findIndex(
-    (entry) => queueTrackKey(entry) === queueTrackKey(requested),
-  );
+  const index = live.queue.findIndex((entry) => queueTrackKey(entry) === queueTrackKey(requested));
   if (index < 0) return null;
   const track = musicVideoQueueEntries([
     {

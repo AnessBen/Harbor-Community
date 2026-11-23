@@ -13,12 +13,14 @@ function read(key: string, legacyKey: string): EBook[] {
     if (!localStorage.getItem(key) && stored !== "[]") localStorage.setItem(key, stored);
     const value = JSON.parse(stored) as EBook[];
     return Array.isArray(value)
-      ? value.map((ebook) => ({
-          ...ebook,
-          id: String(ebook.id).includes(":") ? String(ebook.id) : `anilist:${ebook.id}`,
-          source: ebook.source ?? "anilist",
-          authors: ebook.authors ?? [],
-        })).map(applyLocalEBookDetails)
+      ? value
+          .map((ebook) => ({
+            ...ebook,
+            id: String(ebook.id).includes(":") ? String(ebook.id) : `anilist:${ebook.id}`,
+            source: ebook.source ?? "anilist",
+            authors: ebook.authors ?? [],
+          }))
+          .map(applyLocalEBookDetails)
       : [];
   } catch {
     return [];

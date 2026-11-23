@@ -73,16 +73,17 @@ test("episode jumper follows active details view and never portals over playback
   const scrollRef = { current: document.createElement("section") };
   const render = async (totalEpisodes: number) => {
     await React.act(async () => {
-      env.root.render(jsx.jsx(Jumper, {
-        scrollRef,
-        totalEpisodes,
-        onReveal: (n: number) => revealed.push(n),
-      }));
+      env.root.render(
+        jsx.jsx(Jumper, {
+          scrollRef,
+          totalEpisodes,
+          onReveal: (n: number) => revealed.push(n),
+        }),
+      );
     });
   };
-  const button = () => document.querySelector<HTMLButtonElement>(
-    'button[aria-label="Jump to episode"]',
-  );
+  const button = () =>
+    document.querySelector<HTMLButtonElement>('button[aria-label="Jump to episode"]');
   try {
     await render(25);
     assert.ok(button(), "jump shortcut is visible on a long active episode list");
@@ -106,8 +107,11 @@ test("episode jumper follows active details view and never portals over playback
     view.topKind = "meta";
     await render(25);
     assert.ok(button(), "button reappears after returning to details");
-    assert.equal(document.querySelector('input[type="number"]'), null,
-      "popover stays closed after returning");
+    assert.equal(
+      document.querySelector('input[type="number"]'),
+      null,
+      "popover stays closed after returning",
+    );
 
     await render(11);
     assert.equal(button(), null, "short episode lists do not need the jumper");
@@ -131,36 +135,49 @@ test("episode jump preference is user-controllable and off unmounts the jumper",
   let pref = true;
   const updated: Array<Record<string, unknown>> = [];
   const settings = {
-    showWatchedButton: true, resumeDetailScroll: true,
+    showWatchedButton: true,
+    resumeDetailScroll: true,
     hideSpoilers: false,
     episodeCardScale: 1,
     showEpisodeJumper: pref,
   };
-  const ToggleRow = ({ label, value, onChange }: {
-    label: string; value: boolean; onChange: (next: boolean) => void;
-  }) => jsx.jsx("button", {
-    type: "button",
-    role: "switch",
-    "aria-label": label,
-    "aria-checked": value,
-    onClick: () => onChange(!value),
-  });
+  const ToggleRow = ({
+    label,
+    value,
+    onChange,
+  }: {
+    label: string;
+    value: boolean;
+    onChange: (next: boolean) => void;
+  }) =>
+    jsx.jsx("button", {
+      type: "button",
+      role: "switch",
+      "aria-label": label,
+      "aria-checked": value,
+      onClick: () => onChange(!value),
+    });
   const passthrough = ({ children }: { children?: React.ReactNode }) =>
     jsx.jsx(React.Fragment, { children });
   const mod = moduleFrom("src/views/settings/library-panel/detail-tab.tsx", {
     react: React,
     "react/jsx-runtime": jsx,
-    "@/lib/settings": { useSettings: () => ({
-      settings, update: (patch: Record<string, unknown>) => {
-        updated.push(patch);
-        Object.assign(settings, patch);
-      },
-    }) },
+    "@/lib/settings": {
+      useSettings: () => ({
+        settings,
+        update: (patch: Record<string, unknown>) => {
+          updated.push(patch);
+          Object.assign(settings, patch);
+        },
+      }),
+    },
     "@/lib/i18n": { useT: () => (key: string) => key },
     "../shared": { Section: passthrough, Segmented: () => null, ToggleRow },
     "../kit": {
-      SettingGroup: passthrough, SettingRow: passthrough,
-      Nested: passthrough, SettingsWorkbench: passthrough,
+      SettingGroup: passthrough,
+      SettingRow: passthrough,
+      Nested: passthrough,
+      SettingsWorkbench: passthrough,
     },
     "../spoiler-preview": { SpoilerPreview: () => null },
     "../episode-card-previews": { EpisodeCardPreview: () => null },
@@ -169,9 +186,10 @@ test("episode jump preference is user-controllable and off unmounts the jumper",
   const DetailTab = mod.DetailTab as React.ComponentType;
   try {
     await React.act(async () => env.root.render(jsx.jsx(DetailTab, {})));
-    const toggle = () => document.querySelector<HTMLButtonElement>(
-      '[role="switch"][aria-label="Show episode Jump button"]',
-    );
+    const toggle = () =>
+      document.querySelector<HTMLButtonElement>(
+        '[role="switch"][aria-label="Show episode Jump button"]',
+      );
     assert.ok(toggle(), "details settings expose the Jump visibility preference");
     assert.equal(toggle()!.getAttribute("aria-checked"), "true");
     await React.act(async () => toggle()!.click());

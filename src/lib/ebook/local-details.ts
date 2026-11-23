@@ -22,9 +22,10 @@ function stored(): Record<string, LocalEBookDetails> {
   cachedValue = raw;
   try {
     const value: unknown = JSON.parse(raw);
-    cachedDetails = value && typeof value === "object" && !Array.isArray(value)
-      ? value as Record<string, LocalEBookDetails>
-      : {};
+    cachedDetails =
+      value && typeof value === "object" && !Array.isArray(value)
+        ? (value as Record<string, LocalEBookDetails>)
+        : {};
   } catch {
     cachedDetails = {};
   }
@@ -71,12 +72,19 @@ export function saveLocalEBookDetails(ebook: EBook, details: LocalEBookDetails):
     throw new Error("The selected cover is too large.");
   const next: LocalEBookDetails = {
     title,
-    authors: details.authors.map((author) => author.trim().slice(0, 160)).filter(Boolean).slice(0, 20),
+    authors: details.authors
+      .map((author) => author.trim().slice(0, 160))
+      .filter(Boolean)
+      .slice(0, 20),
     description: details.description.trim().slice(0, 10_000),
-    year: details.year && Number.isInteger(details.year) && details.year >= 1 && details.year <= 9999
-      ? details.year
-      : undefined,
-    genres: details.genres.map((genre) => genre.trim().slice(0, 80)).filter(Boolean).slice(0, 30),
+    year:
+      details.year && Number.isInteger(details.year) && details.year >= 1 && details.year <= 9999
+        ? details.year
+        : undefined,
+    genres: details.genres
+      .map((genre) => genre.trim().slice(0, 80))
+      .filter(Boolean)
+      .slice(0, 30),
     ...(cover ? { cover } : {}),
   };
   if (!setItemWithRecovery(KEY, JSON.stringify({ ...stored(), [ebook.id]: next })))

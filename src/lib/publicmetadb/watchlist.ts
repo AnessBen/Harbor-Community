@@ -52,10 +52,11 @@ type WatchlistReadOptions = PmdbListOptions & {
   cacheForStatus?: boolean;
 };
 
-export async function fetchPmdbWatchlist(options: WatchlistReadOptions = {}): Promise<PmdbListItem[]> {
+export async function fetchPmdbWatchlist(
+  options: WatchlistReadOptions = {},
+): Promise<PmdbListItem[]> {
   // Only strict, validated status reads are eligible for reuse.
-  if (!options.cacheForStatus || !options.strict)
-    return fetchPmdbWatchlistUncached(options);
+  if (!options.cacheForStatus || !options.strict) return fetchPmdbWatchlistUncached(options);
   options.assertCurrent?.();
   if (!isAuthenticated()) {
     if (options.strict) throw new Error("PublicMetaDB is disconnected.");
@@ -78,17 +79,18 @@ export async function fetchPmdbWatchlist(options: WatchlistReadOptions = {}): Pr
     request = fetchPmdbWatchlistUncached({
       listId: options.listId,
       strict: options.strict,
-    }).then((items) => {
-      if (generation === membershipGeneration &&
-          membershipPending.get(key) === request) {
-        membershipCache.set(key, { at: Date.now(), items });
-        if (membershipCache.size > 64)
-          membershipCache.delete(membershipCache.keys().next().value!);
-      }
-      return items;
-    }).finally(() => {
-      if (membershipPending.get(key) === request) membershipPending.delete(key);
-    });
+    })
+      .then((items) => {
+        if (generation === membershipGeneration && membershipPending.get(key) === request) {
+          membershipCache.set(key, { at: Date.now(), items });
+          if (membershipCache.size > 64)
+            membershipCache.delete(membershipCache.keys().next().value!);
+        }
+        return items;
+      })
+      .finally(() => {
+        if (membershipPending.get(key) === request) membershipPending.delete(key);
+      });
     membershipPending.set(key, request);
   }
   const items = await request;
