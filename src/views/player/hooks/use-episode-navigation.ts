@@ -114,6 +114,7 @@ export function useEpisodeNavigation(params: {
       return;
     }
     let cancelled = false;
+    setAdjacent({ prev: null, next: null });
     const cur = { season: src.episode.season, episode: src.episodeEnd ?? src.episode.episode };
     fetchAdjacentEpisodes(src.meta, cur, {
       tmdbKey: settings.tmdbKey,
@@ -121,6 +122,7 @@ export function useEpisodeNavigation(params: {
       tvdbKey: settings.tvdbKey,
       tvdbSeasonType: settings.tvdbSeasonType,
       kitsuStreamId: src.episode.kitsuStreamId,
+      sourceMetaId: src.episode.sourceMetaId,
       imdbSeason: src.episode.imdbSeason,
       imdbEpisode: src.episode.imdbEpisode,
       episodeEndOffset: Math.max(0, (src.episodeEnd ?? src.episode.episode) - src.episode.episode),
@@ -150,6 +152,8 @@ export function useEpisodeNavigation(params: {
         return;
       }
       setAdjacent(r);
+    }).catch(() => {
+      if (!cancelled) setAdjacent({ prev: null, next: null });
     });
     return () => {
       cancelled = true;

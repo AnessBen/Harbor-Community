@@ -107,7 +107,7 @@ const METAS: Record<string, AnimeKitsuMeta> = {
   "kitsu:90002": ANIZIP_SPECIAL_META,
 };
 
-function seriesModule() {
+function seriesModule(preferCustom = false) {
   const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
   const compiled = ts.transpileModule(read("src/lib/series-episodes.ts"), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
@@ -134,7 +134,7 @@ function seriesModule() {
     "./localized-text": { pickLocalizedText: () => undefined },
     "./meta-resource": {
       PREFERRED_TEXT_SCORE: 0,
-      preferCustomMeta: () => false,
+      preferCustomMeta: () => preferCustom,
       preferredMeta: async () => null,
       preferredVideoMap: () => new Map(),
       preferredVideoName: () => undefined,
@@ -201,6 +201,7 @@ function seriesModule() {
       opts: {
         tmdbKey: string;
         kitsuStreamId?: string;
+        sourceMetaId?: string;
         imdbSeason?: number;
         imdbEpisode?: number;
         episodeEndOffset?: number;
@@ -430,4 +431,24 @@ test("player navigation switches to the next entry's meta", () => {
   );
   assert.match(source, /nextMeta\?\.id === ep\.sourceMetaId/);
   assert.match(source, /openPicker\(targetMeta, carried/);
+});
+
+test("cold anime-room playback resolves the played entry even with custom metadata enabled", async () => {
+  const { fetchAdjacentEpisodes } = seriesModule(true);
+  const result = await fetchAdjacentEpisodes(
+    meta("tt13706018"),
+    { season: 1, episode: 1 },
+    { tmdbKey: "", kitsuStreamId: "kitsu:45619:1", imdbSeason: 1, imdbEpisode: 13 },
+  );
+  assert.equal(result.next?.kitsuStreamId, "kitsu:45619:2");
+});
+
+test("anime sourceMetaId preserves the entry when the stream ID is absent", async () => {
+  const { fetchAdjacentEpisodes } = seriesModule(true);
+  const result = await fetchAdjacentEpisodes(
+    meta("tt13706018"),
+    { season: 1, episode: 1 },
+    { tmdbKey: "", sourceMetaId: "kitsu:45619" },
+  );
+  assert.equal(result.next?.kitsuStreamId, "kitsu:45619:2");
 });

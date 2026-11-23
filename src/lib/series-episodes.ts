@@ -532,6 +532,7 @@ export async function fetchAdjacentEpisodes(
     tvdbKey?: string;
     tvdbSeasonType?: string;
     kitsuStreamId?: string;
+    sourceMetaId?: string;
     imdbSeason?: number;
     imdbEpisode?: number;
     episodeEndOffset?: number;
@@ -539,6 +540,24 @@ export async function fetchAdjacentEpisodes(
     skip?: (season: number, episode: number, metaId?: string) => boolean;
   },
 ): Promise<Adjacent> {
+  // Native anime playback uses entry-relative coordinates, which may not match
+  // the configured generic episode provider's franchise-wide numbering.
+  const animeSeries = animeSeriesFromStreamId(opts.kitsuStreamId) ??
+    (opts.sourceMetaId && isAnimeId(opts.sourceMetaId) ? opts.sourceMetaId : null) ??
+    (isAnimeId(meta.id) ? meta.id : null);
+  if (animeSeries) {
+    const eps = await getAnimeEpisodes(animeSeries);
+    const start = { season: current.season, episode: current.episode - (opts.episodeEndOffset ?? 0) };
+    if (eps && animeCurrentIndex(eps, start, opts) >= 0) {
+      return animeAdjacent(animeSeries, eps, current, opts);
+    }
+    if (meta.id === animeSeries && meta.videos?.length) {
+      const embedded = addonVideos(meta.videos);
+      if (animeCurrentIndex(embedded, start, opts) >= 0) {
+        return animeAdjacent(animeSeries, embedded, current, opts);
+      }
+    }
+  }
   const configured = await configuredEpisodeSource(meta, opts);
   if (configured) {
     if (configured.kind === "addon") {
@@ -552,12 +571,6 @@ export async function fetchAdjacentEpisodes(
   if (addonOnlyMetadata() || preferCustomMeta())
     return computeAdjacent((await getAddonEpisodes(meta.id)) ?? [], current, opts.skip);
   const generation = mediaCacheGeneration();
-  const animeSeries = animeSeriesFromStreamId(opts.kitsuStreamId);
-  if (animeSeries) {
-    const eps = await getAnimeEpisodes(animeSeries);
-    if (eps) return animeAdjacent(animeSeries, eps, current, opts);
-  }
-
   if (meta.type !== "series" && !isAnimeId(meta.id)) return { prev: null, next: null };
 
   if (meta.id.startsWith("tt")) {
