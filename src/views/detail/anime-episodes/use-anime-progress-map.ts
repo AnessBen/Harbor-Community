@@ -23,6 +23,8 @@ export function useAnimeProgressMap({
   entrySourceId,
   entryAnilistWatched,
   entryMalWatched,
+  entryAnilistBySource,
+  entryMalBySource,
   mwVersion,
   settings,
 }: {
@@ -37,6 +39,8 @@ export function useAnimeProgressMap({
   entrySourceId?: string | null;
   entryAnilistWatched?: Set<string>;
   entryMalWatched?: Set<string>;
+  entryAnilistBySource?: ReadonlyMap<string, Set<string>>;
+  entryMalBySource?: ReadonlyMap<string, Set<string>>;
   mwVersion: number;
   settings: Parameters<typeof spoilerMaskFor>[0];
 }) {
@@ -71,9 +75,11 @@ export function useAnimeProgressMap({
         ep.imdbId ?? null,
         traktWatched,
         undefined,
-        isCurrent ? anilistWatched : isEntry ? entryAnilistWatched : undefined,
+        isCurrent ? anilistWatched : isEntry
+          ? entryAnilistWatched : entryAnilistBySource?.get(ep.sourceMetaId ?? ""),
         undefined,
-        isCurrent ? malWatched : isEntry ? entryMalWatched : undefined,
+        isCurrent ? malWatched : isEntry
+          ? entryMalWatched : entryMalBySource?.get(ep.sourceMetaId ?? ""),
         ep.imdbSeason,
         ep.imdbEpisode,
         pmdbWatched,
@@ -121,6 +127,8 @@ export function useAnimeProgressMap({
     entrySourceId,
     entryAnilistWatched,
     entryMalWatched,
+    entryAnilistBySource,
+    entryMalBySource,
     mwVersion,
   ]);
 

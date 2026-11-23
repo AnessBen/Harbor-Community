@@ -151,3 +151,20 @@ test("tracker and airing owner requires a matching IMDb provider episode, not a 
     "ambiguous providers must not pick an arbitrary native owner",
   );
 });
+
+test("Stardust Crusaders' hero tracker uses verified episode 1 without merging its two cours", () => {
+  const { verifiedSeasonStartOwnerFromEpisodes } = load();
+  const rows = [
+    { sourceMetaId: "kitsu:8063", imdbId: "tt2359704", imdbSeason: 2, imdbEpisode: 1 },
+    { sourceMetaId: "kitsu:8063", imdbId: "tt2359704", imdbSeason: 2, imdbEpisode: 24 },
+    { sourceMetaId: "kitsu:8739", imdbId: "tt2359704", imdbSeason: 2, imdbEpisode: 25 },
+    { sourceMetaId: "kitsu:8739", imdbId: "tt2359704", imdbSeason: 2, imdbEpisode: 48 },
+  ];
+  assert.equal(verifiedSeasonStartOwnerFromEpisodes(rows, "tt2359704", 2), "kitsu:8063");
+  assert.equal(verifiedSeasonStartOwnerFromEpisodes(rows, "tt2359704", 3), null);
+  assert.equal(verifiedSeasonStartOwnerFromEpisodes(rows, "tt9999999", 2), null);
+  assert.equal(verifiedSeasonStartOwnerFromEpisodes([
+    ...rows,
+    { sourceMetaId: "kitsu:8739", imdbId: "tt2359704", imdbSeason: 2, imdbEpisode: 1 },
+  ], "tt2359704", 2), null, "two claimed first cours must remain unresolved");
+});

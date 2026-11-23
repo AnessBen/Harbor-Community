@@ -53,3 +53,47 @@ test("season name plus adjacent premiere year is a general fallback when catalog
   assert.equal(pick(sample, "Example Anime", "Northern Arc Part 2", "2025"), "kitsu:101");
   assert.equal(pick(sample, "Example Anime", "Season 2", "2025"), null);
 });
+
+const pickCours = exports.matchingKitsuSeasonEntries as (
+  hits: Array<{ id: number; title: string; year: number | null; subtype: string | null }>,
+  base: string,
+  season: string,
+  year: string | undefined,
+) => string[];
+const commonSeries = exports.seasonLookupSeriesName as (
+  openedTitle: string,
+  franchiseTitles: string[],
+) => string;
+const query = exports.seasonLookupQuery as (base: string, arc: string) => string;
+
+test("Steel Ball Run CW details resolve a common franchise title for older JoJo seasons", () => {
+  const series = commonSeries("Steel Ball Run: JoJo's Bizarre Adventure", [
+    "JoJo's Bizarre Adventure: Golden Wind",
+    "JoJo's Bizarre Adventure: Stone Ocean",
+    "Steel Ball Run: JoJo's Bizarre Adventure",
+  ]);
+  assert.equal(series, "JoJo's Bizarre Adventure");
+  assert.equal(query(series, "Diamond is Unbreakable"),
+    "JoJo's Bizarre Adventure Diamond is Unbreakable");
+  assert.equal(commonSeries("Unrelated Show: Part Two", []), "Unrelated Show: Part Two");
+});
+
+test("Stardust Crusaders season resolves both verified cour candidates", () => {
+  const entries = [
+    { id: 8063, title: "JoJo's Bizarre Adventure: Stardust Crusaders", year: 2014, subtype: "TV" },
+    { id: 8739, title: "JoJo's Bizarre Adventure: Stardust Crusaders - Battle in Egypt", year: 2015, subtype: "TV" },
+    { id: 11459, title: "JoJo's Bizarre Adventure: Diamond is Unbreakable", year: 2016, subtype: "TV" },
+  ];
+  assert.deepEqual(pickCours(entries, jojo, "Stardust Crusaders", "2014"), ["kitsu:8063", "kitsu:8739"]);
+  assert.deepEqual(pickCours(entries, jojo, "Diamond is Unbreakable", "2016"), ["kitsu:11459"]);
+  assert.deepEqual(pickCours(entries, jojo, "Season 2", "2014"), []);
+  assert.deepEqual(pickCours(entries, "Wrong Series", "Stardust Crusaders", "2014"), []);
+});
+
+test("candidate lookup never invents a primary owner when the requested season is ambiguous", () => {
+  const duplicate = [
+    { id: 12, title: "Example Anime: Fire Arc", year: 2024, subtype: "TV" },
+    { id: 13, title: "Example Anime: Fire Arc", year: 2024, subtype: "TV" },
+  ];
+  assert.deepEqual(pickCours(duplicate, "Example Anime", "Fire Arc", "2024"), []);
+});

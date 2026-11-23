@@ -1,11 +1,14 @@
 import { lastPlayedEpisode } from "@/lib/resume";
 import { getAnimeCwId } from "@/lib/anime-cw-ids";
 import {
-  nativeSeasonRows,
-  nativeSeasonOwnerId,
-  verifiedSeasonOwnerFromEpisodes,
+  nativeSeasonRows, nativeSeasonOwnerId, verifiedSeasonOwnerFromEpisodes,
+  verifiedSeasonStartOwnerFromEpisodes,
 } from "./anime-episodes/anime-season-key";
-import { matchingKitsuSeasonEntry } from "./anime-episodes/anime-season-lookup";
+import {
+  matchingKitsuSeasonEntries,
+  seasonLookupQuery,
+  seasonLookupSeriesName,
+} from "./anime-episodes/anime-season-lookup";
 import {
   memo,
   startTransition,
@@ -51,13 +54,14 @@ import { EpisodeSearchToggle } from "./series-episodes/episode-search-controls";
 import { AnimeAiBar } from "./anime-episodes/anime-ai-bar";
 import { useAnimeAiSearch } from "./anime-episodes/use-anime-ai-search";
 import { useAnimeProgressMap } from "./anime-episodes/use-anime-progress-map";
+import { useEntryTrackerWatched } from "./anime-episodes/use-entry-tracker-watched";
 import { useAnimePreferredSeason } from "./anime-episodes/use-anime-preferred-season";
 import { useAnimeTvdbPanel } from "./anime-episodes/use-anime-tvdb-panel";
 import { animeUpToEpisodeSlice } from "./anime-episodes/up-to-episodes";
 
 import { useFranchiseEpisodes } from "./anime-episodes/use-franchise-episodes";
 import { isSoloSplitEntry } from "./anime-episodes/solo-entry";
-import { animeDetails, isFranchiseExtra } from "@/lib/providers/anime-detail";
+import { isFranchiseExtra } from "@/lib/providers/anime-detail";
 import { franchiseRoot, franchiseRootSync } from "@/lib/providers/anime-franchise-root";
 import { splitFranchiseDisplaySeason } from "@/lib/streams/anime-identity-core";
 import { useAnimeWatchedRouting } from "./anime-episodes/use-anime-watched-routing";
@@ -399,34 +403,38 @@ export const AnimeEpisodes = memo(function AnimeEpisodes({
       ? { id, type: "series" as const, name: meta.name }
       : null;
   }, [imdbId, catalogResume, seasonHint, currentId, meta.name]);
-  const seasonLookupKey = `${meta.id}:${tvdbPanel.panel?.activeKey ?? ""}`;
+  const seasonLookupSeries = useMemo(
+    () => seasonLookupSeriesName(meta.name, franchise.map((entry) => entry.meta.name)),
+    [meta.name, franchise],
+  );
+  const seasonLookupKey = [meta.id, tvdbPanel.panel?.activeKey ?? "", seasonLookupSeries].join(":");
   const needsSeasonLookup =
     Boolean(tvdbPanel.panel && tvdbActiveSeason && !tvdbActiveSeason.isGenericName) &&
     !premiereEntry &&
     !savedSeasonEntry &&
     !seasonEntry;
-  const [searchedSeason, setSearchedSeason] = useState<{ key: string; id: string | null } | null>(
+  const [searchedSeason, setSearchedSeason] = useState<{ key: string; ids: string[] } | null>(
     null,
   );
   useEffect(() => {
     if (!needsSeasonLookup || !tvdbActiveSeason?.name) return;
     let cancelled = false;
     const key = seasonLookupKey;
-    void kitsuSearchAnime(`${meta.name} ${tvdbActiveSeason.name}`, 12, true)
+    void kitsuSearchAnime(seasonLookupQuery(seasonLookupSeries, tvdbActiveSeason.name), 12, true)
       .then((hits) => {
         if (!cancelled)
           setSearchedSeason({
             key,
-            id: matchingKitsuSeasonEntry(
+            ids: matchingKitsuSeasonEntries(
               hits,
-              meta.name,
+              seasonLookupSeries,
               tvdbActiveSeason.name,
               tvdbActiveSeason.year,
             ),
           });
       })
       .catch(() => {
-        if (!cancelled) setSearchedSeason({ key, id: null });
+        if (!cancelled) setSearchedSeason({ key, ids: [] });
       });
     return () => {
       cancelled = true;
@@ -434,21 +442,24 @@ export const AnimeEpisodes = memo(function AnimeEpisodes({
   }, [
     needsSeasonLookup,
     seasonLookupKey,
+    seasonLookupSeries,
     tvdbActiveSeason?.name,
     tvdbActiveSeason?.year,
-    meta.name,
   ]);
-  const searchedSeasonId = searchedSeason?.key === seasonLookupKey ? searchedSeason.id : null;
+  const searchedSeasonIds = useMemo(
+    () => (searchedSeason?.key === seasonLookupKey ? searchedSeason.ids : []),
+    [searchedSeason, seasonLookupKey],
+  );
   const searchedSeasonEntry = useMemo(
     () =>
-      searchedSeasonId
+      searchedSeasonIds[0]
         ? {
-            id: searchedSeasonId,
+            id: searchedSeasonIds[0],
             type: "series" as const,
-            name: `${meta.name}: ${tvdbActiveSeason?.name}`,
+            name: seasonLookupQuery(seasonLookupSeries, tvdbActiveSeason?.name ?? ""),
           }
         : null,
-    [searchedSeasonId, meta.name, tvdbActiveSeason?.name],
+    [searchedSeasonIds, seasonLookupSeries, tvdbActiveSeason?.name],
   );
   const visibleFirstOwner = tvdbPanel.panel?.visibleEpisodes.find(
     (ep) => ep.imdbSeason === seasonHint && ep.imdbEpisode === 1,
@@ -468,27 +479,24 @@ export const AnimeEpisodes = memo(function AnimeEpisodes({
     if (needsSeasonLookup && searchedSeason?.key !== seasonLookupKey) return;
     const selectedEntry = premiereEntry ?? savedSeasonEntry ?? searchedSeasonEntry;
     if (selectedEntry && selectedEntry.id !== currentId) {
-      const publish = (rows: KitsuEpisode[], id: number) => {
-        if (cancelled || !rows.length || selectedEntry.id !== `kitsu:${id}`) return;
-        // A candidate from resume, search, or premiere metadata is not the
-        // tracker owner until its actual episodes match the selected show.
-        if (!rows.some((ep) => ep.imdbId === imdbId && ep.imdbSeason === seasonHint)) return;
-        setNativeSeason({
-          page: meta.id,
-          season: seasonHint,
-          episodes: rows.map((ep) => ({
-            ...ep,
-            sourceMetaId: ep.sourceMetaId ?? selectedEntry.id,
-          })),
-        });
-      };
-      void animeDetails(settings, selectedEntry, publish)
-        .then((result) => {
-          if (!result || cancelled) return;
-          publish(result.episodes, result.kitsuId);
-          void result.enrichPromise.then((rows) => publish(rows, result.kitsuId)).catch(() => {});
-        })
-        .catch(() => {});
+      // A single catalog season can span several native cours. Trust only
+      // episode rows explicitly mapped to this IMDb title and season.
+      const candidateIds = searchedSeasonIds.includes(selectedEntry.id)
+        ? searchedSeasonIds
+        : [selectedEntry.id];
+      void Promise.all(
+        candidateIds.map(async (candidate) => {
+          const id = parseKitsuId(candidate);
+          if (id == null) return [];
+          const rows = await fetchEntryEpisodes(id, settings).catch(() => [] as KitsuEpisode[]);
+          return rows.filter((ep) => ep.imdbId === imdbId && ep.imdbSeason === seasonHint);
+        }),
+      ).then((groups) => {
+        if (cancelled) return;
+        const verified = groups.flat();
+        if (verified.length)
+          setNativeSeason({ page: meta.id, season: seasonHint, episodes: verified });
+      });
       return () => {
         cancelled = true;
       };
@@ -531,6 +539,7 @@ export const AnimeEpisodes = memo(function AnimeEpisodes({
     premiereEntry,
     savedSeasonEntry,
     searchedSeasonEntry,
+    searchedSeasonIds,
     searchedSeason,
     seasonLookupKey,
     needsSeasonLookup,
@@ -704,6 +713,7 @@ export const AnimeEpisodes = memo(function AnimeEpisodes({
     });
     return changed ? out : filled;
   }, [baseDisplay, proxyImages, franchiseEpisodes, artwork, unairedIds, soloEntry]);
+  const multiEntryWatched = useEntryTrackerWatched(displayEpisodes);
   const displaySourceId = useMemo(() => {
     const ids = new Set<string>();
     for (const e of displayEpisodes) if (e.sourceMetaId != null) ids.add(e.sourceMetaId);
@@ -723,11 +733,17 @@ export const AnimeEpisodes = memo(function AnimeEpisodes({
       ? nativeOwner
       : null;
   const verifiedDisplayOwner = verifiedSeasonOwnerFromEpisodes(displayEpisodes, imdbId, seasonHint);
+  const verifiedFirstCourOwner = verifiedSeasonStartOwnerFromEpisodes(
+    nativeSeason?.page === meta.id && nativeSeason.season === seasonHint
+      ? nativeSeason.episodes
+      : displayEpisodes,
+    imdbId,
+    seasonHint,
+  );
   const selectedCanonicalEntryId = tvdbPanel.panel
-    ? (verifiedNativeOwner ??
-      verifiedDisplayOwner ??
-      (requiresSeasonOwner ? null : (displaySourceId ?? activeEntryId)))
-    : (displaySourceId ?? (activeIsAnchor ? null : activeEntryId));
+    ? (verifiedNativeOwner ?? verifiedDisplayOwner ?? verifiedFirstCourOwner ??
+       (requiresSeasonOwner ? null : displaySourceId ?? activeEntryId))
+    : displaySourceId ?? (activeIsAnchor ? null : activeEntryId);
   useEffect(() => {
     onCanonicalEntry?.(selectedCanonicalEntryId, requiresSeasonOwner);
   }, [selectedCanonicalEntryId, requiresSeasonOwner, onCanonicalEntry]);
@@ -819,6 +835,8 @@ export const AnimeEpisodes = memo(function AnimeEpisodes({
     entrySourceId: displaySourceId,
     entryAnilistWatched,
     entryMalWatched,
+    entryAnilistBySource: multiEntryWatched.anilist,
+    entryMalBySource: multiEntryWatched.mal,
     mwVersion,
     settings,
   });

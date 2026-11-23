@@ -188,6 +188,24 @@ export function verifiedSeasonOwnerFromEpisodes(
 }
 
 /**
+ * A TVDB season can contain multiple native AniList entries. The hero tracker
+ * refers to its first cour, only when an IMDb-matched episode 1 proves which
+ * native entry starts the season. Individual episode watched state still
+ * follows its own source entry.
+ */
+export function verifiedSeasonStartOwnerFromEpisodes(
+  rows: readonly Pick<KitsuEpisode, "sourceMetaId" | "imdbId" | "imdbSeason" | "imdbEpisode">[],
+  imdbId: string | null | undefined,
+  season: number | null,
+): string | null {
+  return verifiedSeasonOwnerFromEpisodes(
+    rows.filter((row) => row.imdbEpisode === 1),
+    imdbId,
+    season,
+  );
+}
+
+/**
  * Native rows are resolved for one specific provider season; do not use rows
  * from the previously selected season while the next one is loading.
  * This owner can be unambiguous even when the displayed TVDB rows mix entries.
