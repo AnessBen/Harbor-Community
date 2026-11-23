@@ -1,10 +1,19 @@
 import { Check, ChevronDown, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import anilistLogo from "@/assets/anilist.png";
+import malLogo from "@/assets/mal.png";
 import simklLogo from "@/assets/simkl.png";
 import { deleteListEntry, fetchListEntry, saveListEntry } from "@/lib/anilist/mutations";
 import { useAnilist } from "@/lib/anilist/provider";
 import { resolveAnilistMediaId } from "@/lib/anilist/sync";
+import {
+  deleteListEntry as deleteMalListEntry,
+  fetchListEntry as fetchMalListEntry,
+  resolveMalMediaId,
+  saveListEntry as saveMalListEntry,
+} from "@/lib/mal/mutations";
+import { useMal } from "@/lib/mal/provider";
+import type { MalListStatus } from "@/lib/mal/types";
 import type { MediaListStatus } from "@/lib/anilist/types";
 import { resolveSimklTarget } from "@/lib/simkl/ids";
 import {
@@ -25,7 +34,23 @@ import { useTrakt } from "@/lib/trakt/provider";
 import { pushWatched } from "@/lib/trakt/history";
 import { useT } from "@/lib/i18n";
 import { usePmdbWatchlist } from "./add-to-publicmetadb-button";
-import { useTrackerStatusVersion } from "@/lib/tracker-status-events";
+import { notifyTrackerStatusChanged, useTrackerStatusVersion } from "@/lib/tracker-status-events";
+
+const MAL_LABELS: Record<MalListStatus, string> = {
+  watching: "Watching",
+  plan_to_watch: "Plan to Watch",
+  completed: "Completed",
+  on_hold: "On Hold",
+  dropped: "Dropped",
+};
+
+const MAL_ORDER: MalListStatus[] = [
+  "watching",
+  "plan_to_watch",
+  "completed",
+  "on_hold",
+  "dropped",
+];
 
 const ANILIST_LABELS: Record<MediaListStatus, string> = {
   CURRENT: "Watching",
@@ -194,6 +219,136 @@ export function SimklMenuItems({
   );
 }
 
+/** Keep the MyAnimeList actions reachable when the detail hero moves into overflow. */
+export function MalMenuItems({
+  harborId,
+  onAction,
+}: {
+  harborId: string;
+  onAction: () => void;
+}) {
+  const t = useT();
+  const { isConnected } = useMal();
+  const trackerStatusVersion = useTrackerStatusVersion();
+  const [malId, setMalId] = useState<number | null>(null);
+  const [status, setStatus] = useState<MalListStatus | null>(null);
+  const [ready, setReady] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    setAttempt(0);
+    setMalId(null);
+    setReady(false);
+    setOpen(false);
+  }, [harborId]);
+
+  useEffect(() => {
+    if (!isConnected) {
+      setReady(false);
+      return;
+    }
+    let cancelled = false;
+    let timer: number | undefined;
+    void (async () => {
+      const id = await resolveMalMediaId(harborId).catch(() => null);
+      if (cancelled) return;
+      if (id == null) {
+        setMalId(null);
+        setReady(false);
+        if (attempt < 2) timer = window.setTimeout(() => setAttempt((a) => a + 1), 15_000);
+        return;
+      }
+      const info = await fetchMalListEntry(id).catch(() => null);
+      if (cancelled) return;
+      setMalId(id);
+      setStatus(info?.entry?.status ?? null);
+      setReady(true);
+    })();
+    return () => {
+      cancelled = true;
+      if (timer != null) window.clearTimeout(timer);
+    };
+  }, [harborId, isConnected, attempt, trackerStatusVersion]);
+
+  if (!isConnected || !ready || malId == null) return null;
+
+  const setTo = async (next: MalListStatus) => {
+    if (busy) return;
+    setBusy(true);
+    const previous = status;
+    setStatus(next);
+    try {
+      const saved = await saveMalListEntry({ malId, status: next });
+      setStatus(saved.status);
+      notifyTrackerStatusChanged();
+      onAction();
+    } catch {
+      setStatus(previous);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    if (busy) return;
+    setBusy(true);
+    const previous = status;
+    setStatus(null);
+    try {
+      if (!(await deleteMalListEntry(malId))) {
+        throw new Error("MyAnimeList did not confirm removal.");
+      }
+      notifyTrackerStatusChanged();
+      onAction();
+    } catch {
+      setStatus(previous);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (status == null) {
+    return (
+      <GroupRow
+        logo={malLogo}
+        label={t("Add to MAL")}
+        open={false}
+        onClick={() => void setTo("plan_to_watch")}
+      />
+    );
+  }
+
+  return (
+    <>
+      <GroupRow
+        logo={malLogo}
+        label={`MAL · ${t(MAL_LABELS[status])}`}
+        open={open}
+        onClick={() => setOpen((current) => !current)}
+      />
+      {open && (
+        <>
+          {MAL_ORDER.map((entryStatus) => (
+            <StatusRow
+              key={entryStatus}
+              label={t(MAL_LABELS[entryStatus])}
+              active={entryStatus === status}
+              onClick={() => void setTo(entryStatus)}
+            />
+          ))}
+          <StatusRow
+            label={t("Remove from list")}
+            danger
+            onClick={() => void remove()}
+          />
+        </>
+      )}
+    </>
+  );
+}
+
 export function AnilistMenuItems({
   harborId,
   onAction,
@@ -209,77 +364,138 @@ export function AnilistMenuItems({
   const [status, setStatus] = useState<MediaListStatus | null>(null);
   const [ready, setReady] = useState(false);
   const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
+
+  useEffect(() => {
+    setMediaId(null);
+    setEntryId(null);
+    setStatus(null);
+    setReady(false);
+    setOpen(false);
+    setRetry(0);
+  }, [harborId]);
 
   useEffect(() => {
     if (!isConnected) return;
     let cancelled = false;
-    (async () => {
-      const id = await resolveAnilistMediaId(harborId);
+    setReady(false);
+    setError(null);
+    void (async () => {
+      const id = await resolveAnilistMediaId(harborId).catch(() => null);
       if (cancelled) return;
       if (id == null) {
-        setReady(false);
+        setError("Unable to resolve AniList entry. Retry.");
+        return;
+      }
+      const info = await fetchListEntry(id).catch(() => null);
+      if (cancelled) return;
+      if (!info) {
+        setError("Unable to load AniList status. Retry.");
         return;
       }
       setMediaId(id);
-      const info = await fetchListEntry(id).catch(() => null);
-      if (cancelled) return;
-      setEntryId(info?.entry?.id ?? null);
-      setStatus(info?.entry?.status ?? null);
+      setEntryId(info.entry?.id ?? null);
+      setStatus(info.entry?.status ?? null);
       setReady(true);
     })();
     return () => {
       cancelled = true;
     };
-  }, [harborId, isConnected, trackerStatusVersion]);
+  }, [harborId, isConnected, retry, trackerStatusVersion]);
 
-  if (!isConnected || !ready || mediaId == null) return null;
-
-  if (status == null) {
-    return (
-      <GroupRow
-        logo={anilistLogo}
-        label={t("Add to AniList")}
-        open={false}
-        onClick={() => {
-          void saveListEntry({ mediaId, status: "PLANNING" }).catch(() => {});
-          onAction();
-        }}
-      />
+  if (!isConnected) return null;
+  if (!ready || mediaId == null) {
+    return error ? (
+      <button
+        role="menuitem"
+        type="button"
+        onClick={() => setRetry((value) => value + 1)}
+        className="flex min-h-9 items-center px-3 text-start text-xs text-ink-muted hover:text-ink"
+      >
+        {t(error)}
+      </button>
+    ) : (
+      <div role="status" className="flex min-h-9 items-center px-3 text-xs text-ink-muted">
+        {t("Loading AniList...")}
+      </div>
     );
   }
+
+  const setTo = async (next: MediaListStatus) => {
+    if (busy) return;
+    const before = status;
+    setBusy(true);
+    setError(null);
+    setStatus(next);
+    try {
+      const saved = await saveListEntry({ mediaId, status: next });
+      setEntryId(saved.id);
+      setStatus(saved.status);
+      notifyTrackerStatusChanged();
+      onAction();
+    } catch {
+      setStatus(before);
+      setError(t("AniList update failed. Try again."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    if (busy || entryId == null) return;
+    const before = status;
+    const removedEntryId = entryId;
+    setBusy(true);
+    setError(null);
+    setStatus(null);
+    setEntryId(null);
+    try {
+      if (!(await deleteListEntry(removedEntryId)))
+        throw new Error("AniList did not confirm removal.");
+      notifyTrackerStatusChanged();
+      onAction();
+    } catch {
+      setStatus(before);
+      setEntryId(removedEntryId);
+      setError(t("AniList update failed. Try again."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <>
       <GroupRow
         logo={anilistLogo}
-        label={`AniList  ·  ${t(ANILIST_LABELS[status])}`}
+        label={status == null ? t("Add to AniList") : "AniList · " + t(ANILIST_LABELS[status])}
         open={open}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          if (status == null) void setTo("PLANNING");
+          else setOpen((value) => !value);
+        }}
       />
-      {open && (
+      {status != null && open && (
         <>
-          {ANILIST_ORDER.map((s) => (
+          {ANILIST_ORDER.map((item) => (
             <StatusRow
-              key={s}
-              label={t(ANILIST_LABELS[s])}
-              active={s === status}
-              onClick={() => {
-                void saveListEntry({ mediaId, status: s }).catch(() => {});
-                onAction();
-              }}
+              key={item}
+              label={t(ANILIST_LABELS[item])}
+              active={item === status}
+              onClick={() => void setTo(item)}
             />
           ))}
           {entryId != null && (
             <StatusRow
               label={t("Remove from list")}
               danger
-              onClick={() => {
-                void deleteListEntry(entryId).catch(() => {});
-                onAction();
-              }}
+              onClick={() => void remove()}
             />
           )}
         </>
       )}
+      {error && <p role="alert" className="px-3 py-1 text-xs text-danger">{error}</p>}
     </>
   );
 }

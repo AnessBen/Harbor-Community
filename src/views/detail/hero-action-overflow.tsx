@@ -10,6 +10,7 @@ import { HoverTooltip } from "@/components/hover-tooltip";
 import type { ListItemInput } from "@/lib/custom-lists";
 import {
   AnilistMenuItems,
+  MalMenuItems,
   PmdbMenuItems,
   SimklMenuItems,
   TraktMenuItems,
@@ -92,6 +93,7 @@ export function HeroActionOverflow({
   listItem = null,
   simkl = null,
   anilist = null,
+  mal = null,
   pmdb = null,
 }: {
   meta: Meta;
@@ -107,6 +109,7 @@ export function HeroActionOverflow({
   listItem?: ListItemInput | null;
   simkl?: { harborId: string; type: "movie" | "series" } | null;
   anilist?: { harborId: string } | null;
+  mal?: { harborId: string } | null;
   pmdb?: { harborId: string; type: "movie" | "series" } | null;
 }) {
   const t = useT();
@@ -184,6 +187,13 @@ export function HeroActionOverflow({
                 )}
                 {anilist && (
                   <AnilistMenuItems key={`anilist:${anilist.harborId}`} harborId={anilist.harborId} onAction={() => setMenu(null)} />
+                )}
+                {mal && (
+                  <MalMenuItems
+                    key={`mal:${mal.harborId}`}
+                    harborId={mal.harborId}
+                    onAction={() => setMenu(null)}
+                  />
                 )}
                 {pmdb && (
                   <PmdbMenuItems

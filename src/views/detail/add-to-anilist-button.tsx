@@ -42,21 +42,28 @@ export function AddToAnilistButton({ harborId, title }: { harborId: string; titl
   const [busy, setBusy] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     setAttempt(0);
+    setMediaId(null);
+    setReady(false);
+    setLoadFailed(false);
   }, [harborId]);
 
   useEffect(() => {
     if (!isConnected) return;
     setReady(false);
+    setLoadFailed(false);
     let cancelled = false;
     let timer: number | undefined;
     (async () => {
       const id = await resolveAnilistMediaId(harborId).catch(() => null);
       if (cancelled) return;
       if (id == null) {
+        setLoadFailed(true);
         if (attempt < 2) timer = window.setTimeout(() => setAttempt((a) => a + 1), 15000);
         return;
       }
@@ -66,6 +73,7 @@ export function AddToAnilistButton({ harborId, title }: { harborId: string; titl
       const info = await fetchListEntry(id).catch(() => null);
       if (cancelled) return;
       if (!info) {
+        setLoadFailed(true);
         if (attempt < 2) timer = window.setTimeout(() => setAttempt((a) => a + 1), 15000);
         return;
       }
@@ -82,27 +90,44 @@ export function AddToAnilistButton({ harborId, title }: { harborId: string; titl
     };
   }, [harborId, isConnected, attempt, trackerStatusVersion]);
 
-  if (!isConnected || mediaId == null || !ready) return null;
+  if (!isConnected) return null;
+  if (mediaId == null || !ready) {
+    return (
+      <button
+        type="button"
+        disabled={!loadFailed}
+        onClick={() => setAttempt((value) => value + 1)}
+        className="flex h-12 shrink-0 items-center gap-2.5 rounded-full bg-canvas/80 px-5 text-[15px] text-ink-muted disabled:opacity-70"
+      >
+        <img src={anilistLogo} alt="" className="h-[18px] w-[18px] rounded-[3px]" />
+        {loadFailed ? t("Retry AniList") : t("Loading AniList...")}
+      </button>
+    );
+  }
 
   const setTo = async (next: MediaListStatus) => {
+    if (busy) return;
+    setActionError(null);
     setBusy(true);
     const prev = status;
     setStatus(next);
-    setMenuOpen(false);
     try {
       const saved = await saveListEntry({ mediaId, status: next });
       setEntryId(saved.id);
       setStatus(saved.status);
+      setMenuOpen(false);
       notifyTrackerStatusChanged();
     } catch {
       setStatus(prev);
+      setActionError(t("AniList update failed. Try again."));
     } finally {
       setBusy(false);
     }
   };
 
   const remove = async () => {
-    if (entryId == null) return;
+    if (entryId == null || busy) return;
+    setActionError(null);
     setBusy(true);
     const prevStatus = status;
     const prevEntry = entryId;
@@ -112,11 +137,12 @@ export function AddToAnilistButton({ harborId, title }: { harborId: string; titl
     setEntryId(null);
     setPrivacy(false);
     setEntryLists([]);
-    setMenuOpen(false);
     try {
       if (!(await deleteListEntry(prevEntry))) throw new Error("AniList did not confirm removal.");
+      setMenuOpen(false);
       notifyTrackerStatusChanged();
     } catch {
+      setActionError(t("AniList update failed. Try again."));
       setStatus(prevStatus);
       setEntryId(prevEntry);
       setPrivacy(prevPrivacy);
@@ -159,7 +185,7 @@ export function AddToAnilistButton({ harborId, title }: { harborId: string; titl
   if (status == null) {
     return (
       <HoverTooltip
-        label={t("Add {title} to AniList", { title })}
+        label={actionError ?? t("Add {title} to AniList", { title })}
         align="center"
         className="shrink-0"
       >
@@ -263,6 +289,9 @@ export function AddToAnilistButton({ harborId, title }: { harborId: string; titl
             <Trash2 size={14} />
             {t("Remove from list")}
           </button>
+          {actionError && (
+            <p role="alert" className="px-4 py-2 text-xs text-danger">{actionError}</p>
+          )}
         </div>
       </AnchoredMenu>
     </>

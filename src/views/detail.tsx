@@ -2943,6 +2943,7 @@ function DetailContent({
                         : null
                     }
                     anilist={isAnime && animeTrackerId ? { harborId: animeTrackerId } : null}
+                    mal={animeIdentity && animeTrackerId ? { harborId: animeTrackerId } : null}
                     pmdb={
                       listTrackerId
                         ? {
