@@ -39,6 +39,7 @@ import {
 } from "./chapter-locations";
 import { migrateEBookChapterLocations, savedEBookChapters } from "./reader-state";
 import { pdfBookInfo, pdfPageContent, pdfPageCount } from "./pdf";
+import { applyLocalEBookDetails } from "./local-details";
 
 export type EBookChapter = {
   id: string;
@@ -448,7 +449,7 @@ function localProvider(source: EBookSource): Provider {
   const provider = { id: source.id, name: source.name, iconUrl: source.iconUrl } as Provider;
   const find = async (id: string) =>
     localBooks.get(source.id)?.get(id) ?? (await scanLocalBooks(source)).get(id);
-  const summary = (id: string, book: { title: string; paths: string[] }): EBook => ({
+  const summary = (id: string, book: { title: string; paths: string[] }): EBook => applyLocalEBookDetails({
     id: routeId(provider.id, id),
     source: "source",
     providerId: provider.id,
@@ -461,8 +462,8 @@ function localProvider(source: EBookSource): Provider {
     volumes: book.paths.length > 1 ? book.paths.length : undefined,
   });
   const list = async (query: string, offset: number) => {
-    const books = [...(await scanLocalBooks(source))].filter(([, book]) =>
-      book.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
+    const books = [...(await scanLocalBooks(source))].filter(([id, book]) =>
+      summary(id, book).title.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
     );
     return Promise.all(
       books.slice(offset, offset + 24).map(async ([id, book]) => {
@@ -471,11 +472,11 @@ function localProvider(source: EBookSource): Provider {
         if (!firstEpub) return item;
         const epub = await localPackage(firstEpub).catch(() => null);
         if (!epub?.cover) return item;
-        return {
+        return applyLocalEBookDetails({
           ...item,
           cover: epub.cover,
           internalCover: epub.cover,
-        };
+        });
       }),
     );
   };
@@ -496,7 +497,7 @@ function localProvider(source: EBookSource): Provider {
           failure = error;
         }
       }
-      return {
+      return applyLocalEBookDetails({
         ...summary(id, book),
         title: book.paths.length > 1 ? book.title : pdf?.title || book.title,
         authors: pdf?.authors ?? [],
@@ -505,10 +506,10 @@ function localProvider(source: EBookSource): Provider {
         year: pdf?.year,
         genres: [],
         chapters: book.paths.length === 1 ? pdf?.pages : undefined,
-      };
+      });
     }
     const epub = await localPackage(firstEpub);
-    return {
+    return applyLocalEBookDetails({
       ...summary(id, book),
       title: book.paths.length > 1 ? book.title : epub.title || book.title,
       authors: epub.authors,
@@ -517,7 +518,7 @@ function localProvider(source: EBookSource): Provider {
       year: epub.year,
       genres: epub.subjects,
       chapters: book.paths.length === 1 ? epub.chapters.length : undefined,
-    };
+    });
   };
   provider.chapters = async (id) => {
     const book = await find(id);
@@ -907,7 +908,7 @@ export async function loadSourceEBookCatalogPage(
     }),
   );
   return {
-    items: dedupeEBooks(pages.flatMap((page) => page.items)),
+    items: dedupeEBooks(pages.flatMap((page) => page.items)).map(applyLocalEBookDetails),
     cursor: Object.fromEntries(
       pages.map(({ provider, offset, items }) => [provider.id, offset + items.length]),
     ),
@@ -924,7 +925,7 @@ export async function searchSourceEBookCatalog(
   const pages = await Promise.all(
     list.map((provider) => provider.search(query, 0).catch(() => [])),
   );
-  return dedupeEBooks(mergeEBookMetadata(pages.flat(), []));
+  return dedupeEBooks(mergeEBookMetadata(pages.flat(), [])).map(applyLocalEBookDetails);
 }
 
 export async function loadSourceEBookPage(
@@ -947,7 +948,7 @@ export async function loadSourceEBookPage(
       return { provider, offset, items, enriched: withMetadata(items, events?.onMetadata) };
     }),
   );
-  const sourceItems = dedupeEBooks(pages.flatMap((page) => page.items));
+  const sourceItems = dedupeEBooks(pages.flatMap((page) => page.items)).map(applyLocalEBookDetails);
   return {
     items: sourceItems,
     enriched: Promise.all(pages.map((page) => page.enriched)).then(async (selectedGroups) => {
@@ -1020,7 +1021,7 @@ export async function loadSourceEBookPage(
       const matchingCompanions = companions
         .flatMap((item) => item.books ?? [item])
         .filter((candidate) => selectedEntries.some((item) => eBooksMatch(item, candidate)));
-      return dedupeEBooks([...selectedEntries, ...matchingCompanions]);
+      return dedupeEBooks([...selectedEntries, ...matchingCompanions]).map(applyLocalEBookDetails);
     }),
     cursor: Object.fromEntries(
       pages.map(({ provider, offset, items }) => [provider.id, offset + items.length]),
@@ -1047,12 +1048,17 @@ export async function searchSourceEBooks(
   return (await loadSourceEBookPage(query, providerId, cursor)).enriched;
 }
 
+export function invalidateSourceEBookDetail(route: string): void {
+  details.delete(route);
+  details.delete(`background:${route}`);
+}
+
 export async function sourceEBookDetail(
   route: string,
   options: { background?: boolean } = {},
 ): Promise<EBook | null> {
   const detail = await sourceDetail(route, options.background);
-  return detail ? (await withMetadata([detail]))[0] : null;
+  return detail ? applyLocalEBookDetails((await withMetadata([detail]))[0] ?? detail) : null;
 }
 
 export async function sourceEBookChapters(route: string): Promise<EBookChapter[]> {

@@ -1,4 +1,5 @@
 import type { EBook } from "./api";
+import { applyLocalEBookDetails } from "./local-details";
 
 const KEY = "harbor.ebook.library.v1";
 const FAVORITES_KEY = "harbor.ebook.favorites.v1";
@@ -17,7 +18,7 @@ function read(key: string, legacyKey: string): EBook[] {
           id: String(ebook.id).includes(":") ? String(ebook.id) : `anilist:${ebook.id}`,
           source: ebook.source ?? "anilist",
           authors: ebook.authors ?? [],
-        }))
+        })).map(applyLocalEBookDetails)
       : [];
   } catch {
     return [];

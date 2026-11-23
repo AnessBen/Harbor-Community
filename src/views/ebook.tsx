@@ -19,6 +19,7 @@ import {
   Settings,
   X,
   Info,
+  Pencil,
 } from "lucide-react";
 import {
   createContext,
@@ -110,6 +111,7 @@ import {
   restoreSourceEBookChapters,
   sourceEBookContent,
   sourceEBookDetail,
+  invalidateSourceEBookDetail,
   type EBookChapter,
   type EBookChapterContent,
   type EBookCursor,
@@ -131,6 +133,8 @@ import { openUrl } from "@/lib/window";
 import { EBookSourcesView } from "./ebook/ebook-sources-panel";
 import { EBookSetup } from "./ebook/ebook-setup";
 import { EBookReader } from "./ebook/ebook-reader";
+import { EBookLocalDetailsEditor } from "./ebook/ebook-local-details-editor";
+import { applyLocalEBookDetails, isLocalEBook } from "@/lib/ebook/local-details";
 import { EBookWheelMenu, type EBookWheelTarget } from "./ebook/ebook-wheel-menu";
 import { MangaRail } from "./manga/manga-rail";
 
@@ -317,6 +321,7 @@ export function EBookView() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [popular, setPopular] = useState<EBook[] | null>(null);
   const [metadataVersion, setMetadataVersion] = useState(0);
+  const [localDetailsVersion, setLocalDetailsVersion] = useState(0);
   const [collectionsRefreshing, setCollectionsRefreshing] = useState(false);
   const searchSeq = useRef(0);
   const searchTimer = useRef<number | undefined>(undefined);
@@ -392,20 +397,28 @@ export function EBookView() {
     resolvedCollections.length === 0 && (sourceCatalogItems === null || collectionsRefreshing);
   const currentItems = useMemo(() => {
     const items = new Map<string, EBook>();
-    for (const ebook of sourceItems ?? [])
-      for (const book of ebook.books ?? [ebook]) items.set(book.id, ebook);
-    for (const ebook of collectionBooks)
-      for (const book of ebook.books ?? [ebook]) items.set(book.id, ebook);
+    for (const ebook of sourceItems ?? []) {
+      const displayed = applyLocalEBookDetails(ebook);
+      for (const book of displayed.books ?? [displayed]) items.set(book.id, displayed);
+    }
+    for (const ebook of collectionBooks) {
+      const displayed = applyLocalEBookDetails(ebook);
+      for (const book of displayed.books ?? [displayed]) items.set(book.id, displayed);
+    }
     return items;
-  }, [collectionBooks, sourceItems]);
+  }, [collectionBooks, sourceItems, localDetailsVersion]);
   const displaySaved = useMemo(
-    () => saved.map((ebook) => currentItems.get(ebook.id) ?? mergeEBookMetadata([ebook], [])[0]),
-    [currentItems, saved],
+    () => saved.map((ebook) => applyLocalEBookDetails(
+      currentItems.get(ebook.id) ?? mergeEBookMetadata([ebook], [])[0],
+    )),
+    [currentItems, saved, localDetailsVersion],
   );
   const displayFavorites = useMemo(
     () =>
-      favorites.map((ebook) => currentItems.get(ebook.id) ?? mergeEBookMetadata([ebook], [])[0]),
-    [currentItems, favorites],
+      favorites.map((ebook) => applyLocalEBookDetails(
+        currentItems.get(ebook.id) ?? mergeEBookMetadata([ebook], [])[0],
+      )),
+    [currentItems, favorites, localDetailsVersion],
   );
   const continueBookmarks = useMemo(() => {
     const candidates = new Map<string, EBook>();
@@ -632,6 +645,18 @@ export function EBookView() {
     window.addEventListener("harbor:ebook-library", update);
     return () => window.removeEventListener("harbor:ebook-library", update);
   }, []);
+
+  useEffect(() => {
+    const update = () => {
+      if (ebookId) invalidateSourceEBookDetail(ebookId);
+      setLocalDetailsVersion((value) => value + 1);
+      // A catalog loaded with an earlier override must be rebuilt from its source
+      // after edits are reset, rather than keeping a stale title or cover.
+      setMetadataVersion((value) => value + 1);
+    };
+    window.addEventListener("harbor:ebook-local-details", update);
+    return () => window.removeEventListener("harbor:ebook-local-details", update);
+  }, [ebookId]);
 
   useEffect(() => {
     const update = () => setResumeVersion((version) => version + 1);
@@ -1019,22 +1044,27 @@ export function EBookView() {
       : [appliedCategoryGroup, ...EBOOK_CATEGORIES[appliedCategoryGroup as EBookCategoryGroup]];
     return categories.some((item) => ebookMatchesGenre(ebook.genres, item));
   };
-  const filteredSourceItems = sourceItems
-    ? applyEBookBrowseFilters(sourceItems, {
+  // These values are after the detail/shelf early returns, so derive without hooks.
+  // The local-details event rerenders this view with the latest saved overrides.
+  const displayedSourceItems = sourceItems?.map(applyLocalEBookDetails) ?? null;
+  const displayedCatalogItems = sourceCatalogItems?.map(applyLocalEBookDetails) ?? null;
+  const displayedResults = results?.map(applyLocalEBookDetails) ?? null;
+  const filteredSourceItems = displayedSourceItems
+    ? applyEBookBrowseFilters(displayedSourceItems, {
         status: appliedBrowseStatus,
         language: appliedBrowseLanguage,
         sort: appliedBrowseSort,
       })
-    : sourceItems;
+    : displayedSourceItems;
   const catalog = filteredSourceItems?.filter(matchesCategory) ?? filteredSourceItems;
-  const filteredResults = results
-    ? applyEBookBrowseFilters(results, {
+  const filteredResults = displayedResults
+    ? applyEBookBrowseFilters(displayedResults, {
         status: appliedBrowseStatus,
         language: appliedBrowseLanguage,
         sort: appliedBrowseSort,
       }).filter(matchesCategory)
-    : results;
-  const popularBooks = preferredEBookPopular(sourceCatalogItems, popular);
+    : displayedResults;
+  const popularBooks = preferredEBookPopular(displayedCatalogItems, popular);
   const featuredBooks = (popularBooks ?? []).filter(
     (ebook) => ebook.cover && !/(?:^|\/)default(?:\.[a-z0-9]+)?(?:[?#]|$)/i.test(ebook.cover),
   );
@@ -2792,7 +2822,7 @@ function EBookInformation({ ebook }: { ebook: EBook }) {
 }
 
 function EBookDetails({
-  ebook,
+  ebook: originalEbook,
   sourceCandidates,
   onSourcesResolved,
   profile,
@@ -2810,6 +2840,12 @@ function EBookDetails({
   onBack: () => void;
   onOpen: (ebook: EBook) => void;
 }) {
+  const [localEditVersion, setLocalEditVersion] = useState(0);
+  const [editingLocalDetails, setEditingLocalDetails] = useState(false);
+  const ebook = useMemo(
+    () => originalEbook ? applyLocalEBookDetails(originalEbook) : null,
+    [originalEbook, localEditVersion],
+  );
   const detailBestsellers = useNytList();
   const detailSnapshot = useNytSnapshot();
   const detailRank = ebook
@@ -3338,6 +3374,12 @@ function EBookDetails({
                     {saved ? <Library size={19} /> : <Bookmark size={19} />}
                     {saved ? t("Bookmarked") : t("Bookmark")}
                   </button>
+                    {isLocalEBook(ebook) && (
+                      <button type="button" onClick={() => setEditingLocalDetails(true)}
+                        className="inline-flex h-12 items-center gap-2.5 rounded-full bg-white/[0.06] px-5 text-[14px] font-semibold text-ink ring-1 ring-inset ring-edge-soft transition-colors hover:bg-white/[0.10]">
+                        <Pencil size={17} /> Edit details
+                      </button>
+                    )}
                   {sourceOptions.length > 0 && sourceRoute && (
                     <EBookDetailDropdown
                       options={sourceOptions.map((source) => ({
@@ -3525,6 +3567,12 @@ function EBookDetails({
           onSelectChapter={readChapter}
           onClose={() => setReading(null)}
         />
+      )}
+      {editingLocalDetails && isLocalEBook(ebook) && createPortal(
+        <EBookLocalDetailsEditor ebook={ebook}
+          onClose={() => setEditingLocalDetails(false)}
+          onSaved={() => setLocalEditVersion((value) => value + 1)} />,
+        document.body,
       )}
       {showScrollTop && !reading && (
         <div
