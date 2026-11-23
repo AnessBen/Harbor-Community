@@ -297,6 +297,7 @@ const ja: Record<string, string> = {
   ...mediaStart,
   ...spooktober,
   ...videoCast,
+  ...castStudio,
   ...music,
   ...contextActionsFallback,
 
@@ -478,3 +479,4 @@ const ja: Record<string, string> = {
 
 export default ja;
 import videoCast from "./ja/video-cast";
+import castStudio from "./ja/cast-studio";

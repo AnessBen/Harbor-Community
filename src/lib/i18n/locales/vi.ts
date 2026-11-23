@@ -295,6 +295,7 @@ const vi: Record<string, string> = {
   ...mediaStart,
   ...spooktober,
   ...videoCast,
+  ...castStudio,
   ...music,
   ...contextActionsFallback,
 
@@ -478,3 +479,4 @@ const vi: Record<string, string> = {
 
 export default vi;
 import videoCast from "./vi/video-cast";
+import castStudio from "./vi/cast-studio";

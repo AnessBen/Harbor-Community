@@ -202,13 +202,26 @@ const CAPS_AIRPLAY_GENERIC: DeviceCaps = {
   containerMkv: false,
 };
 
-export function getDeviceCaps(device: CastDeviceInfo): DeviceCaps {
+const CAPS_AIRPLAY_APPLE_TV_HD: DeviceCaps = { ...CAPS_AIRPLAY_GENERIC, label: "Apple TV (1080p)" };
+// The second-generation Apple TV (AppleTV2,1) decodes H.264 up to 720p only.
+const CAPS_AIRPLAY_APPLE_TV_2: DeviceCaps = {
+  ...CAPS_AIRPLAY_GENERIC,
+  label: "Apple TV (720p)",
+  maxResolution: 720,
+};
+
+export function getDeviceCaps(device: Pick<CastDeviceInfo, "kind" | "name" | "model">): DeviceCaps {
   const model = (device.model ?? "").toLowerCase();
   const name = device.name.toLowerCase();
   const blob = `${model} ${name}`;
 
   if (device.kind === "roku") return CAPS_ROKU_4K;
   if (device.kind === "airplay") {
+    // AppleTV3,x to AppleTV5,x stop at 1080p H.264 and the 2 at 720p; TV boxes with AirPlay claim
+    // to be the 3.
+    const generation = Number(/appletv(\d+),/.exec(model)?.[1] ?? 0);
+    if (generation === 2) return CAPS_AIRPLAY_APPLE_TV_2;
+    if (generation > 2 && generation < 6) return CAPS_AIRPLAY_APPLE_TV_HD;
     if (/apple\s*tv|appletv/.test(blob)) return CAPS_AIRPLAY_APPLE_TV;
     if (/homepod/.test(blob))
       return { ...CAPS_AIRPLAY_GENERIC, label: "HomePod", maxResolution: 1080 };
@@ -240,6 +253,11 @@ export function getDeviceCaps(device: CastDeviceInfo): DeviceCaps {
   return CAPS_CHROMECAST_GEN1_2;
 }
 
+/** The DLNA fallback is a guess for renderers Harbor does not recognise, not knowledge of them. */
+export function isGuessedDlnaCaps(caps: DeviceCaps): boolean {
+  return caps === CAPS_GENERIC_DLNA;
+}
+
 export type StreamLike = {
   parsedTitle?: string | null;
   title?: string | null;
@@ -253,6 +271,16 @@ export type CompatVerdict = {
   reasons: string[];
 };
 
+function resolutionFromName(s: StreamLike): number | undefined {
+  const hay = `${s.parsedTitle ?? ""} ${s.title ?? ""} ${s.resolution ?? ""}`.toLowerCase();
+  if (/\b(2160p|4k|uhd|3840)\b/.test(hay)) return 2160;
+  if (/\b1440p\b/.test(hay)) return 1440;
+  if (/\b1080p|fhd\b/.test(hay)) return 1080;
+  if (/\b720p|hd\b/.test(hay)) return 720;
+  if (/\b480p|sd\b/.test(hay)) return 480;
+  return undefined;
+}
+
 function detectResolution(s: StreamLike): number {
   if (typeof s.liveHeight === "number" && s.liveHeight > 0) {
     if (s.liveHeight >= 1800) return 2160;
@@ -261,13 +289,34 @@ function detectResolution(s: StreamLike): number {
     if (s.liveHeight >= 600) return 720;
     return 480;
   }
-  const hay = `${s.parsedTitle ?? ""} ${s.title ?? ""} ${s.resolution ?? ""}`.toLowerCase();
-  if (/\b(2160p|4k|uhd|3840)\b/.test(hay)) return 2160;
-  if (/\b1440p\b/.test(hay)) return 1440;
-  if (/\b1080p|fhd\b/.test(hay)) return 1080;
-  if (/\b720p|hd\b/.test(hay)) return 720;
-  if (/\b480p|sd\b/.test(hay)) return 480;
-  return 1080;
+  return resolutionFromName(s) ?? 1080;
+}
+
+/**
+ * The picture height when it is actually known: the decoded height, else the one the release
+ * names. Unlike the compatibility checks it never guesses, so an unknown source is not treated as
+ * taller than a quality setting.
+ */
+export function knownStreamHeight(s: StreamLike): number | undefined {
+  if (typeof s.liveHeight === "number" && s.liveHeight > 0) return s.liveHeight;
+  return resolutionFromName(s);
+}
+
+/**
+ * The player's own picture: the size it decoded, else the height its release names (a name says
+ * nothing of the width). Never a guess.
+ */
+export function playerPicture(
+  decoded: { videoWidth: number; videoHeight: number },
+  stream: StreamLike | undefined,
+): { height?: number; width?: number } {
+  if (decoded.videoHeight > 0) {
+    return {
+      height: decoded.videoHeight,
+      width: decoded.videoWidth > 0 ? decoded.videoWidth : undefined,
+    };
+  }
+  return { height: knownStreamHeight(stream ?? {}) };
 }
 
 function noAudioPassthrough(caps: DeviceCaps): boolean {
@@ -352,6 +401,38 @@ export function pickTranscodeProfile(stream: StreamLike, caps: DeviceCaps): Tran
   const max_video_kbps = max_height >= 2160 ? 18000 : max_height >= 1080 ? 8000 : 3500;
 
   return { max_height, force_h264, force_aac, force_stereo, max_video_kbps };
+}
+
+/**
+ * The receiver's resolution and bit rate ceilings for a stream whose codecs it already plays: a
+ * conversion it does not itself require (a remux, burning in subtitles) changes no codec, but the
+ * picture it produces must still fit the receiver.
+ */
+export function keepCodecsProfile(stream: StreamLike, caps: DeviceCaps): TranscodeProfile {
+  return { ...pickTranscodeProfile(stream, caps), force_h264: false, force_aac: false };
+}
+
+/** Live TV streams are not described, so every receiver gets 1080p H.264 stereo. */
+export const UNIVERSAL_SAFE_PROFILE: TranscodeProfile = {
+  max_height: 1080,
+  force_h264: true,
+  force_aac: true,
+  force_stereo: true,
+  max_video_kbps: 5000,
+};
+
+/**
+ * The receiver's profile sent with every cast. Whatever converts the stream (the receiver's needs,
+ * live TV, burning in subtitles, or Harbor remuxing a file whose URL names no format), the
+ * conversion keeps to the receiver's limits; without them FFmpeg falls back to its default
+ * ceilings. A stream sent as it is ignores them.
+ */
+export function castProfile(
+  resolved: { kind: "compat" | "swapped" | "transcode"; profile: TranscodeProfile },
+  liveIptv: boolean,
+): TranscodeProfile {
+  if (resolved.kind === "transcode") return resolved.profile;
+  return liveIptv ? UNIVERSAL_SAFE_PROFILE : resolved.profile;
 }
 
 export function needsTranscode(stream: StreamLike, caps: DeviceCaps): boolean {

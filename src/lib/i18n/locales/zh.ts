@@ -267,6 +267,7 @@ const zh: Record<string, string> = {
   ...mediaStart,
   ...spooktober,
   ...videoCast,
+  ...castStudio,
   ...music,
   ...contextActionsFallback,
 
@@ -426,3 +427,4 @@ const zh: Record<string, string> = {
 
 export default zh;
 import videoCast from "./zh/video-cast";
+import castStudio from "./zh/cast-studio";

@@ -253,6 +253,8 @@ export const PlayerOverlayLayers = memo(function PlayerOverlayLayers(p: PlayerOv
         src={p.src}
         durationSec={p.snap.durationSec}
         hasActiveSub={p.snap.subtitleTracks.some((t) => t.selected)}
+        audioTracks={p.snap.audioTracks}
+        subtitleTracks={p.snap.subtitleTracks}
         onPickAnother={p.pickAnother}
       />
       <DragClickStage

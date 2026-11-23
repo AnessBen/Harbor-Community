@@ -301,6 +301,7 @@ const pt: Record<string, string> = {
   ...mediaStart,
   ...spooktober,
   ...videoCast,
+  ...castStudio,
   ...music,
   ...contextActionsFallback,
 
@@ -486,3 +487,4 @@ const pt: Record<string, string> = {
 
 export default pt;
 import videoCast from "./pt/video-cast";
+import castStudio from "./pt/cast-studio";

@@ -21,11 +21,84 @@ export type TranscodeProfile = {
   max_video_kbps?: number;
 };
 
+/** Live conversion statistics while Harbor converts the stream for the receiver. */
+export type CastTranscodeStats = {
+  speed: number;
+  outTimeSec: number;
+  running: boolean;
+  error: string | null;
+};
+
+/** What the converter does to the source: "copy" keeps a stream as it is. */
+export type CastPlanSummary = {
+  video: string;
+  audio: string;
+  sourceVideo: string;
+  sourceAudio: string;
+  outputWidth: number;
+  outputHeight: number;
+  tonemap: string | null;
+  hardware: string | null;
+  burnedSubtitles: boolean;
+  deinterlaced: boolean;
+  reasons: string[];
+};
+
 export type CastStatus = {
   position_sec: number;
+  /** PLAYING, PAUSED, BUFFERING, IDLE, or UNREACHABLE when the receiver stopped answering. */
   player_state: string;
   connected: boolean;
   transport_codec?: string | null;
+  transcode?: CastTranscodeStats | null;
+  summary?: CastPlanSummary | null;
+};
+
+/** The cast settings panel. Mirrors `CastOptions` in `cast_transcode.rs`. */
+export type CastOptions = {
+  quality: "720p" | "1080p" | "1080p-hq" | "4k" | "original";
+  forceConversion: boolean;
+  hevcNative: boolean;
+  hardwareDecoding: boolean;
+  hardwareEncoding: boolean;
+  fastSeek: boolean;
+  tonemap: "auto" | "on" | "off";
+  deinterlace: "none" | "auto" | "always";
+  aspect: "default" | "16:9" | "4:3" | "21:9" | "fill";
+  streamFormat: "auto" | "ts" | "hls";
+  audioMode: "stereo" | "surround" | "original";
+  volumeBoost: number;
+  nightMode: boolean;
+  dialogueBoost: boolean;
+  audioDelayMs: number;
+  subDelayMs: number;
+  subEncoding: string;
+};
+
+export const DEFAULT_CAST_OPTIONS: CastOptions = {
+  quality: "1080p-hq",
+  forceConversion: false,
+  hevcNative: false,
+  hardwareDecoding: true,
+  hardwareEncoding: true,
+  fastSeek: false,
+  tonemap: "auto",
+  deinterlace: "auto",
+  aspect: "default",
+  streamFormat: "auto",
+  audioMode: "stereo",
+  volumeBoost: 0,
+  nightMode: false,
+  dialogueBoost: false,
+  audioDelayMs: 0,
+  subDelayMs: 0,
+  subEncoding: "auto",
+};
+
+export type CastLoadInfo = {
+  /** "hls", "ts", "direct" or "audio". */
+  stream: string;
+  summary: CastPlanSummary | null;
 };
 
 export type CastSubStyle = {
@@ -35,6 +108,8 @@ export type CastSubStyle = {
   border_size: number;
   margin_y: number;
   align_x: "left" | "center" | "right";
+  /** Text on a translucent box instead of an outline. */
+  background?: boolean;
 };
 
 export type CastSubInfo = {
@@ -75,10 +150,19 @@ export async function castLoad(opts: {
   /** Embedded audio ordinal in this exact source (FFmpeg 0:a:N), never mpv aid. */
   audioTrackOrdinal?: number;
   audioStartPaused?: boolean;
-}): Promise<{ ok: boolean; error: string | null }> {
+  options?: CastOptions;
+  /** The discovered device id; lets Harbor find a DLNA renderer again after it restarts. */
+  deviceId?: string;
+  /**
+   * The source's picture size when the player knows it. A load of a stream the receiver could play
+   * as it is checks the quality setting against it, and probes the source when it is not given.
+   */
+  sourceWidth?: number;
+  sourceHeight?: number;
+}): Promise<{ ok: boolean; error: string | null; info?: CastLoadInfo | null }> {
   if (!isTauri) return { ok: false, error: "Casting requires the desktop build." };
   try {
-    await invoke("cast_load", {
+    const info = await invoke<CastLoadInfo | null>("cast_load", {
       host: opts.host,
       port: opts.port,
       url: opts.url,
@@ -96,10 +180,97 @@ export async function castLoad(opts: {
       audioOnly: opts.audioOnly ?? false,
       audioTrackOrdinal: opts.audioTrackOrdinal ?? null,
       audioStartPaused: opts.audioStartPaused ?? false,
+      options: opts.options ?? null,
+      deviceId: opts.deviceId ?? null,
+      sourceWidth: opts.sourceWidth ?? null,
+      sourceHeight: opts.sourceHeight ?? null,
     });
-    return { ok: true, error: null };
+    return { ok: true, error: null, info: info ?? null };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/** Applies changed settings to the running cast by restarting it at `positionSec`. */
+export async function castReload(opts: {
+  positionSec: number;
+  options?: CastOptions;
+  subtitle?: CastSubInfo | null;
+  subStyle?: CastSubStyle | null;
+  audioTrackOrdinal?: number;
+}): Promise<CastLoadInfo | null> {
+  if (!isTauri) return null;
+  return await invoke<CastLoadInfo>("cast_reload", {
+    positionSec: Math.max(0, opts.positionSec),
+    options: opts.options ?? null,
+    subtitle:
+      opts.subtitle === undefined ? null : (opts.subtitle ?? { kind: "external", off: true }),
+    subStyle: opts.subStyle ?? null,
+    audioTrackOrdinal: opts.audioTrackOrdinal ?? null,
+  });
+}
+
+export type CastCapabilities = {
+  available: boolean;
+  nvenc: boolean;
+  qsv: boolean;
+  amf: boolean;
+  videotoolbox: boolean;
+  libplacebo: boolean;
+  zscaleTonemap: boolean;
+  readrate: boolean;
+};
+
+export type CastPreview = {
+  durationSec: number;
+  summary: CastPlanSummary;
+  caps: CastCapabilities;
+  hardware: string | null;
+  subtitleCodecs: string[];
+};
+
+/** What casting this source with these settings would do. */
+export async function castPreview(opts: {
+  url: string;
+  headers?: Record<string, string>;
+  options: CastOptions;
+  audioTrackOrdinal?: number;
+  burnSubtitles: boolean;
+  subtitleOrdinal?: number;
+  /** The conversion the cast would ask for, and the receiver's limits that bound it. */
+  transcode?: boolean;
+  profile?: TranscodeProfile;
+}): Promise<CastPreview | null> {
+  if (!isTauri) return null;
+  return await invoke<CastPreview>("cast_preview", {
+    url: opts.url,
+    headers: opts.headers ?? null,
+    options: opts.options,
+    audioTrackOrdinal: opts.audioTrackOrdinal ?? null,
+    burnSubtitles: opts.burnSubtitles,
+    subtitleOrdinal: opts.subtitleOrdinal ?? null,
+    transcode: opts.transcode ?? null,
+    profile: opts.profile ?? null,
+  });
+}
+
+export type CastVolume = { supported: boolean; level: number; muted: boolean };
+
+/** Reads, and optionally changes, the receiver's own volume (0–100). */
+export async function castVolume(level?: number, muted?: boolean): Promise<CastVolume> {
+  if (!isTauri) return { supported: false, level: 0, muted: false };
+  return await invoke<CastVolume>("cast_volume", {
+    level: level == null ? null : Math.round(Math.min(100, Math.max(0, level))),
+    muted: muted ?? null,
+  });
+}
+
+export async function castCapabilities(): Promise<CastCapabilities | null> {
+  if (!isTauri) return null;
+  try {
+    return await invoke<CastCapabilities>("cast_capabilities");
+  } catch {
+    return null;
   }
 }
 

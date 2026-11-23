@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { CastMenu } from "@/components/player/cast-menu";
+import type { TrackInfo } from "@/lib/player/bridge";
 import { getPlaybackPosition } from "@/lib/player/playback-clock";
 import { useT } from "@/lib/i18n";
 import type { PlayerSrc } from "@/lib/view";
@@ -14,6 +15,8 @@ export function CastLayer({
   src,
   durationSec,
   hasActiveSub,
+  audioTracks,
+  subtitleTracks,
   onPickAnother,
 }: {
   cast: PlayerCastController;
@@ -21,12 +24,15 @@ export function CastLayer({
   src: PlayerSrc;
   durationSec: number;
   hasActiveSub: boolean;
+  audioTracks: TrackInfo[];
+  subtitleTracks: TrackInfo[];
   onPickAnother: () => void;
 }) {
   const t = useT();
   useEffect(() => {
     if (!chromeVisible && cast.audioRouting && cast.castMenuOpen) cast.closeCastMenu();
   }, [chromeVisible, cast.audioRouting, cast.castMenuOpen, cast.closeCastMenu]);
+  const videoCast = cast.castDevice && !cast.audioRouting ? cast.castDevice : null;
   return (
     <>
       <CastMenu
@@ -37,6 +43,14 @@ export function CastLayer({
         hasActiveSub={hasActiveSub}
         burnSubsOnTv={cast.burnSubsOnTv}
         setBurnSubsOnTv={cast.setBurnSubsOnTv}
+        panel={cast.panelFor(audioTracks, subtitleTracks)}
+        openWithSettings={cast.castMenuSettings}
+        activeDevice={videoCast}
+        onStop={() => {
+          cast.setCastTranscoding(false);
+          cast.closeCastMenu();
+          void cast.stopCast().catch(() => {});
+        }}
       />
       {chromeVisible &&
         cast.castMenuOpen &&
@@ -62,16 +76,18 @@ export function CastLayer({
           connecting
         />
       )}
-      {cast.castDevice && !cast.audioRouting && (
+      {videoCast && (
         <>
           <CastingOverlay
-            device={cast.castDevice}
+            device={videoCast}
             title={src.title}
             poster={src.meta.poster}
             playing={cast.castPlaying}
+            trouble={cast.castTrouble}
+            summary={cast.castSummary}
           />
           <CastSessionBar
-            device={cast.castDevice}
+            device={videoCast}
             playing={cast.castPlaying}
             positionSec={cast.castPositionSec || getPlaybackPosition()}
             durationSec={durationSec}
@@ -82,6 +98,12 @@ export function CastLayer({
             }}
             onSeek={cast.seekCast}
             transcoding={cast.castTranscoding}
+            stats={cast.castStats}
+            summary={cast.castSummary}
+            trouble={cast.castTrouble}
+            applying={cast.castApplying}
+            onRestart={() => void cast.restartCast()}
+            onOpenSettings={() => cast.openCastMenu(cast.castMenuAnchor, { settings: true })}
           />
         </>
       )}

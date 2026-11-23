@@ -1,0 +1,106 @@
+const castStudio: Record<string, string> = {
+  "Video sent as is": "영상을 그대로 전송",
+  "Video converted to H.264 {height}p": "영상을 H.264 {height}p로 변환",
+  "Audio sent as is": "오디오를 그대로 전송",
+  "Audio as {codec}": "오디오 {codec}",
+  "Same as the player": "플레이어와 동일",
+  "Track {number}": "트랙 {number}",
+  "Add subtitle file…": "자막 파일 추가…",
+  Device: "기기",
+  "Device model": "기기 모델",
+  "Sent to the TV": "TV로 보내는 내용",
+  Hardware: "하드웨어",
+  "Processor only": "프로세서만",
+  "If the TV shows nothing or stops:": "TV에 아무것도 나오지 않거나 멈출 때:",
+  "Keep the TV and this computer on the same Wi-Fi or router.":
+    "TV와 이 컴퓨터를 같은 Wi-Fi나 공유기에 연결하세요.",
+  "Allow Harbor through the Windows firewall on private networks.":
+    "개인 네트워크에서 Windows 방화벽에 Harbor를 허용하세요.",
+  "Set Streaming to MPEG-TS for older TVs, or HLS for TV boxes.":
+    "오래된 TV는 스트리밍을 MPEG-TS로, TV 박스는 HLS로 설정하세요.",
+  "Turn on Force conversion if the picture or sound is missing.":
+    "화면이나 소리가 나오지 않으면 '강제 변환'을 켜세요.",
+  "Lower the quality to 720p on a slow Wi-Fi.": "Wi-Fi가 느리면 화질을 720p로 낮추세요.",
+  "Converter ready. Hardware: {hardware}": "변환기 준비 완료. 하드웨어: {hardware}",
+  "ffmpeg was not found, so videos that need converting cannot be cast.":
+    "ffmpeg를 찾을 수 없어 변환이 필요한 영상은 전송할 수 없습니다.",
+  Surround: "서라운드",
+  "Stereo works on every TV. Dolby Digital 5.1 needs a TV or receiver that decodes it.":
+    "스테레오는 모든 TV에서 됩니다. Dolby Digital 5.1은 이를 지원하는 TV나 리시버가 필요합니다.",
+  "Stereo downmix": "스테레오 다운믹스",
+  "Dolby Digital 5.1": "Dolby Digital 5.1",
+  "Original (passthrough)": "원본(패스스루)",
+  "Raises quiet films on the TV without clipping.":
+    "조용한 영화의 소리를 TV에서 깨짐 없이 키웁니다.",
+  "Clear dialogue": "또렷한 대사",
+  "Audio delay": "오디오 지연",
+  "Character set": "문자 인코딩",
+  Encoding: "인코딩",
+  "For subtitle files that show strange symbols. Arabic files are usually Windows-1256.":
+    "자막이 이상한 기호로 보일 때 사용하세요. 아랍어 파일은 보통 Windows-1256입니다.",
+  "Arabic (Windows-1256)": "아랍어 (Windows-1256)",
+  "Western (Windows-1252)": "서유럽 (Windows-1252)",
+  "Cyrillic (Windows-1251)": "키릴 (Windows-1251)",
+  "Greek (Windows-1253)": "그리스어 (Windows-1253)",
+  "Turkish (Windows-1254)": "터키어 (Windows-1254)",
+  "Hebrew (Windows-1255)": "히브리어 (Windows-1255)",
+  Rendering: "표시 방식",
+  "Burned-in subtitles always show, on any TV.": "영상에 입힌 자막은 어떤 TV에서도 항상 보입니다.",
+  "Burn in video": "영상에 입히기",
+  Pink: "분홍",
+  "Bottom edge": "화면 아래",
+  "Slightly higher": "조금 위",
+  "Higher up": "더 위",
+  "Subtitle delay": "자막 지연",
+  Deinterlace: "디인터레이스",
+  Always: "항상",
+  "Fill screen": "화면 채우기",
+  "Higher quality needs a faster Wi-Fi. 4K needs a 4K TV.":
+    "화질이 높을수록 빠른 Wi-Fi가 필요합니다. 4K는 4K TV가 필요합니다.",
+  "1080p HQ": "1080p HQ",
+  "Force conversion": "강제 변환",
+  Accelerate: "가속",
+  "Uses {hardware} so the computer stays cool and the TV starts sooner.":
+    "{hardware}를 사용해 컴퓨터가 뜨거워지지 않고 TV가 더 빨리 시작합니다.",
+  "No supported graphics card was found; the processor converts instead.":
+    "지원되는 그래픽 카드가 없어 프로세서가 변환합니다.",
+  Decoding: "디코딩",
+  Scrubbing: "빠른 탐색",
+  "Only if your TV plays H.265 itself: the film is sent untouched, HDR included.":
+    "TV가 H.265를 직접 재생할 때만: 영화를 HDR 포함 그대로 보냅니다.",
+  "Native playback": "네이티브 재생",
+  "Converts HDR and Dolby Vision colours for TVs that would show them washed out.":
+    "HDR과 Dolby Vision 색을 흐리게 보여 주는 TV에 맞게 변환합니다.",
+  "Tone-map to SDR": "SDR로 톤 매핑",
+  "Auto picks MPEG-TS for DLNA TVs and HLS for everything else.":
+    "자동은 DLNA TV에는 MPEG-TS, 나머지에는 HLS를 고릅니다.",
+  "About this cast": "이 전송 정보",
+  "Applying to the TV…": "TV에 적용하는 중…",
+  "HDR tone-mapped": "HDR 톤 매핑됨",
+  "Changes apply to the TV right away.": "변경 사항은 TV에 바로 적용됩니다.",
+  "These settings apply when you pick a device.": "이 설정은 기기를 고를 때 적용됩니다.",
+  "Subtitles on TV": "TV 자막",
+  "Cast settings": "전송 설정",
+  "Audio, subtitles, quality and acceleration": "오디오, 자막, 화질, 가속",
+  "TV volume": "TV 음량",
+  "Applying…": "적용 중…",
+  "Converting {speed}×": "변환 중 {speed}×",
+  Direct: "직접",
+  "The TV stopped answering. Harbor keeps looking for it.":
+    "TV가 응답하지 않습니다. Harbor가 계속 찾고 있습니다.",
+  "Playback stopped on the TV.": "TV에서 재생이 멈췄습니다.",
+  "Resume on TV": "TV에서 이어 보기",
+  "Not responding": "응답 없음",
+  "Stopped on": "정지됨:",
+  Synced: "동기화됨",
+  "Set automatically for {device}": "{device}에 맞게 자동 설정됨",
+  "Settings for {device}, with your changes": "{device} 설정 (변경 사항 포함)",
+  "Back to automatic": "자동으로 되돌리기",
+  "These settings set themselves for the device you pick.":
+    "이 설정은 선택한 기기에 맞게 자동으로 조정됩니다.",
+  "Subtitles will look like this on the TV.": "TV에서 자막이 이렇게 보입니다.",
+  "Conversion speed": "변환 속도",
+  "The computer converts slower than the film plays. Turn on the graphics card or lower the quality.":
+    "변환 속도가 영화 재생 속도보다 느립니다. 그래픽 카드를 켜거나 화질을 낮추세요.",
+};
+export default castStudio;

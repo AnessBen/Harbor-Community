@@ -267,6 +267,7 @@ const hi: Record<string, string> = {
   ...mediaStart,
   ...spooktober,
   ...videoCast,
+  ...castStudio,
   ...music,
   ...contextActionsFallback,
 
@@ -421,3 +422,4 @@ const hi: Record<string, string> = {
 
 export default hi;
 import videoCast from "./hi/video-cast";
+import castStudio from "./hi/cast-studio";

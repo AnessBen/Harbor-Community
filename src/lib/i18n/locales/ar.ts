@@ -297,6 +297,7 @@ const ar: Record<string, string> = {
   ...mediaStart,
   ...spooktober,
   ...videoCast,
+  ...castStudio,
   ...music,
   ...contextActionsFallback,
 
@@ -480,3 +481,4 @@ const ar: Record<string, string> = {
 
 export default ar;
 import videoCast from "./ar/video-cast";
+import castStudio from "./ar/cast-studio";

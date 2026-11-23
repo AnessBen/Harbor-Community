@@ -1,0 +1,106 @@
+const castStudio: Record<string, string> = {
+  "Video sent as is": "Video gửi nguyên bản",
+  "Video converted to H.264 {height}p": "Video chuyển sang H.264 {height}p",
+  "Audio sent as is": "Âm thanh gửi nguyên bản",
+  "Audio as {codec}": "Âm thanh dạng {codec}",
+  "Same as the player": "Giống trình phát",
+  "Track {number}": "Rãnh {number}",
+  "Add subtitle file…": "Thêm tệp phụ đề…",
+  Device: "Thiết bị",
+  "Device model": "Mẫu thiết bị",
+  "Sent to the TV": "Gửi đến TV",
+  Hardware: "Phần cứng",
+  "Processor only": "Chỉ bộ xử lý",
+  "If the TV shows nothing or stops:": "Nếu TV không hiện gì hoặc dừng lại:",
+  "Keep the TV and this computer on the same Wi-Fi or router.":
+    "Để TV và máy tính này cùng một Wi-Fi hoặc bộ định tuyến.",
+  "Allow Harbor through the Windows firewall on private networks.":
+    "Cho phép Harbor qua tường lửa Windows trên mạng riêng.",
+  "Set Streaming to MPEG-TS for older TVs, or HLS for TV boxes.":
+    "Chọn MPEG-TS cho TV đời cũ, hoặc HLS cho TV box.",
+  "Turn on Force conversion if the picture or sound is missing.":
+    "Bật «Buộc chuyển đổi» nếu thiếu hình hoặc tiếng.",
+  "Lower the quality to 720p on a slow Wi-Fi.": "Giảm chất lượng xuống 720p khi Wi-Fi chậm.",
+  "Converter ready. Hardware: {hardware}": "Bộ chuyển đổi sẵn sàng. Phần cứng: {hardware}",
+  "ffmpeg was not found, so videos that need converting cannot be cast.":
+    "Không tìm thấy ffmpeg nên không thể truyền các video cần chuyển đổi.",
+  Surround: "Âm thanh vòm",
+  "Stereo works on every TV. Dolby Digital 5.1 needs a TV or receiver that decodes it.":
+    "Stereo chạy trên mọi TV. Dolby Digital 5.1 cần TV hoặc bộ thu giải mã được.",
+  "Stereo downmix": "Trộn xuống stereo",
+  "Dolby Digital 5.1": "Dolby Digital 5.1",
+  "Original (passthrough)": "Gốc (truyền thẳng)",
+  "Raises quiet films on the TV without clipping.":
+    "Tăng âm lượng phim nhỏ tiếng trên TV mà không bị rè.",
+  "Clear dialogue": "Lời thoại rõ hơn",
+  "Audio delay": "Độ trễ âm thanh",
+  "Character set": "Bảng mã ký tự",
+  Encoding: "Mã hóa",
+  "For subtitle files that show strange symbols. Arabic files are usually Windows-1256.":
+    "Dành cho phụ đề hiện ký tự lạ. Tệp tiếng Ả Rập thường là Windows-1256.",
+  "Arabic (Windows-1256)": "Tiếng Ả Rập (Windows-1256)",
+  "Western (Windows-1252)": "Phương Tây (Windows-1252)",
+  "Cyrillic (Windows-1251)": "Kirin (Windows-1251)",
+  "Greek (Windows-1253)": "Tiếng Hy Lạp (Windows-1253)",
+  "Turkish (Windows-1254)": "Tiếng Thổ Nhĩ Kỳ (Windows-1254)",
+  "Hebrew (Windows-1255)": "Tiếng Do Thái (Windows-1255)",
+  Rendering: "Cách hiển thị",
+  "Burned-in subtitles always show, on any TV.": "Phụ đề ghép vào hình luôn hiện trên mọi TV.",
+  "Burn in video": "Ghép vào video",
+  Pink: "Hồng",
+  "Bottom edge": "Mép dưới",
+  "Slightly higher": "Cao hơn một chút",
+  "Higher up": "Cao hơn",
+  "Subtitle delay": "Độ trễ phụ đề",
+  Deinterlace: "Khử xen kẽ",
+  Always: "Luôn luôn",
+  "Fill screen": "Lấp đầy màn hình",
+  "Higher quality needs a faster Wi-Fi. 4K needs a 4K TV.":
+    "Chất lượng cao hơn cần Wi-Fi nhanh hơn. 4K cần TV 4K.",
+  "1080p HQ": "1080p HQ",
+  "Force conversion": "Buộc chuyển đổi",
+  Accelerate: "Tăng tốc",
+  "Uses {hardware} so the computer stays cool and the TV starts sooner.":
+    "Dùng {hardware} để máy tính mát và TV bắt đầu nhanh hơn.",
+  "No supported graphics card was found; the processor converts instead.":
+    "Không tìm thấy card đồ họa được hỗ trợ; bộ xử lý sẽ chuyển đổi.",
+  Decoding: "Giải mã",
+  Scrubbing: "Tua nhanh",
+  "Only if your TV plays H.265 itself: the film is sent untouched, HDR included.":
+    "Chỉ khi TV tự phát được H.265: phim được gửi nguyên vẹn, kể cả HDR.",
+  "Native playback": "Phát gốc",
+  "Converts HDR and Dolby Vision colours for TVs that would show them washed out.":
+    "Chuyển màu HDR và Dolby Vision cho TV sẽ hiển thị chúng bị nhạt.",
+  "Tone-map to SDR": "Ánh xạ tông màu sang SDR",
+  "Auto picks MPEG-TS for DLNA TVs and HLS for everything else.":
+    "Tự động chọn MPEG-TS cho TV DLNA và HLS cho các thiết bị khác.",
+  "About this cast": "Về lần truyền này",
+  "Applying to the TV…": "Đang áp dụng lên TV…",
+  "HDR tone-mapped": "HDR đã ánh xạ tông màu",
+  "Changes apply to the TV right away.": "Thay đổi được áp dụng lên TV ngay.",
+  "These settings apply when you pick a device.": "Các cài đặt này áp dụng khi bạn chọn thiết bị.",
+  "Subtitles on TV": "Phụ đề trên TV",
+  "Cast settings": "Cài đặt truyền",
+  "Audio, subtitles, quality and acceleration": "Âm thanh, phụ đề, chất lượng và tăng tốc",
+  "TV volume": "Âm lượng TV",
+  "Applying…": "Đang áp dụng…",
+  "Converting {speed}×": "Đang chuyển đổi {speed}×",
+  Direct: "Trực tiếp",
+  "The TV stopped answering. Harbor keeps looking for it.":
+    "TV đã ngừng phản hồi. Harbor vẫn đang tìm nó.",
+  "Playback stopped on the TV.": "Phát trên TV đã dừng.",
+  "Resume on TV": "Tiếp tục trên TV",
+  "Not responding": "Không phản hồi",
+  "Stopped on": "Đã dừng trên",
+  Synced: "Đã đồng bộ",
+  "Set automatically for {device}": "Đã tự động thiết lập cho {device}",
+  "Settings for {device}, with your changes": "Cài đặt cho {device}, kèm thay đổi của bạn",
+  "Back to automatic": "Quay lại tự động",
+  "These settings set themselves for the device you pick.":
+    "Các cài đặt này tự điều chỉnh theo thiết bị bạn chọn.",
+  "Subtitles will look like this on the TV.": "Phụ đề sẽ hiển thị trên TV như thế này.",
+  "Conversion speed": "Tốc độ chuyển đổi",
+  "The computer converts slower than the film plays. Turn on the graphics card or lower the quality.":
+    "Máy tính chuyển đổi chậm hơn tốc độ phát phim. Hãy bật card đồ họa hoặc giảm chất lượng.",
+};
+export default castStudio;
