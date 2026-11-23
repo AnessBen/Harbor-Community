@@ -3634,6 +3634,22 @@ const uiFallback: Record<string, string> = {
   "Clipboard access was blocked. Select the JSON below and copy it manually.":
     "Clipboard access was blocked. Select the JSON below and copy it manually.",
   "P2P diagnostics JSON": "P2P diagnostics JSON",
+  // Listen Along, tracker feedback, and episode-jumper labels await localized overrides.
+  "Suggest Song": "Suggest Song",
+  "Add to host’s queue": "Add to host’s queue",
+  "Start sharing": "Start sharing",
+  "Let listeners add songs to the queue": "Let listeners add songs to the queue",
+  "Queue additions are unavailable in this session.":
+    "Queue additions are unavailable in this session.",
+  "Song suggestions": "Song suggestions",
+  "Suggested by {name}": "Suggested by {name}",
+  "The host could not receive this request": "The host could not receive this request",
+  "Retry AniList": "Retry AniList",
+  "Loading AniList...": "Loading AniList...",
+  "AniList update failed. Try again.": "AniList update failed. Try again.",
+  "Show episode Jump button": "Show episode Jump button",
+  "Show a floating shortcut to jump to an episode in long lists. Automatically hides during playback.":
+    "Show a floating shortcut to jump to an episode in long lists. Automatically hides during playback.",
 };
 
 export default uiFallback;

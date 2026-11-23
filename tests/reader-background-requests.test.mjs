@@ -154,6 +154,8 @@ test("ebook catalog subscriptions only run while browsing and invalidate late re
     subscribeEBookSources: subscribe,
     subscribeEBookExtensions: subscribe,
     sourceSeq: { current: 1 },
+    searchSeq: { current: 1 },
+    searchController: { current: null },
     searchTimer: { current: undefined },
     window: { clearTimeout() {} },
   };
@@ -168,6 +170,7 @@ test("ebook catalog subscriptions only run while browsing and invalidate late re
   assert.equal(subscriptions, 2);
   cleanup();
   assert.equal(globals.sourceSeq.current, 2);
+  assert.equal(globals.searchSeq.current, 2);
   assert.equal(unsubscribed, 2);
 });
 
@@ -190,7 +193,7 @@ test("background ebook searches keep a separate worker from user-selected source
     loadEBookExtensions: async () => {},
     installedEBookPlugins: () => [{ id: "one", name: "One", enabled: true }],
   };
-  mocks["./sources"] = { listEBookSources: () => [] };
+  mocks["./sources"] = { listEBookSources: () => [], subscribeEBookSources: () => () => {} };
   mocks["./api"] = { dedupeEBooks: (items) => items, mergeEBookMetadata: (items) => items };
   mocks["@/lib/manga/plugins/worker-host"] = {
     PluginWorker: class {
@@ -205,6 +208,9 @@ test("background ebook searches keep a separate worker from user-selected source
       }
     },
   };
+  // Exercise the actual cache and deadline helpers; this test only isolates the plugin transport.
+  mocks["./search-performance"] = load("src/lib/ebook/search-performance.ts", {});
+  mocks["./local-details"] = { applyLocalEBookDetails: (item) => item };
   const api = load(path, mocks);
   await api.searchSourceEBookCatalog("Title", "all", { background: true });
   await api.searchSourceEBookCatalog("Title", "plugin:one");

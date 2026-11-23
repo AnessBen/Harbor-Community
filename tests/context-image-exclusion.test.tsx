@@ -56,6 +56,14 @@ test("music track menus retain playback and text copying without a save-artwork 
       musicTitleTarget: () => ({ kind: "album" }),
     },
     "@/lib/music/player": { getMusicState: () => ({ current: null }) },
+    "@/lib/listen-together/provider": {
+      useListenTogether: () => ({
+        followingQueue: false,
+        allowGuestQueue: undefined,
+        listeners: 0,
+      }),
+    },
+    "@/lib/listen-together/queue": { listenSong: () => null },
     "@/lib/music/use-track-liked": { useMusicTrackLiked: () => false },
     "./use-artist-credits": { useArtistCredits: () => [] },
     "./music-navigate": { useMusicNavigate: () => navigation },

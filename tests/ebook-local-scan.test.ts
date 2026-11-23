@@ -35,10 +35,14 @@ test("a folder is titled by its own name, never by a split path", () => {
 test("loose files at the top stay separate books while a folder groups its volumes", () => {
   assert.match(
     scan,
-    /!name\s*\? await Promise\.all\(files\.map/,
+    /!name\s*\?\s*await Promise\.all\(\s*files\.map/,
     "only the root treats loose files as individual books",
   );
-  assert.match(scan, /paths: await Promise\.all\(files\.map/, "a book folder keeps every volume");
+  assert.match(
+    scan,
+    /paths:\s*await Promise\.all\(\s*files\.map/,
+    "a book folder keeps every volume",
+  );
 });
 
 test("searches reuse an indexed scan instead of rescanning each keystroke", () => {

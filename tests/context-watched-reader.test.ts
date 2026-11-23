@@ -516,7 +516,14 @@ test("strict anime entry readers reject missing content and accept verified abse
       { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } },
     ).outputText;
     new Function("require", "module", "exports", output)(
-      () => ({ anilistRequest: async () => payload, malRequest: async () => payload }),
+      (name: string) => {
+        if (name === "./client")
+          return { anilistRequest: async () => payload, malRequest: async () => payload };
+        if (name === "./session")
+          return { getSession: () => null, subscribeSession: () => () => {} };
+        if (name === "@/lib/active-profile-id") return { activeProfileId: () => "test" };
+        throw new Error(`Unexpected tracker dependency: ${name}`);
+      },
       module,
       module.exports,
     );
