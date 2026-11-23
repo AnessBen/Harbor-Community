@@ -374,9 +374,13 @@ pub async fn music_video_stream(
         .connector_id
         .as_deref()
         .ok_or_else(|| "This track has no source to ask for a video".to_string())?;
-    pick(state.inner(), connector)?
-        .resolve_video(&app, &track, max_height)
-        .await
+    let started = std::time::Instant::now();
+    let result = match pick(state.inner(), connector) {
+        Ok(provider) => provider.resolve_video(&app, &track, max_height).await,
+        Err(error) => Err(error),
+    };
+    crate::music::trace::outcome(crate::music::trace::source_label(Some(connector)), "resolve-video", started, &result);
+    result
 }
 
 #[tauri::command]

@@ -706,6 +706,7 @@ dependencies = [
  "librespot-metadata",
  "librespot-playback",
  "lofty",
+ "log",
  "realfft",
  "serde",
  "serde_json",

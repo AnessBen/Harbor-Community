@@ -48,7 +48,8 @@ pub(super) fn spawn_event_loop(loop_state: EventLoop) {
             }
             match context.wait_event(0.25) {
                 Some(Ok(event)) => {
-                    if let Event::LogMessage { prefix, text, .. } = &event {
+                    if let Event::LogMessage { prefix, level, text, .. } = &event {
+                        crate::music::trace::mpv_diagnostic("mpv", 0, track.connector_id.as_deref(), level, prefix, text);
                         if *prefix == "ffmpeg" {
                             if let Ok(mut spectrum) = spectrum.lock() {
                                 spectrum.ingest(text);
@@ -144,8 +145,13 @@ pub(super) fn spawn_event_loop(loop_state: EventLoop) {
                         });
                     }
                     let shutdown = matches!(event, Event::Shutdown);
-                    if matches!(event, Event::FileLoaded) {
-                        crate::music::trace::log(format!("file-loaded track={}", track.id));
+                    if matches!(event, Event::FileLoaded | Event::PlaybackRestart | Event::Shutdown) {
+                        let stage = match &event {
+                            Event::FileLoaded => "file-loaded",
+                            Event::PlaybackRestart => "playback-restart",
+                            _ => "shutdown",
+                        };
+                        crate::music::trace::log(format!("mpv deck=0 source={} stage={stage}", crate::music::trace::source_label(track.connector_id.as_deref())));
                     }
                     if let Event::EndFile(reason) = &event {
                         crate::music::trace::log(format!(
@@ -173,9 +179,11 @@ pub(super) fn spawn_event_loop(loop_state: EventLoop) {
                     }
                 }
                 Some(Err(error)) => {
+                    let reason = crate::music::mpv_errors::describe(&error.to_string());
+                    crate::music::trace::log(format!("mpv deck=0 source={} player-failure category={} reason={reason}", crate::music::trace::source_label(track.connector_id.as_deref()), crate::music::trace::process_category(&reason)));
                     let _ = app.emit(
                         "music://event",
-                        json!({ "event": "player-failure", "reason": error.to_string(), "trackId": track.id, "connectorId": track.connector_id }),
+                        json!({ "event": "player-failure", "reason": reason, "trackId": track.id, "connectorId": track.connector_id }),
                     );
                     break;
                 }
@@ -203,8 +211,18 @@ pub(super) fn spawn_drain_loop(
             if active_generation.load(Ordering::SeqCst) != generation {
                 break;
             }
-            if matches!(context.wait_event(0.25), Some(Ok(Event::Shutdown))) {
-                break;
+            match context.wait_event(0.25) {
+                Some(Ok(Event::LogMessage { prefix, level, text, .. })) =>
+                    crate::music::trace::mpv_diagnostic("mpv", 1, None, level, prefix, text),
+                Some(Ok(Event::FileLoaded)) => crate::music::trace::log("mpv deck=1 stage=file-loaded"),
+                Some(Ok(Event::EndFile(reason))) => crate::music::trace::log(format!("mpv deck=1 end-file reason={reason}")),
+                Some(Ok(Event::Shutdown)) => break,
+                Some(Err(error)) => {
+                    let reason = crate::music::mpv_errors::describe(&error.to_string());
+                    crate::music::trace::log(format!("mpv deck=1 player-failure category={} reason={reason}", crate::music::trace::process_category(&reason)));
+                    break;
+                }
+                _ => {}
             }
         }
         drop(mpv);

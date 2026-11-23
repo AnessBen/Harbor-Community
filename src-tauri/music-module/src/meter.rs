@@ -14,7 +14,7 @@ pub(crate) fn request_logs(mpv: &Mpv, enabled: bool) {
             if enabled {
                 c"v".as_ptr()
             } else {
-                c"no".as_ptr()
+                c"warn".as_ptr()
             },
         );
     }

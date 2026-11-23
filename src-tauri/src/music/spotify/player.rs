@@ -121,6 +121,7 @@ fn spawn_events(
                         "music://event",
                         json!({ "event": "property-change", "name": "pause", "data": false, "trackId": id, "connectorId": "spotify" }),
                     );
+                    crate::music::trace::log("librespot file-loaded");
                     let _ = app.emit("music://event", json!({ "event": "file-loaded", "trackId": id, "connectorId": "spotify" }));
                 }
                 PlayerEvent::Paused {
@@ -198,6 +199,7 @@ fn spawn_events(
                     let Some(context) = finish_context(&current, play_request_id) else {
                         continue;
                     };
+                    crate::music::trace::log("librespot player-failure: track unavailable");
                     let _ = app.emit(
                         "music://event",
                         json!({

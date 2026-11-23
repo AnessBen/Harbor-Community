@@ -596,7 +596,10 @@ function armSpotifyStartupWatchdog(request: number, track: MusicTrack): void {
       })
     )
       return;
-    console.warn("[music/spotify] accepted play request did not reach file-loaded");
+    console.warn("[music/playback] accepted play request did not reach file-loaded");
+    void invoke("music_playback_startup_timeout", {
+      connector: track.connectorId ?? null,
+    }).catch(() => {});
     if (recoverPlayback) recoverPlayback(SPOTIFY_STARTUP_TIMEOUT_MESSAGE);
     else {
       enginePrimed = false;

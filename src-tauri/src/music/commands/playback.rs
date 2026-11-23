@@ -19,7 +19,10 @@ pub async fn music_play_track(
         track.connector_id.as_deref().unwrap_or("direct"),
         track.id
     );
-    let result = play_track(app, state, track, volume).await;
+    let is_spotify = track.connector_id.as_deref() == Some("spotify");
+    let result = play_track(app, state, track, volume).await.map_err(|error| {
+        if is_spotify { error } else { crate::music::mpv_errors::describe(&error) }
+    });
     let outcome = match &result {
         Ok(()) => "ok".to_string(),
         Err(error) => format!("error: {error}"),
@@ -43,6 +46,7 @@ async fn play_track(
         // An explicitly selected remote Spotify Connect device remains independent
         // of the local engine preference.
         if spotify::soloist::wants_local_output(&app, &state.spotify).await? {
+            crate::music::trace::log("spotify route=soloist");
             let _commit = state.play_commit.lock().await;
             if !state.is_current_play_request(request) { return Ok(()); }
             if state.active_engine() == ACTIVE_MODULE {
@@ -76,6 +80,7 @@ async fn play_track(
             })
             && state.spotify.remote_device().is_none();
         if sidecar_enabled {
+            crate::music::trace::log("spotify route=librespot-module");
             let _commit=state.play_commit.lock().await;
             if !state.is_current_play_request(request) {return Ok(());}
             let snapshot=m3u::module_request_async(serde_json::json!({
@@ -121,6 +126,13 @@ async fn play_track(
         if !state.is_current_play_request(request) {
             return Ok(());
         }
+        crate::music::trace::log(if state.spotify.remote_device().is_some() {
+            "spotify route=spotify-connect"
+        } else if cfg!(feature = "music-sidecar") {
+            "spotify route=librespot-module"
+        } else {
+            "spotify route=librespot"
+        });
         state.spotify.play(track, volume).await?;
         state.set_active_engine(ACTIVE_SPOTIFY);
         return Ok(());
@@ -130,6 +142,11 @@ async fn play_track(
         return Ok(());
     }
     let stream = stream?;
+    let source = crate::music::trace::source_label(track.connector_id.as_deref());
+    let transport = if stream.url.starts_with("https://") || stream.url.starts_with("http://") { "http" }
+        else if track.connector_id.as_deref() == Some("local") { "local-file" }
+        else { "other" };
+    crate::music::trace::log(format!("source={source} stream transport={transport} headers={} bitrate={}", stream.http_headers.len(), stream.bitrate));
     let _commit = state.play_commit.lock().await;
     if !state.is_current_play_request(request) {
         return Ok(());
@@ -151,6 +168,7 @@ async fn play_track(
         return Ok(());
     }
     if m3u::experimental_local_playback(&track) {
+        crate::music::trace::log(format!("source={source} route=mpv-module"));
         let audio = state.engine.audio_settings()?;
         m3u::module_request_async(serde_json::json!({
             "command":"mpv_audio_settings_set","settings":audio
@@ -169,6 +187,7 @@ async fn play_track(
     if state.active_engine() == ACTIVE_MODULE {
         m3u::module_request_async(serde_json::json!({"command":"mpv_stop","deck":0})).await?;
     }
+    crate::music::trace::log(format!("source={source} route={}", if cfg!(feature = "music-sidecar") { "mpv-module" } else { "mpv" }));
     state.engine.play(app, stream, track, volume).await?;
     state.set_active_engine(ACTIVE_STREAM);
     Ok(())

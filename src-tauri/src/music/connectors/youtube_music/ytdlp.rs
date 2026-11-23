@@ -78,7 +78,7 @@ fn note_downgrade(reason: &str) {
 /// one, so the session is the retry for the content that actually needs it.
 fn note_session_retry(reason: &str) {
     crate::music::trace::log(format!(
-        "anonymous extraction failed, retrying with the session: {reason}"
+        "youtube anonymous extraction failed, retrying with the session category={}", crate::music::trace::process_category(reason)
     ));
 }
 
@@ -104,7 +104,8 @@ async fn extract_audio(
     video_id: &str,
     cookies: &Option<CookieFile>,
 ) -> Result<MusicStream, String> {
-    crate::ytdlp_update::run_validated(
+    let started = std::time::Instant::now();
+    let result = crate::ytdlp_update::run_validated(
         app,
         stream_args(video_id, cookies),
         TIMEOUT,
@@ -114,7 +115,9 @@ async fn extract_audio(
             super::super::super::stream_probe::validate_stream(stream).await
         },
     )
-    .await
+    .await;
+    crate::music::trace::outcome("youtube", if cookies.is_some() { "yt-dlp-session" } else { "yt-dlp-anonymous" }, started, &result);
+    result
 }
 
 pub async fn stream(app: &tauri::AppHandle, video_id: &str) -> Result<MusicStream, String> {

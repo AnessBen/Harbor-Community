@@ -113,6 +113,7 @@ impl SpotifyEngine {
         // spawns its socket tasks on that runtime, so creation and connect must run
         // inside this engine's runtime rather than on the synchronous serve thread.
         let session=create_session(&self.executor,config,cache);
+        emit_event(json!({"event":"spotify-diagnostic","stage":"session-connect-start"}));
         self.executor.block_on(session.connect(credentials,true))
             .map_err(|e|format!("Spotify sign-in failed: {e}"))?;
         if session.is_invalid() {
@@ -124,6 +125,7 @@ impl SpotifyEngine {
             session.shutdown();
             return Err("Spotify Premium is required for local playback".into());
         }
+        emit_event(json!({"event":"spotify-diagnostic","stage":"session-connected"}));
         let mixer:Arc<dyn Mixer>=Arc::new(
             SoftMixer::open(MixerConfig::default())
                 .map_err(|e|format!("Spotify mixer unavailable: {e}"))?
@@ -147,6 +149,7 @@ impl SpotifyEngine {
             while let Some(event)=events.recv().await {
                 match event {
                     PlayerEvent::TrackChanged{audio_item}=>{
+                        emit_event(json!({"event":"spotify-diagnostic","stage":"track-metadata-loaded"}));
                         if let Ok(current)=current.lock(){
                             if current.source.as_deref()==Some(audio_item.uri.as_str()){
                                 if let Some((codec,bitrate))=quality_for(&audio_item.files){
@@ -159,7 +162,11 @@ impl SpotifyEngine {
                             }
                         }
                     },
-                    PlayerEvent::Playing{position_ms,..}=>{
+                    PlayerEvent::Loading{play_request_id,..}=>{
+                        emit_event(json!({"event":"spotify-diagnostic","stage":"loading","requestId":play_request_id}));
+                    },
+                    PlayerEvent::Playing{position_ms,play_request_id,..}=>{
+                        emit_event(json!({"event":"spotify-diagnostic","stage":"playing","requestId":play_request_id}));
                         paused.store(false,Ordering::SeqCst);
                         if let Ok(mut current)=current.lock(){
                             current.position=Some(position_ms as f64 / 1000.0);
@@ -192,7 +199,8 @@ impl SpotifyEngine {
                         emit_event(json!({"event":"end-file","reason":"eof",
                             "trackId":track,"connectorId":"spotify"}));
                     },
-                    PlayerEvent::Unavailable{..}=>{
+                    PlayerEvent::Unavailable{play_request_id,..}=>{
+                        emit_event(json!({"event":"spotify-diagnostic","stage":"unavailable","requestId":play_request_id}));
                         emit_event(json!({"event":"player-failure","reason":"Spotify track unavailable",
                             "connectorId":"spotify"}));
                     },
@@ -228,6 +236,7 @@ impl SpotifyEngine {
         {
             // Player::load takes Handle::current() before it spawns its loader thread.
             let _runtime=self.executor.enter();
+            emit_event(json!({"event":"spotify-diagnostic","stage":"audio-load-requested"}));
             player.load(uri,true,0);
         }
         self.paused.store(false,Ordering::SeqCst);

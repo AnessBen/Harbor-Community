@@ -197,6 +197,8 @@ pub mod audio;
 pub mod spectrum;
 pub mod meter;
 pub mod mpv_engine;
+#[path = "../../src/music/mpv_errors.rs"]
+pub(crate) mod mpv_errors;
 #[path = "../../src/music/spotify/meter.rs"]
 pub mod spotify_meter;
 pub mod spotify_engine;

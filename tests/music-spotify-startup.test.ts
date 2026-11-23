@@ -58,6 +58,7 @@ function watchdogHarness() {
   const timers = new Map<number, () => void>();
   let nextId = 0;
   const errors: string[] = [];
+  const diagnosticCommands: { command: string; args: unknown }[] = [];
   const state = { current: track, phase: "resolving", error: null as string | null };
   const scope = {
     state,
@@ -79,6 +80,7 @@ function watchdogHarness() {
     clearTimeout(id: number) {
       timers.delete(id);
     },
+    invoke: async (command: string, args: unknown) => { diagnosticCommands.push({ command, args }); },
     console: { warn() {} },
   };
   const callbacks = new Function(
@@ -88,7 +90,7 @@ function watchdogHarness() {
     armSpotifyStartupWatchdog(request: number, track: typeof track): void;
     clearSpotifyStartupWatchdog(): void;
   };
-  return { ...callbacks, timers, errors, state };
+  return { ...callbacks, timers, errors, state, diagnosticCommands };
 }
 
 test("a stalled Spotify play reports failure instead of loading forever", () => {
@@ -97,6 +99,9 @@ test("a stalled Spotify play reports failure instead of loading forever", () => 
   assert.equal(h.timers.size, 1);
   [...h.timers.values()][0]();
   assert.deepEqual(h.errors, [SPOTIFY_STARTUP_TIMEOUT_MESSAGE]);
+  assert.deepEqual(h.diagnosticCommands, [
+    { command: "music_playback_startup_timeout", args: { connector: "spotify" } },
+  ]);
 });
 
 test("watchdog is canceled on an actual start, or when a newer request replaces it", () => {
@@ -109,6 +114,7 @@ test("watchdog is canceled on an actual start, or when a newer request replaces 
   assert.equal(h.timers.size, 1);
   [...h.timers.values()][0]();
   assert.deepEqual(h.errors, []);
+  assert.deepEqual(h.diagnosticCommands, []);
 });
 
 test("no timeout is scheduled once the Spotify track is already playing", () => {

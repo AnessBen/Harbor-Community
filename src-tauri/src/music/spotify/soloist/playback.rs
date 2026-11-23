@@ -195,6 +195,12 @@ fn emit(app: &AppHandle, track: &MusicTrack, event: &str, fields: Value) {
     if let (Some(target), Some(fields)) = (body.as_object_mut(), fields.as_object()) {
         target.extend(fields.iter().map(|(k, v)| (k.clone(), v.clone())));
     }
+    if matches!(event, "file-loaded" | "player-failure" | "end-file") {
+        crate::music::trace::log(format!(
+            "soloist {event} reason={}",
+            crate::log_privacy::scrub(body["reason"].as_str().unwrap_or("-"))
+        ));
+    }
     let _ = app.emit("music://event", body);
 }
 fn property(app: &AppHandle, track: &MusicTrack, name: &str, data: Value) {
@@ -582,6 +588,7 @@ fn fail(app: &AppHandle, generation: u64, message: &str) {
 /// Single-track mode exits normally after the *last* audio buffer. Trust
 /// exit code 0, not Spotify's independent Connect queue or a coarse timer.
 fn finish_single_track(app: &AppHandle, generation: u64, exit_code: i32) {
+    crate::music::trace::log(format!("soloist exit code={exit_code}"));
     if exit_code != 0 {
         fail(
             app,

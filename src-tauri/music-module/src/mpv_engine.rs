@@ -118,7 +118,7 @@ pub(crate) fn mpv_argv_command(player:&Mpv,args:&[&str])->Result<(),String> {
     // Native mpv command accepts a NULL-terminated array of arguments. CString
     // instances own the buffers until the synchronous function has returned.
     let status=unsafe{libmpv2_sys::mpv_command(player.ctx.as_ptr(),ptrs.as_mut_ptr())};
-    if status<0 {Err(format!("Music mpv command failed: {status}"))} else {Ok(())}
+    if status<0 {Err(crate::mpv_errors::describe(&format!("Music mpv command failed: {status}")))} else {Ok(())}
 }
 
 fn apply_audio(player: &Mpv, settings: &MusicAudioSettings) -> Result<(),String> {
@@ -257,6 +257,7 @@ impl MusicMpvEngine {
         let player = new_player(if index == 0 { "Harbor Music" } else { "Harbor Music B" })?;
         apply_audio(&player,&self.settings)?;
         apply_stream_headers(&player,headers)?;
+        meter::request_logs(&player, false);
         if self.meter_enabled && index==0 {
             meter::set_enabled(&player,true)?;
         }
@@ -632,8 +633,26 @@ fn spawn_mpv_events(
         let mut eof_signaled = false;
         let mut last_position = std::time::Instant::now() - POSITION_EVENT_GAP;
         while active_generation.load(Ordering::SeqCst)==generation {
-            let Some(Ok(event))=context.wait_event(0.25) else {continue};
-            if let Event::LogMessage {prefix,text,..} = &event {
+            let event=match context.wait_event(0.25) {
+                Some(Ok(event))=>event,
+                Some(Err(error))=>{
+                    let reason=crate::mpv_errors::describe(&error.to_string());
+                    if deck==0 {
+                        emit_event(json!({"event":"player-failure","reason":reason,
+                            "trackId":track_id,"connectorId":connector_id,"deck":deck}));
+                    } else {
+                        emit_event(json!({"event":"mpv-diagnostic","stage":"event-error","message":reason,
+                            "connectorId":connector_id,"deck":deck}));
+                    }
+                    break;
+                },
+                None=>continue,
+            };
+            if let Event::LogMessage {prefix,level,text,..} = &event {
+                if matches!(*level,"fatal"|"error"|"warn") {
+                    emit_event(json!({"event":"mpv-native-log","level":level,"prefix":prefix,
+                        "message":text.chars().take(2048).collect::<String>(),"connectorId":connector_id,"deck":deck}));
+                }
                 if *prefix=="ffmpeg" {
                     if let Ok(mut value)=spectrum.lock(){value.ingest(text);}
                 }
@@ -652,6 +671,10 @@ fn spawn_mpv_events(
             }
             // keep-open retains the file at EOF, so EndFile may never arrive.
             let end_reason = playback_end_reason(&event, &mut eof_signaled);
+            if matches!(event,Event::PlaybackRestart | Event::Shutdown) {
+                let stage = if matches!(event,Event::Shutdown) {"shutdown"} else {"playback-restart"};
+                emit_event(json!({"event":"mpv-diagnostic","stage":stage,"connectorId":connector_id,"deck":deck}));
+            }
             let output=match event {
                 Event::FileLoaded=>Some(json!({"event":"file-loaded"})),
                 Event::Seek=>Some(json!({"event":"seek"})),

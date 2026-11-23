@@ -135,8 +135,37 @@ fn write_reply<W: Write>(writer: &mut W, result: Result<serde_json::Value,String
     serde_json::to_writer(&mut *writer, &reply)?;
     writer.write_all(b"\n")
 }
+struct SpotifyLogger;
+static SPOTIFY_LOGGER: SpotifyLogger = SpotifyLogger;
+impl log::Log for SpotifyLogger {
+    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+        metadata.level() <= log::Level::Warn && metadata.target().starts_with("librespot_")
+    }
+    fn log(&self, record: &log::Record<'_>) {
+        if self.enabled(record.metadata()) {
+            // Keep logging on the framed stderr channel, separate from replies.
+            // Core classifies this payload and never retains the raw message.
+            let message: String = record.args().to_string().chars().take(2048).collect();
+            let frame = serde_json::json!({
+                "kind":"music-event", "abi":ABI, "version":env!("CARGO_PKG_VERSION"),
+                "channel":"music://event",
+                "payload":{"event":"spotify-native-log","level":record.level().as_str(),
+                    "target":record.target(),"message":message}
+            });
+            let stderr = std::io::stderr();
+            let mut output = stderr.lock();
+            if serde_json::to_writer(&mut output, &frame).is_ok() {
+                let _ = output.write_all(b"\n");
+            }
+        }
+    }
+    fn flush(&self) {}
+}
 fn main(){
  if std::env::args().any(|arg|arg=="--serve") {
+     if log::set_logger(&SPOTIFY_LOGGER).is_ok() {
+         log::set_max_level(log::LevelFilter::Warn);
+     }
      let stdin=std::io::stdin();
      let stdout=std::io::stdout();
      let _=serve(BufReader::new(stdin.lock()),stdout.lock());

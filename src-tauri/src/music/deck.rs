@@ -63,6 +63,7 @@ impl MusicDeck {
         self.paused_for_video.store(false, Ordering::SeqCst);
         retire_session(&mut slot).await?;
 
+        crate::music::trace::log(format!("mpv deck={} stage=create-core source={}", self.index, crate::music::trace::source_label(request.track.connector_id.as_deref())));
         let mpv = core_setup::create_core(DECK_LABELS[self.index])?;
         core_setup::apply_stream_headers(&mpv, &request.stream)?;
         core_setup::apply_network_cache(&mpv);
@@ -71,6 +72,7 @@ impl MusicDeck {
         let available = core_setup::read_music_audio_devices(&mpv).unwrap_or_default();
         let device_available =
             wanted == "auto" || available.iter().any(|device| device.name == wanted);
+        crate::music::trace::log(format!("mpv deck={} stage=configure-audio device-fallback={}", self.index, !device_available));
         core_setup::apply_music_audio(
             &mpv,
             settings,
@@ -105,6 +107,7 @@ impl MusicDeck {
         }
         // The string-command wrapper splits paths containing spaces. Share the
         // argument-vector command used by the main player instead.
+        crate::music::trace::log(format!("mpv deck={} stage=loadfile", self.index));
         crate::mpv::mpv_argv_command(&mpv, &["loadfile", url.as_str(), "replace"])
             .map_err(|error| format!("music loadfile: {error}"))?;
         let local_path = (request.track.connector_id.as_deref() == Some("local")

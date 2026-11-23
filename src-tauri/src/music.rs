@@ -20,6 +20,7 @@ mod rows;
 mod spotify;
 mod store;
 mod stream_probe;
+mod mpv_errors;
 pub(crate) mod trace;
 mod worker;
 mod worker_policy;

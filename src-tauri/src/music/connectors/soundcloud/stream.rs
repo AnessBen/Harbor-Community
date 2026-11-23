@@ -9,7 +9,10 @@ const HLS_WEIGHT: i64 = 2000;
 const SNIPPED_PENALTY: i64 = 8000;
 
 pub async fn resolve(track: &MusicTrack) -> Result<MusicStream, String> {
-    let source = fetch::track_for(track).await?;
+    let started = std::time::Instant::now();
+    let result = fetch::track_for(track).await;
+    crate::music::trace::outcome("soundcloud", "track-metadata", started, &result);
+    let source = result?;
     if !playable(&source) {
         return Err("SoundCloud does not allow playback of this track".to_string());
     }
@@ -36,7 +39,12 @@ pub async fn resolve(track: &MusicTrack) -> Result<MusicStream, String> {
     {
         params.push(("track_authorization", authorization.to_string()));
     }
-    let payload = client::get_url(endpoint, &params).await?;
+    let protocol = if stream_mime(selected) == HLS_MIME { "hls" } else { "progressive" };
+    crate::music::trace::log(format!("soundcloud transcoding={protocol}"));
+    let started = std::time::Instant::now();
+    let result = client::get_url(endpoint, &params).await;
+    crate::music::trace::outcome("soundcloud", "signed-stream", started, &result);
+    let payload = result?;
     let signed = payload
         .get("url")
         .and_then(Value::as_str)

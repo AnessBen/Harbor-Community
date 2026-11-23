@@ -58,16 +58,55 @@ impl NativeMusicHost {
             for line in reader.lines() {
                 let Ok(line) = line else { break };
                 if line.len() > 64 * 1024 { break; }
-                let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+                let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else {
+                    if line.contains("panicked at") {
+                        crate::music::trace::process_output("librespot-module", &line);
+                    }
+                    continue;
+                };
                 if value["kind"] != "music-event"
                     || value["abi"] != 1
                     || value["version"] != env!("CARGO_PKG_VERSION")
                     || value["channel"] != "music://event" {
                     continue;
                 }
+                let payload = &value["payload"];
+                if payload["event"] == "mpv-native-log" {
+                    crate::music::trace::mpv_diagnostic("mpv-module", payload["deck"].as_u64().unwrap_or(0),
+                        payload["connectorId"].as_str(), payload["level"].as_str().unwrap_or(""),
+                        payload["prefix"].as_str().unwrap_or(""), payload["message"].as_str().unwrap_or(""));
+                    continue;
+                }
+                if payload["event"] == "mpv-diagnostic" {
+                    let stage = match payload["stage"].as_str() {
+                        Some("event-error") => "event-error",
+                        Some("shutdown") => "shutdown",
+                        Some("playback-restart") => "playback-restart",
+                        _ => "other",
+                    };
+                    let message = payload["message"].as_str().unwrap_or("");
+                    let reason = if super::mpv_errors::category(message).is_some() {
+                        super::mpv_errors::describe(message)
+                    } else { "-".to_string() };
+                    crate::music::trace::log(format!("mpv-module deck={} source={} stage={stage} category={} reason={reason}",
+                        payload["deck"].as_u64().unwrap_or(0),
+                        crate::music::trace::source_label(payload["connectorId"].as_str()),
+                        crate::music::trace::process_category(message)));
+                    continue;
+                }
+                if payload["event"] == "spotify-native-log" {
+                    crate::music::trace::native_spotify_error(
+                        payload["level"].as_str().unwrap_or(""),
+                        payload["target"].as_str().unwrap_or(""),
+                        payload["message"].as_str().unwrap_or(""),
+                    );
+                    continue;
+                }
                 if let Some(app) = &event_app {
-                    account_for_playback(&value["payload"],app);
-                    let _ = app.emit("music://event", value["payload"].clone());
+                    account_for_playback(payload,app);
+                    if payload["event"] != "spotify-diagnostic" {
+                        let _ = app.emit("music://event", value["payload"].clone());
+                    }
                 }
             }
         });
@@ -179,6 +218,17 @@ fn account_for_playback(event:&serde_json::Value, app:&tauri::AppHandle) {
         Some("file-loaded") => crate::music::trace::log(format!(
             "file-loaded track={}", event["trackId"].as_str().unwrap_or("?")
         )),
+        Some("spotify-diagnostic") => crate::music::trace::log(format!(
+            "librespot-module stage={} request={}",
+            event["stage"].as_str().unwrap_or("?"),
+            event["requestId"].as_u64().map(|v| v.to_string()).unwrap_or_else(|| "-".into())
+        )),
+        Some("player-failure") => crate::music::trace::log(format!(
+            "player-failure connector={} category={} reason={}",
+            event["connectorId"].as_str().unwrap_or("?"),
+            crate::music::trace::process_category(event["reason"].as_str().unwrap_or("?")),
+            crate::log_privacy::scrub(event["reason"].as_str().unwrap_or("?"))
+        )),
         Some("end-file") => {
             let reason = event["reason"].as_str().unwrap_or("?");
             crate::music::trace::log(format!(
@@ -287,19 +337,20 @@ pub(super) fn module_request(command: serde_json::Value) -> Option<Result<serde_
     }
     let name = command["command"].as_str().unwrap_or("?").to_string();
     // The visualizer polls a snapshot ~16 times a second; it would drown the trace.
-    let traced = crate::music::trace::enabled() && !name.ends_with("meter_snapshot");
+    let traced = !name.ends_with("meter_snapshot")
+        && (crate::music::trace::enabled() || name.starts_with("spotify_") || name.starts_with("mpv_"));
     let started = std::time::Instant::now();
     let result = host.as_mut().expect("Music host created").request(&command);
     if result.is_err() {
         // Don't retain a dead or incompatible service across future commands.
         *host = None;
     }
-    if traced {
+    if traced || matches!(&result, Err(_) | Ok(Err(_))) {
         // The module is a single-threaded pipe: one slow command stalls every command behind it.
         let outcome = match &result {
             Ok(Ok(_)) => "ok".to_string(),
-            Ok(Err(error)) => format!("rejected: {error}"),
-            Err(error) => format!("transport: {error} (host discarded)"),
+            Ok(Err(error)) => format!("rejected category={}", crate::music::trace::process_category(error)),
+            Err(error) => format!("transport category={} (host discarded)", crate::music::trace::process_category(error)),
         };
         crate::music::trace::log(format!(
             "module {name} {outcome} {} ms",

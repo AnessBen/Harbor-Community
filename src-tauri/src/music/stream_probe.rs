@@ -28,7 +28,12 @@ async fn stream_status(stream: &MusicStream) -> Result<reqwest::StatusCode, Stri
         .header(reqwest::header::RANGE, "bytes=0-")
         .send()
         .await
-        .map_err(|_| "Music could not verify the stream. Please retry.".to_string())?;
+        .map_err(|error| {
+            let category = if error.is_timeout() { "timeout" } else if error.is_connect() { "connection" } else if error.is_builder() { "invalid-request" } else { "request" };
+            crate::music::trace::log(format!("stream probe error category={category}"));
+            "Music could not verify the stream. Please retry.".to_string()
+        })?;
+    crate::music::trace::log(format!("stream probe HTTP {}", response.status().as_u16()));
     Ok(response.status())
 }
 

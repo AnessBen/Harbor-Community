@@ -196,6 +196,41 @@ pub(super) fn managed_pid() -> Option<u32> {
     }
 }
 
+// Drain both pipes continuously, retaining categories rather than raw output.
+fn spawn_logged(command: &mut Command, mode: &'static str) -> std::io::Result<Child> {
+    use std::io::{BufRead, BufReader, Read};
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command.spawn()?;
+    fn drain<R: Read + Send + 'static>(pipe: R, mode: &'static str) {
+        std::thread::spawn(move || {
+            let mut reader = BufReader::new(pipe);
+            let mut line = Vec::new();
+            loop {
+                line.clear();
+                match (&mut reader).take(8192).read_until(b'\n', &mut line) {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {
+                        if line.last() != Some(&b'\n') && line.len() == 8192 {
+                            loop {
+                                let Ok(buf) = reader.fill_buf() else { break };
+                                if buf.is_empty() { break; }
+                                let end = buf.iter().position(|&b| b == b'\n');
+                                let count = end.map_or(buf.len(), |i| i + 1);
+                                reader.consume(count);
+                                if end.is_some() { break; }
+                            }
+                        }
+                        crate::music::trace::process_output(mode, &String::from_utf8_lossy(&line));
+                    }
+                }
+            }
+        });
+    }
+    if let Some(pipe) = child.stdout.take() { drain(pipe, mode); }
+    if let Some(pipe) = child.stderr.take() { drain(pipe, mode); }
+    Ok(child)
+}
+
 fn running() -> bool {
     let Ok(mut guard) = child().lock() else {
         return false;
@@ -204,6 +239,8 @@ fn running() -> bool {
         Some(process) => match process.try_wait() {
             Ok(None) => true,
             other => {
+                crate::music::trace::log(format!("soloist process exit code={}",
+                    match &other { Ok(Some(status)) => status.code().unwrap_or(-1), _ => -1 }));
                 if SINGLE_TRACK.load(Ordering::SeqCst) {
                     let exit_code = match other {
                         Ok(Some(status)) => status.code().unwrap_or(-1),
@@ -409,9 +446,8 @@ pub async fn music_soloist_start(app: AppHandle) -> Result<SoloistStatus, String
             .map_err(|_| "Soloist process manager unavailable")?;
         if guard.is_none() {
             *guard = Some(
-                command
-                    .spawn()
-                    .map_err(|_| "Failed to start the Soloist executable")?,
+                spawn_logged(&mut command, "soloist-pairing")
+                    .map_err(|e| format!("Failed to start the Soloist executable: {e}"))?,
             );
         }
     }
@@ -482,8 +518,8 @@ pub(super) async fn start_harbor_track(
             .lock()
             .map_err(|_| "Soloist process manager unavailable")?;
         *guard = Some(
-            cmd.spawn()
-                .map_err(|_| "Failed to start Soloist single-track playback")?,
+            spawn_logged(&mut cmd, "soloist-single-track")
+                .map_err(|e| format!("Failed to start Soloist single-track playback: {e}"))?,
         );
         SINGLE_TRACK.store(true, Ordering::SeqCst);
         if let Ok(mut exit) = single_exit_code().lock() {
@@ -492,6 +528,10 @@ pub(super) async fn start_harbor_track(
     }
     playback::reset_control().await;
     // A new single-track process publishes its own loopback endpoint.
+    crate::music::trace::log("soloist single-track spawned; waiting for authenticated API");
+    let mut saw_endpoint = false;
+    let mut saw_logged_out = false;
+    let mut auth_error = None;
     for _ in 0..30 {
         if !running() {
             let code = single_track_exit().unwrap_or(-1);
@@ -501,12 +541,22 @@ pub(super) async fn start_harbor_track(
             // The restored session must really be authenticated before
             // Harbor attaches its playback observer. Connect device activity
             // is separate from whether the stored session is logged in.
-            if let Ok((true, _)) = auth_state(&url).await {
-                return Ok(());
+            saw_endpoint = true;
+            match auth_state(&url).await {
+                Ok((true, _)) => {
+                    crate::music::trace::log("soloist authenticated API ready");
+                    return Ok(());
+                }
+                Ok((false, _)) => saw_logged_out = true,
+                Err(error) => auth_error = Some(error),
             }
         }
         tokio::time::sleep(Duration::from_millis(120)).await;
     }
+    crate::music::trace::log(format!(
+        "soloist startup failed endpoint={saw_endpoint} logged_out={saw_logged_out} auth_error={}",
+        auth_error.as_deref().unwrap_or("-")
+    ));
     let _ = terminate_managed();
     Err("Soloist single-track playback did not become ready. Pair Soloist first.".into())
 }

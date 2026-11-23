@@ -49,16 +49,31 @@ where
     if let Some(cached) = db.cached_stream(track_id)? {
         let (cached, health) = probe(cached).await;
         if health == StreamHealth::Usable {
+            crate::music::trace::log("resolve cache=hit usable=true");
             return Ok(cached);
         }
+        crate::music::trace::log("resolve cache=invalidated");
         db.invalidate_stream(track_id)?;
     }
+    crate::music::trace::log("resolve path=connector");
     let stream = resolve().await?;
     db.cache_stream(track_id, &stream)?;
     Ok(stream)
 }
 
 pub(super) async fn resolve_track(
+    app: &tauri::AppHandle,
+    state: &MusicState,
+    track: &MusicTrack,
+) -> Result<MusicStream, String> {
+    let started = std::time::Instant::now();
+    let source = crate::music::trace::source_label(track.connector_id.as_deref());
+    let result = resolve_track_inner(app, state, track).await;
+    crate::music::trace::outcome(source, "resolve", started, &result);
+    result
+}
+
+async fn resolve_track_inner(
     app: &tauri::AppHandle,
     state: &MusicState,
     track: &MusicTrack,
@@ -70,6 +85,7 @@ pub(super) async fn resolve_track(
         .map(str::trim)
         .filter(|url| !url.is_empty())
     {
+        crate::music::trace::log("resolve path=direct");
         return Ok(MusicStream {
             http_headers: Default::default(),
             url: url.to_string(),
