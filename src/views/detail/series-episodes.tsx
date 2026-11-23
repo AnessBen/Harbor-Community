@@ -840,7 +840,7 @@ export function SeriesEpisodes({
               )}
             </div>
           )}
-          {!altActive && settings.episodeLayout === "list" && (
+          {!altActive && settings.episodeLayout === "list" && settings.showEpisodeJumper !== false && (
             <EpisodeJumper scrollRef={scrollRef} totalEpisodes={visibleEpisodes.length} />
           )}
         </>

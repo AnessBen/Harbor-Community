@@ -184,6 +184,7 @@ export const DEFAULT: Settings = {
   showWatchedButton: true,
   showPopcornBadge: false,
   episodeLayout: "list",
+  showEpisodeJumper: true,
   episodeCardScale: 1,
   episodeSort: "oldest",
   showEpisodeRating: true,

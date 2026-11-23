@@ -153,6 +153,14 @@ export function DetailTab() {
 
         <SettingGroup label={t("Browsing")}>
           <ToggleRow
+            label={t("Show episode Jump button")}
+            sub={t(
+              "Show a floating shortcut to jump to an episode in long lists. Automatically hides during playback.",
+            )}
+            value={settings.showEpisodeJumper !== false}
+            onChange={(value) => update({ showEpisodeJumper: value })}
+          />
+          <ToggleRow
             label={t("Hide and skip episodes")}
             sub={t(
               "Adds a Hide option when you right-click an episode. Hidden episodes disappear from the list and are skipped by Up Next. A Show hidden toggle on each show lets you bring them back.",

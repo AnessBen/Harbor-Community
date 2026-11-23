@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { scrollToDataEp } from "@/lib/episode-scroll";
 import { useT } from "@/lib/i18n";
+import { useView } from "@/lib/view";
 
 const CHUNK_SIZE = 50;
 
@@ -16,6 +17,11 @@ export function EpisodeJumper({
   onReveal?: (n: number) => void;
 }) {
   const t = useT();
+  const { topKind, player } = useView();
+  // Detail pages remain mounted behind playback and other views. Since this
+  // control portals into document.body, it must explicitly follow the active
+  // view or it will float over the fullscreen player.
+  const visible = topKind === "meta" && player == null && totalEpisodes >= 12;
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -32,7 +38,14 @@ export function EpisodeJumper({
   }, [totalEpisodes]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!visible) {
+      setOpen(false);
+      setDraft("");
+    }
+  }, [visible]);
+
+  useEffect(() => {
+    if (!open || !visible) return;
     inputRef.current?.focus();
     const onDown = (e: MouseEvent) => {
       if (!popoverRef.current?.contains(e.target as Node)) setOpen(false);
@@ -46,9 +59,9 @@ export function EpisodeJumper({
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onKey);
     };
-  }, [open]);
+  }, [open, visible]);
 
-  if (totalEpisodes < 12) return null;
+  if (!visible) return null;
 
   const jumpToEpisode = (n: number) => {
     onReveal?.(n);

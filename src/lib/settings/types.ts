@@ -271,6 +271,7 @@ export type Settings = {
   showWatchedButton: boolean;
   showPopcornBadge: boolean;
   episodeLayout: "list" | "strip" | "grid";
+  showEpisodeJumper: boolean;
   episodeCardScale: number;
   episodeSort: "oldest" | "newest";
   showEpisodeRating: boolean;
