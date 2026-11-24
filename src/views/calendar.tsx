@@ -212,7 +212,7 @@ export function CalendarView({
   } else if (source === "library" && !authKey) {
     body = <NotSignedInState onSignIn={() => setShowAuth(true)} />;
   } else if (source === "all" && !settings.tmdbKey) {
-    body = <NoKeyState onSetup={() => openSettings("library")} />;
+    body = <NoKeyState onSetup={() => openSettings("library", "providers")} />;
   } else if (error) {
     body = <ErrorState message={error} />;
   } else if (loading && filtered.length === 0) {

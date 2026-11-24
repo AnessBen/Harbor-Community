@@ -190,3 +190,78 @@ test("reduced motion uses instant search scrolling and no glide frames", () => {
   h.advance(600);
   assert.equal(el.scrollTop, 0);
 });
+
+test("explicit metadata tab requests wait for the library panel instead of using an outgoing panel", () => {
+  const h = fixture();
+  const request = { section: "library", tab: "providers" };
+  assert.equal(h.exports.applySettingsTabRequest(null, request), false);
+  const outgoing = { ...h.tabsRef.current, tabs: [{ id: "providers" }] };
+  assert.equal(h.exports.applySettingsTabRequest(outgoing, request), false);
+  assert.deepEqual(h.changes, []);
+  const library = {
+    ...h.tabsRef.current,
+    section: "library",
+    tabs: [{ id: "home" }, { id: "providers" }],
+    value: "home",
+  };
+  assert.equal(h.exports.applySettingsTabRequest(library, request), true);
+  assert.deepEqual(h.changes, ["providers"]);
+});
+
+test("an explicit request works inside the current library section and does not bounce already selected tabs", () => {
+  const h = fixture();
+  const request = { section: "library", tab: "providers" };
+  const library = {
+    ...h.tabsRef.current,
+    section: "library",
+    tabs: [{ id: "home" }, { id: "providers" }],
+  };
+  assert.equal(
+    h.exports.applySettingsTabRequest({ ...library, value: "providers" }, request),
+    true,
+  );
+  assert.deepEqual(h.changes, []);
+  assert.equal(h.exports.applySettingsTabRequest({ ...library, value: "home" }, request), true);
+  assert.deepEqual(h.changes, ["providers"]);
+});
+
+test("an invalid destination is consumed in its own section without jumping to another tab", () => {
+  const h = fixture();
+  const request = { section: "player", tab: "not-present" };
+  assert.equal(h.exports.applySettingsTabRequest(h.tabsRef.current, request), true);
+  assert.deepEqual(h.changes, []);
+});
+
+test("metadata shortcuts carry the providers tab through both settings navigation entry points", () => {
+  for (const path of [
+    "src/components/nudge.tsx",
+    "src/views/calendar.tsx",
+    "src/views/play-picker.tsx",
+  ]) {
+    assert.ok(
+      readFileSync(new URL("../" + path, import.meta.url), "utf8").includes(
+        'openSettings("library", "providers")',
+      ),
+      path,
+    );
+  }
+  for (const path of [
+    "src/views/settings/basics-panel.tsx",
+    "src/views/settings/quality-panel/xray-tab.tsx",
+  ]) {
+    assert.ok(
+      readFileSync(new URL("../" + path, import.meta.url), "utf8").includes(
+        'setActive("library", undefined, "providers")',
+      ),
+      path,
+    );
+  }
+  const view = readFileSync(new URL("../src/lib/view.tsx", import.meta.url), "utf8");
+  const settings = readFileSync(new URL("../src/views/settings.tsx", import.meta.url), "utf8");
+  assert.ok(view.includes("section: section ?? null, tab, nonce:"));
+  assert.ok(
+    settings.includes(
+      "handleNav(settingsSectionRequest.section, undefined, settingsSectionRequest.tab)",
+    ),
+  );
+});

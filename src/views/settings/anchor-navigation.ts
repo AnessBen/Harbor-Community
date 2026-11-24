@@ -2,6 +2,20 @@ import { useEffect, type RefObject } from "react";
 import type { SubTabReg } from "./sub-tabs";
 
 export type SettingsAnchorRequest = { anchor: string; tab?: string };
+export type SettingsTabRequest = { section: string; tab: string };
+
+/** Retain a request until its actual panel registers, then consume it once.
+ * A tab with the same ID in an outgoing panel is not the destination. */
+export function applySettingsTabRequest(
+  reg: SubTabReg,
+  request: SettingsTabRequest | null,
+): boolean {
+  if (!request || !reg || reg.section !== request.section) return false;
+  if (reg.tabs.some((tab) => tab.id === request.tab) && reg.value !== request.tab) {
+    reg.onChange(request.tab);
+  }
+  return true;
+}
 
 export function glideSettingsToTop(el: HTMLElement): () => void {
   const from = el.scrollTop;

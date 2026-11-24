@@ -299,8 +299,8 @@ type ViewValue = {
   openMatchDetail: (game: SportsGame, eventGames?: SportsGame[]) => void;
   view: View;
   setView: (v: View) => void;
-  openSettings: (section?: SettingsSection) => void;
-  settingsSectionRequest: { section: SettingsSection | null; nonce: number };
+  openSettings: (section?: SettingsSection, tab?: string) => void;
+  settingsSectionRequest: { section: SettingsSection | null; tab?: string; nonce: number };
   topKind: Frame["kind"];
   topPath: string;
   rootFrame: Frame;
@@ -870,7 +870,11 @@ export function ViewProvider({ children }: { children: ReactNode }) {
     }, false);
   }, [setNavStack]);
 
-  const [sectionReq, setSectionReq] = useState<{ section: SettingsSection | null; nonce: number }>({
+  const [sectionReq, setSectionReq] = useState<{
+    section: SettingsSection | null;
+    tab?: string;
+    nonce: number;
+  }>({
     section: null,
     nonce: 0,
   });
@@ -1010,8 +1014,8 @@ export function ViewProvider({ children }: { children: ReactNode }) {
   );
 
   const openSettings = useCallback(
-    (section?: SettingsSection) => {
-      setSectionReq((r) => ({ section: section ?? null, nonce: r.nonce + 1 }));
+    (section?: SettingsSection, tab?: string) => {
+      setSectionReq((r) => ({ section: section ?? null, tab, nonce: r.nonce + 1 }));
       setNavStack((s) => {
         const t = s[s.length - 1];
         if (t.kind === "settings") return s;

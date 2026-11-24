@@ -17,9 +17,11 @@ import { SubTabsProvider, type SubTabReg } from "./settings/sub-tabs";
 import { SettingsSidebar } from "./settings/settings-sidebar";
 import { tabsFor } from "./settings/tab-registry";
 import {
+  applySettingsTabRequest,
   glideSettingsToTop,
   useSettingsAnchor,
   type SettingsAnchorRequest,
+  type SettingsTabRequest,
 } from "./settings/anchor-navigation";
 import { PageActionsProvider, type PageActionReg } from "./settings/page-actions";
 import { SettingsFooter } from "./settings/settings-footer";
@@ -450,7 +452,7 @@ export function Settings({ visible = true }: { visible?: boolean }) {
     viewChromeHidden,
   ]);
 
-  const pendingTab = useRef<string | null>(null);
+  const pendingTab = useRef<SettingsTabRequest | null>(null);
   const handleNav = (id: SectionId, anchor?: string, tab?: string) => {
     closeBrowse();
     setLanding(null);
@@ -460,9 +462,8 @@ export function Settings({ visible = true }: { visible?: boolean }) {
     const isTracker = (TRACKER_IDS as string[]).includes(id);
     const target = isTracker ? ("trackers" as SectionId) : id;
     const wantTab = isTracker ? (tab ?? id) : tab;
-    pendingTab.current = wantTab ?? null;
-    if (wantTab && target === active) {
-      subRegRef.current?.onChange(wantTab);
+    pendingTab.current = wantTab ? { section: target, tab: wantTab } : null;
+    if (target === active && applySettingsTabRequest(subRegRef.current, pendingTab.current)) {
       pendingTab.current = null;
     }
     startTransition(() => {
@@ -472,12 +473,6 @@ export function Settings({ visible = true }: { visible?: boolean }) {
   };
 
   const selectFromRail = (id: SectionId, tab?: string) => {
-    if (id === active) {
-      closeBrowse();
-      setPendingPage(null);
-      if (tab) subRegRef.current?.onChange(tab);
-      return;
-    }
     handleNav(id, undefined, tab);
   };
 
@@ -489,8 +484,9 @@ export function Settings({ visible = true }: { visible?: boolean }) {
 
   useEffect(() => {
     if (!settingsSectionRequest.section) return;
-    setLanding(null);
-    setActive(resolveSection(settingsSectionRequest.section));
+    handleNav(settingsSectionRequest.section, undefined, settingsSectionRequest.tab);
+    // A request is a one-shot navigation event, not a subscription to panel state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settingsSectionRequest]);
 
   useEffect(() => {
@@ -515,12 +511,7 @@ export function Settings({ visible = true }: { visible?: boolean }) {
     }
   }, [active, subReg]);
   useEffect(() => {
-    const want = pendingTab.current;
-    if (!want || !subReg) return;
-    if (subReg.tabs.some((tab) => tab.id === want)) {
-      pendingTab.current = null;
-      if (subReg.value !== want) subReg.onChange(want);
-    }
+    if (applySettingsTabRequest(subReg, pendingTab.current)) pendingTab.current = null;
   }, [subReg]);
 
   useEffect(() => {

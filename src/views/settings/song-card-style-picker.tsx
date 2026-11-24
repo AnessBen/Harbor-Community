@@ -45,7 +45,7 @@ export function SongCardStylePicker() {
           <button
             type="button"
             className={ROW_ACTION}
-            onClick={() => setActive("library", settingsAnchor("Song identification"))}
+            onClick={() => setActive("library", settingsAnchor("Song identification"), "providers")}
           >
             {t("Set up song identification")}
           </button>

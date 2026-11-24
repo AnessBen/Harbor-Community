@@ -51,7 +51,7 @@ export function XrayTab() {
             type="button"
             onClick={(e) => {
               const from = e.currentTarget;
-              setActive("library");
+              setActive("library", undefined, "providers");
               focusJumpTarget(from);
             }}
             className={ROW_ACTION_PRIMARY}

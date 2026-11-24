@@ -268,7 +268,7 @@ export function RatingsMatrix({
         <button
           type="button"
           className={ROW_ACTION}
-          onClick={() => setActive("library", settingsAnchor("Metadata providers"))}
+          onClick={() => setActive("library", settingsAnchor("Metadata providers"), "providers")}
         >
           {t("Set up rating providers")}
         </button>

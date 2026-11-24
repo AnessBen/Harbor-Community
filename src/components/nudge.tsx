@@ -32,7 +32,7 @@ export function TmdbNudge({ suppress }: { suppress?: boolean } = {}) {
         </p>
       </div>
       <button
-        onClick={() => openSettings("library")}
+        onClick={() => openSettings("library", "providers")}
         className="flex h-9 items-center gap-1.5 rounded-full bg-ink px-4 text-[13px] font-semibold text-canvas transition-transform hover:scale-[1.03] active:scale-[0.97]"
       >
         {t("Set up")}

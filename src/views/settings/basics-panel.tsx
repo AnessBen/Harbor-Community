@@ -99,7 +99,7 @@ export function BasicsPanel() {
           description={t(
             "TMDB, Fanart, TVDB, OMDb and RPDB supply posters, artwork and ratings. Adding your own free keys makes artwork load faster and more completely.",
           )}
-          onClick={() => setActive("library")}
+          onClick={() => setActive("library", undefined, "providers")}
           trailing={
             <>
               <span className="flex shrink-0 items-center gap-1.5">
