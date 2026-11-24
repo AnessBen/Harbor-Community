@@ -1,10 +1,10 @@
-# Linux embedded HDR prototype (not a shipping Harbor renderer)
+# Linux embedded HDR developer preview
 
 This standalone Linux test isolates the hardest requirement for Harbor's true
 embedded HDR: a separately tagged high-bit-depth Wayland video subsurface under
-a transparent GTK3/WebKitGTK parent that draws ordinary SDR controls. It is not connected
-to Harbor's settings, playback bridge, or packaging. Existing players are
-unaffected; do not publish an embedded HDR toggle until this is validated.
+a transparent GTK3/WebKitGTK parent that draws ordinary SDR controls. The optional shared library connects the same surface implementation to Harbor's
+existing MPV session. Normal builds do not link or ship it; the developer-only
+setting is gated by explicit runtime configuration.
 
 ## Build and run
 
@@ -37,15 +37,40 @@ local and uses a fixed message bridge and a restrictive content security policy.
 The prototype uses a fixed 1000-nit target for testing, integer GTK scale,
 and a simple UI timer. It does not yet adapt to the display's preferred image
 description or monitor changes, implement proper frame callbacks/pacing,
-handle fractional scale exactly, integrate Harbor's actual WebKit application,
-expose full Harbor controls,
-or support HDR format transitions with independent SDR targets. EGL/Wayland
+handle fractional scale exactly, or support HDR format transitions with independent
+SDR targets. Full Harbor UI validation is pending. EGL/Wayland
 WSI color-surface ownership must be validated on each driver: a duplicate
-color-management object is a fatal Wayland protocol error. This is isolated in
-a separate process for that reason. A compositor accepting a PQ tag does not
+color-management object is a fatal Wayland protocol error. The standalone probe isolates that risk; the in-process developer preview
+requires additional driver validation. A compositor accepting a PQ tag does not
 prove a physical monitor is in HDR mode; SDR compositors may tone-map the child.
 
-## Acceptance tests before integration
+## Optional Harbor integration
+
+Build against the same libmpv (client API 2.7+) that the rebuilt Harbor process
+will load. Set PKG_CONFIG_PATH and the runtime library search path as required
+by your distribution. Then:
+
+```sh
+make embedded
+make check-embedded VIDEO=/absolute/path/to/hdr10-video.mkv
+export HARBOR_LINUX_EMBEDDED_HDR_LIBRARY="$PWD/libharbor-linux-hdr.so"
+# Launch the rebuilt Harbor from this environment.
+```
+
+The smoke test requires a local video longer than six seconds and a Wayland
+desktop with the required compositor protocols. It attaches to an existing
+WebKit host and checks playback events, pause, seek, cleanup and a second
+session. It is not an end-to-end Harbor test.
+
+In Harbor's Player settings, select True HDR, embedded (developer preview).
+Without the configured library and API version, the option stays hidden and
+existing separate-window HDR routing is retained. If native initialization
+fails after explicit selection, playback reports an error; choose another
+mode. Detached picture-in-picture is not supported for this experimental
+backend. The fixed 1000-nit output target, software decoding, physical HDR
+verification and production packaging remain experimental or pending.
+
+## Acceptance tests before release
 
 1. Build with the real Linux development headers and run under an HDR-capable
    Wayland compositor with HDR enabled. Verify the framebuffer channel sizes
@@ -59,11 +84,9 @@ prove a physical monitor is in HDR mode; SDR compositors may tone-map the child.
    and repeated startup/teardown. Confirm no protocol errors.
 4. Verify refusal on X11, an old libmpv, an unsupported compositor, and an
    8-bit-only EGL config. Do not expose an enabled Harbor option on failure.
-5. Next integration stage: move surface ownership into a dedicated renderer
-   module, attach it to Harbor's realized GDK window, preserve the WebKit
-   overlay and native subtitle selection, use session-owned cleanup and
-   compositor frame timing, and route unsupported configurations through the
-   existing separate-window HDR or embedded SDR policy.
+5. Build Harbor with the new bridge and test its real playback UI, subtitles,
+   playback recovery, and switching between all existing modes. Implement
+   compositor frame timing and display-aware output before shipping.
 
 `make check` runs only the portable capability/geometry unit tests; it does not
 validate the actual renderer. The prototype has no new production dependencies.

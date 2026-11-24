@@ -3,7 +3,7 @@ PKGS = gtk+-3.0 gdk-wayland-3.0 webkit2gtk-4.1 wayland-client wayland-egl egl gl
 PROTOCOL_DIR ?= $(shell pkg-config --variable=pkgdatadir wayland-protocols)
 COLOR_XML ?= $(PROTOCOL_DIR)/staging/color-management/color-management-v1.xml
 CFLAGS ?= -O2 -g
-.PHONY: all check clean embedded
+.PHONY: all check clean embedded check-embedded
 all: harbor-linux-hdr-probe
 color-management-v1-client-protocol.h: $(COLOR_XML)
 	wayland-scanner client-header $< $@
@@ -16,7 +16,11 @@ libharbor-linux-hdr.so: embedded.c surface.inc policy.h color-management-v1-clie
 	$(CC) $(CFLAGS) -std=c11 -Wall -Wextra -fPIC -fvisibility=hidden -shared -Wl,-z,defs $(shell pkg-config --cflags $(PKGS)) embedded.c color-management-v1-protocol.c -o $@ $(shell pkg-config --libs $(PKGS)) -ldl
 test_policy: test_policy.c policy.h
 	$(CC) $(CFLAGS) -std=c11 -Wall -Wextra -Werror test_policy.c -o $@
+test_embedded: test_embedded.c libharbor-linux-hdr.so
+	$(CC) $(CFLAGS) -std=c11 -Wall -Wextra $(shell pkg-config --cflags $(PKGS)) test_embedded.c -o $@ $(shell pkg-config --libs $(PKGS)) -ldl
+check-embedded: test_embedded
+	GDK_BACKEND=wayland ./test_embedded "$(VIDEO)"
 check: test_policy
 	./test_policy
 clean:
-	rm -f harbor-linux-hdr-probe libharbor-linux-hdr.so test_policy color-management-v1-client-protocol.h color-management-v1-protocol.c
+	rm -f harbor-linux-hdr-probe libharbor-linux-hdr.so test_policy test_embedded color-management-v1-client-protocol.h color-management-v1-protocol.c
