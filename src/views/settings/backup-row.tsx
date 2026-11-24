@@ -96,7 +96,7 @@ export function BackupRow() {
     setRestoreError(false);
     void applyBackup(pending)
       .then(() => {
-        window.setTimeout(() => window.location.reload(), 280);
+        window.location.reload();
       })
       .catch(() => {
         setApplying(false);

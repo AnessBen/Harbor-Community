@@ -13,14 +13,15 @@ export async function readSettingsFile(): Promise<string | null> {
 
 let writes: Promise<void> = Promise.resolve();
 
-export function writeSettingsFile(content: string): Promise<void> {
+export function writeSettingsFile(content: string, options?: { strict?: boolean }): Promise<void> {
   if (!isTauri) return Promise.resolve();
-  writes = writes.then(async () => {
-    try {
-      await invoke("settings_write", { content });
-    } catch {
-      console.error("[settings] Could not save settings to disk");
-    }
+  const write = writes.then(async () => {
+    await invoke("settings_write", { content });
   });
-  return writes;
+  // A failed write must not poison the queue. Ordinary autosaves remain
+  // best-effort, but an explicit backup restore must report disk failures.
+  writes = write.catch(() => {
+    console.error("[settings] Could not save settings to disk");
+  });
+  return options?.strict ? write : writes;
 }

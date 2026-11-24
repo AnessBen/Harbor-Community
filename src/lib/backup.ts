@@ -11,6 +11,7 @@ import {
   setSecret,
 } from "@/lib/secret-store";
 import { setItemWithRecovery } from "@/lib/storage-recovery";
+import { isSettingsBackupBlob, restoreSettingsBackup } from "@/lib/settings/backup-restore";
 import { localLibraryReady, readLocalLibrary, restoreLocalLibrary } from "@/lib/local-library";
 
 declare const __APP_VERSION__: string;
@@ -489,7 +490,9 @@ function retargetProfileKeys(data: Record<string, string>): Record<string, strin
 }
 
 export async function applyBackup(backup: Backup): Promise<void> {
-  const data = retargetProfileKeys(backup.data);
+  const data = retargetProfileKeys(
+    Object.fromEntries(Object.entries(backup.data).filter(([key]) => !isSettingsBackupBlob(key))),
+  );
   const localLibrary = data["harbor.library.local.v1"];
   if (localLibrary != null) {
     restoreLocalLibrary(localLibrary);
@@ -534,9 +537,11 @@ export async function applyBackup(backup: Backup): Promise<void> {
   for (const [k, v] of entries) {
     try {
       if (!setItemWithRecovery(k, v)) {
+        if (k === PROFILES_STATE_KEY) throw new Error("Could not restore profile roster");
         console.warn(`[backup] storage refused "${k}" during restore`);
       }
     } catch (e) {
+      if (k === PROFILES_STATE_KEY) throw e;
       console.warn(`[backup] failed to restore "${k}"`, e);
     }
   }
@@ -571,4 +576,5 @@ export async function applyBackup(backup: Backup): Promise<void> {
     }
   }
   await flushSecrets();
+  await restoreSettingsBackup(backup.data);
 }

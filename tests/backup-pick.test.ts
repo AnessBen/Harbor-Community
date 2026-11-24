@@ -20,6 +20,10 @@ function loadBackup(overrides: Record<string, unknown>): BackupModule {
     "@/lib/active-profile-id": { activeProfileId: () => "local" },
     "@/lib/secret-store": empty,
     "@/lib/storage-recovery": empty,
+    "@/lib/settings/backup-restore": {
+      isSettingsBackupBlob: () => false,
+      restoreSettingsBackup: async () => {},
+    },
     "@/lib/local-library": empty,
     ...overrides,
   };
