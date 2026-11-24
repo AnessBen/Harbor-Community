@@ -28,7 +28,7 @@ export function DetailHeroTrailer({
   const wantsPlayback = !!info && !paused && pageVisible;
   const { slot, ready } = useTrailerVideo({
     src: info ? trailerSrc(info) : null,
-    active: !!info && pageVisible,
+    active: wantsPlayback,
     playing: wantsPlayback,
     muted,
     volume: 1,

@@ -117,7 +117,11 @@ import { MediaServerBrand, mediaServerProviderName } from "@/components/media-se
 import { useTitleMediaServers } from "@/hooks/use-title-media-servers";
 import { localPlayerSrc } from "@/lib/local-library/player-src";
 import { resolveLocalPlayVersions } from "@/lib/local-library/playback";
-import { openLocalVersions } from "@/lib/player/local-versions-modal";
+import {
+  getLocalVersions,
+  openLocalVersions,
+  subscribeLocalVersions,
+} from "@/lib/player/local-versions-modal";
 import { mediaServerConnections } from "@/lib/media-server/connections";
 import { mediaServerItems } from "@/lib/media-server/index-store";
 import { matchingServerItems, serverPlayableCopies } from "@/lib/media-server/selectors";
@@ -205,6 +209,7 @@ import { DetailHeroTrailer } from "./detail/detail-hero-trailer";
 import { useScrollUpTrailer } from "./detail/use-scroll-up-trailer";
 import { prefetchTrailerDownload, resolveTrailerQuality } from "@/lib/trailer";
 import { mergeTrailerCandidates } from "@/lib/trailer-candidates";
+import { discardIdleTrailerVideo } from "@/lib/trailer-video";
 import { SeriesEpisodes } from "./detail/series-episodes";
 import { CinemetaEpisodes } from "./detail/cinemeta-episodes";
 import { AnimeEpisodes } from "./detail/anime-episodes";
@@ -278,6 +283,7 @@ function FadeInUp({ children }: { children: ReactNode }) {
 
 type DetailViewProps = {
   meta: Meta;
+  active: boolean;
   liveContext?: boolean;
   episodeHint?: { season: number; episode: number };
 };
@@ -293,6 +299,7 @@ export function DetailView(props: DetailViewProps) {
 
 function DetailContent({
   meta,
+  active,
   liveContext = false,
   episodeHint,
   scrollRef,
@@ -424,7 +431,11 @@ function DetailContent({
   const sourceText = useMetadataSourceValues({ authKey, meta, detail, settings });
   const episodeSource = useEpisodeSource({ authKey, meta, detail, settings });
   const [loading, setLoading] = useState(true);
-  const [trailerOpen, setTrailerOpen] = useState(false);
+  const [manualTrailer, setManualTrailer] = useState<
+    { kind: "hero" } | { kind: "gallery"; id: string } | null
+  >(null);
+  const [pendingPlayRequests, setPendingPlayRequests] = useState(0);
+  const localVersions = useSyncExternalStore(subscribeLocalVersions, getLocalVersions);
   const [scores, setScores] = useState<OmdbScores | null>(null);
   const [cinemetaRating, setCinemetaRating] = useState<string | null>(null);
   const [harborImdbRating, setHarborImdbRating] = useState<string | null>(null);
@@ -442,12 +453,14 @@ function DetailContent({
     setNavStack,
     openPicker,
     openPlayer,
+    player,
     openFilter,
     promoteMetaToRoot,
     openMeta,
     openManga,
     metaHasSeasonScroll,
   } = useView();
+  const playerOpen = !!player;
   useTvdbCastFallback(meta, detail, detectedKitsu, setDetail);
   const { snapshot: roomSnapshot, claimHost } = useTogether();
   const { isConnected: traktConnected } = useTrakt();
@@ -647,6 +660,17 @@ function DetailContent({
     franchise,
   ]);
   const trailerCandidate = trailerCandidates[0] ?? null;
+  useEffect(() => {
+    if (playerOpen) discardIdleTrailerVideo();
+  }, [playerOpen]);
+  const manualTrailerId = manualTrailer?.kind === "hero" ? trailerCandidate : manualTrailer?.id;
+  const backgroundTrailerPaused =
+    !active || !!manualTrailerId || pendingPlayRequests > 0 || localVersions.open;
+  const openHeroTrailer = useCallback(() => setManualTrailer({ kind: "hero" }), []);
+  const openGalleryTrailer = useCallback(
+    (id: string) => setManualTrailer({ kind: "gallery", id }),
+    [],
+  );
   const prefetchTrailer = useCallback(() => {
     if (trailerCandidate) {
       prefetchTrailerDownload(trailerCandidate, resolveTrailerQuality(settings.trailerQuality));
@@ -655,8 +679,8 @@ function DetailContent({
 
   useScrollUpTrailer(
     scrollRef,
-    settings.scrollUpTrailer && !!trailerCandidate && !trailerOpen,
-    useCallback(() => setTrailerOpen(true), []),
+    settings.scrollUpTrailer && !!trailerCandidate && !backgroundTrailerPaused,
+    openHeroTrailer,
   );
   const actionRowRef = useRef<HTMLDivElement | null>(null);
   const actionStage = useHeroActionOverflow(actionRowRef, [meta.id]);
@@ -2287,6 +2311,15 @@ function DetailContent({
     [playMeta.videos, cinemetaFull?.videos],
   );
 
+  const trackPlaybackLaunch = useCallback(async (launch: () => Promise<void>) => {
+    setPendingPlayRequests((pending) => pending + 1);
+    try {
+      await launch();
+    } finally {
+      setPendingPlayRequests((pending) => pending - 1);
+    }
+  }, []);
+
   const smartPlay = useCallback(
     async (forcePicker = false) => {
       if (inSession) claimHost(true);
@@ -2322,23 +2355,24 @@ function DetailContent({
           openPlayer(localPlayerSrc(local[0], isAnime, episode));
           return;
         }
-        const playServer = (copy: (typeof serverCopies)[number]) => {
+        const playServer = async (copy: (typeof serverCopies)[number]) => {
           const connection = connections.find((entry) => entry.id === copy.connectionId);
           const item = serverItems.find(
             (entry) => entry.connectionId === copy.connectionId && entry.id === copy.itemId,
           );
           if (!connection || !item) return;
-          void createMediaServerPlayerSrc({
+          const src = await createMediaServerPlayerSrc({
             meta: playMeta,
             imdbId: identity.imdbId,
             episode,
             connection,
             item,
             versionId: copy.version.id,
-          }).then(openPlayer);
+          });
+          openPlayer(src);
         };
         if (decision.kind === "home-server") {
-          playServer(decision.copy);
+          await playServer(decision.copy);
           return;
         }
         if (decision.kind === "chooser") {
@@ -2348,7 +2382,7 @@ function DetailContent({
             entries: local,
             onPlayLocal: (entry) => openPlayer(localPlayerSrc(entry, isAnime, episode)),
             serverCopies,
-            onPlayServer: playServer,
+            onPlayServer: (copy) => trackPlaybackLaunch(() => playServer(copy)),
             onStream: stream,
           });
           return;
@@ -2483,6 +2517,7 @@ function DetailContent({
       meta.id,
       detail?.imdbId,
       episodeName,
+      trackPlaybackLaunch,
     ],
   );
   const animeResumeTarget =
@@ -2739,8 +2774,8 @@ function DetailContent({
           ) : (
             <div className="absolute inset-0 animate-pulse bg-white/[0.02]" />
           )}
-          {settings.detailTrailerAutoplay && trailerCandidate && (
-            <DetailHeroTrailer candidateIds={trailerCandidates} paused={trailerOpen} />
+          {!playerOpen && settings.detailTrailerAutoplay && trailerCandidate && (
+            <DetailHeroTrailer candidateIds={trailerCandidates} paused={backgroundTrailerPaused} />
           )}
           <div className="absolute inset-0 bg-gradient-to-t from-canvas via-canvas/55 via-45% to-transparent" />
           <div className="absolute inset-0 bg-gradient-to-r rtl:bg-gradient-to-l from-canvas/85 via-canvas/35 to-transparent" />
@@ -2818,16 +2853,16 @@ function DetailContent({
                 className={`mt-9 flex ${awardsInDescription ? "" : "w-full max-w-full "}items-center gap-3 [&>*]:shrink-0`}
               >
                 {upcoming ? (
-                  <UpcomingCta detail={detail} onTry={() => smartPlay()} />
+                  <UpcomingCta detail={detail} onTry={() => trackPlaybackLaunch(smartPlay)} />
                 ) : (
                   <PlayModeHint>
                     <button
                       {...playOnTrigger}
                       data-tv-initial-focus
-                      onClick={() => smartPlay(false)}
+                      onClick={() => trackPlaybackLaunch(smartPlay)}
                       onContextMenu={(e) => {
                         e.preventDefault();
-                        void smartPlay(true);
+                        void trackPlaybackLaunch(() => smartPlay(true));
                       }}
                       className="flex h-12 items-center gap-2.5 rounded-full bg-ink px-7 text-[15px] font-semibold text-canvas transition-all duration-300 hover:scale-[1.03] active:scale-[0.98]"
                     >
@@ -2927,7 +2962,7 @@ function DetailContent({
                       })
                     }
                     hasTrailer={!!trailerCandidate}
-                    onTrailer={() => setTrailerOpen(true)}
+                    onTrailer={openHeroTrailer}
                     canDownload={meta.type === "movie"}
                     showWatched={settings.showWatchedButton && meta.type === "movie"}
                     watchedMark={watchedMark}
@@ -3034,7 +3069,7 @@ function DetailContent({
                       <HoverTooltip label={t("Watch trailer")} align="center" className="shrink-0">
                         <button
                           type="button"
-                          onClick={() => setTrailerOpen(true)}
+                          onClick={openHeroTrailer}
                           onPointerEnter={prefetchTrailer}
                           onFocus={prefetchTrailer}
                           aria-label={t("Watch trailer")}
@@ -3449,8 +3484,8 @@ function DetailContent({
                   detail={detail}
                   trailerCandidates={trailerCandidates}
                   title={title}
-                  logo={logo}
                   metaId={meta.id}
+                  onPlayTrailer={openGalleryTrailer}
                 />
               ),
             });
@@ -3571,13 +3606,13 @@ function DetailContent({
         )}
       </div>
       <BackToTop scrollRef={scrollRef} />
-      {trailerOpen && trailerCandidate && (
+      {manualTrailerId && (
         <TrailerOverlay
-          id={trailerCandidate}
-          candidateIds={trailerCandidates}
+          id={manualTrailerId}
+          candidateIds={manualTrailer?.kind === "hero" ? trailerCandidates : undefined}
           title={title}
           logo={logo}
-          onClose={() => setTrailerOpen(false)}
+          onClose={() => setManualTrailer(null)}
         />
       )}
       {dropConfirmOpen && (

@@ -2186,6 +2186,7 @@ function Shell({ onReady }: { onReady?: () => void }) {
                     <DetailView
                       key={`meta-${meta.id}`}
                       meta={meta}
+                      active={detailTop && !player && !bigPicture}
                       liveContext={metaLiveContext}
                       episodeHint={metaEpisodeHint ?? undefined}
                     />

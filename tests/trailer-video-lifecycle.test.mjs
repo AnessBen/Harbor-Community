@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import * as jsxRuntime from "react/jsx-runtime";
 import ts from "typescript";
 
 const compiled = new Map();
@@ -8,8 +9,12 @@ function evaluate(file, resolve, document, window) {
   if (!compiled.has(file)) {
     compiled.set(
       file,
-      ts.transpileModule(readFileSync(new URL("../src/lib/" + file, import.meta.url), "utf8"), {
-        compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+      ts.transpileModule(readFileSync(new URL("../src/" + file, import.meta.url), "utf8"), {
+        compilerOptions: {
+          module: ts.ModuleKind.CommonJS,
+          target: ts.ScriptTarget.ES2022,
+          jsx: ts.JsxEmit.ReactJSX,
+        },
       }).outputText,
     );
   }
@@ -33,6 +38,7 @@ class FakeNode {
   muted = false;
   volume = 1;
   readyState = 0;
+  currentTime = 0;
   paused = true;
   plays = 0;
   playResults = [];
@@ -67,6 +73,7 @@ class FakeNode {
   }
   load() {
     this.readyState = 0;
+    this.currentTime = 0;
   }
   play() {
     this.plays += 1;
@@ -89,7 +96,7 @@ function environment() {
     },
   };
   const pool = evaluate(
-    "trailer-video.ts",
+    "lib/trailer-video.ts",
     () => {
       throw new Error("Unexpected import");
     },
@@ -111,7 +118,7 @@ function environment() {
 }
 
 // Run the real hook with deterministic effects, media events, and playback promises.
-function renderer(env) {
+function renderer(env, createRender = (_react, useTrailerVideo) => useTrailerVideo) {
   const slots = [];
   let cursor = 0;
   let dirty = false;
@@ -145,7 +152,7 @@ function renderer(env) {
     },
   };
   const { useTrailerVideo } = evaluate(
-    "use-trailer-video.ts",
+    "lib/use-trailer-video.ts",
     (name) => {
       if (name === "react") return react;
       if (name === "@/lib/trailer-video") return env.pool;
@@ -154,6 +161,7 @@ function renderer(env) {
     env.document,
     env.window,
   );
+  const render = createRender(react, useTrailerVideo);
   const api = {
     render(next) {
       props = next;
@@ -167,7 +175,7 @@ function renderer(env) {
         dirty = false;
         cursor = 0;
         pending = [];
-        output = useTrailerVideo(props);
+        output = render(props);
         output.slot.current = mount;
         for (const { slot } of pending) slot.cleanup?.();
         for (const { slot, run } of pending) slot.cleanup = run();
@@ -211,6 +219,32 @@ test("claiming a parked video restores visibility and pauses the previous playba
   assert.equal(reused.paused, true);
   pool.releaseTrailerVideo(home);
   assert.equal(pool.trailerVideoHeldBy(detail), true);
+});
+
+test("discarding an idle trailer clears its source and playback position", () => {
+  const env = environment();
+  const view = renderer(env);
+  const { node } = start(env, view);
+  node.currentTime = 12;
+
+  env.pool.discardIdleTrailerVideo();
+  assert.equal(node.getAttribute("src"), defaults.src);
+  assert.equal(node.currentTime, 12);
+
+  view.render({ ...defaults, active: false });
+  assert.equal(node.currentTime, 12);
+  env.pool.discardIdleTrailerVideo();
+  assert.equal(node.getAttribute("src"), null);
+  assert.equal(node.currentTime, 0);
+  assert.equal(node.paused, true);
+
+  assert.equal(view.render(defaults).ready, false);
+  env.assignSource();
+  node.readyState = 4;
+  node.dispatch("canplay");
+  assert.equal(view.flush().ready, true);
+  assert.equal(node.currentTime, 0);
+  assert.equal(node.paused, false);
 });
 
 test("the previous source cannot make a newly claimed trailer ready or start it early", () => {
@@ -380,4 +414,71 @@ test("hiding the page cancels a pending source assignment", () => {
   assert.equal(node.getAttribute("src"), null);
   assert.equal(node.plays, 0);
   assert.equal(node.paused, true);
+});
+
+test("the detail hero releases its video while paused and reclaims it on return", async () => {
+  const env = environment();
+  const view = renderer(env, (react, useTrailerVideo) => {
+    let videoState;
+    const imports = {
+      react,
+      "react/jsx-runtime": jsxRuntime,
+      "lucide-react": { Volume2: () => null, VolumeX: () => null },
+      "@/lib/i18n": { useT: () => (text) => text },
+      "@/lib/settings": { useSettings: () => ({ settings: { detailTrailerAudio: true } }) },
+      "@/lib/visibility": { usePageVisible: () => true },
+      "@/lib/trailer": {
+        fetchFirstTrailer: async () => ({ url: defaults.src }),
+        resolveTrailerQuality: () => "auto",
+        trailerSrc: (info) => info.url,
+      },
+      "@/lib/use-trailer-video": {
+        useTrailerVideo: (opts) => (videoState = useTrailerVideo(opts)),
+      },
+    };
+    const { DetailHeroTrailer } = evaluate(
+      "views/detail/detail-hero-trailer.tsx",
+      (name) => {
+        assert.ok(name in imports, "Unexpected import: " + name);
+        return imports[name];
+      },
+      env.document,
+      env.window,
+    );
+    const candidateIds = ["detail-trailer"];
+    return (paused) => {
+      DetailHeroTrailer({ candidateIds, paused });
+      return videoState;
+    };
+  });
+
+  view.render(true);
+  await Promise.resolve();
+  assert.equal(view.flush().video.current, null);
+
+  const node = view.render(false).video.current;
+  env.assignSource();
+  let rejectPlay;
+  node.playResults.push(
+    () =>
+      new Promise((_resolve, reject) => {
+        rejectPlay = reject;
+      }),
+  );
+  node.readyState = 4;
+  node.dispatch("canplay");
+  view.flush();
+  assert.equal(node.paused, false);
+
+  assert.equal(view.render(true).video.current, null);
+  assert.equal(node.paused, true);
+  rejectPlay({ name: "NotAllowedError" });
+  await Promise.resolve();
+  assert.equal(node.plays, 1);
+
+  const resumed = view.render(false);
+  assert.equal(resumed.video.current, node);
+  assert.equal(resumed.ready, true);
+  assert.equal(node.plays, 2);
+  assert.equal(node.paused, false);
 });

@@ -10,7 +10,6 @@ import { clearTitleBackdrop, setTitleBackdrop, useTitleBackdrop } from "@/lib/ti
 import { clearTitleLogo, setTitleLogo, useTitleLogo } from "@/lib/title-logo";
 import { clearTitlePoster, setTitlePoster, useTitlePoster } from "@/lib/title-poster";
 import { resolveTrailerQuality } from "@/lib/trailer";
-import { TrailerOverlay } from "./trailer-overlay";
 import { MediaLightbox } from "./media-lightbox";
 import { MediaRail } from "./media-gallery/media-rail";
 import { ImageTile, LogoTile, VideoTile, type GalleryVideo } from "./media-gallery/media-tiles";
@@ -23,14 +22,14 @@ export function MediaGallery({
   detail,
   trailerCandidates,
   title,
-  logo,
   metaId,
+  onPlayTrailer,
 }: {
   detail: TmdbDetail;
   trailerCandidates: readonly string[];
   title: string;
-  logo?: string;
   metaId: string;
+  onPlayTrailer: (id: string) => void;
 }) {
   const { settings, update } = useSettings();
   const videos = useMemo(
@@ -73,7 +72,6 @@ export function MediaGallery({
 
   const [active, setActive] = useState<Tab | null>(null);
   const current = active ?? tabs[0]?.id ?? null;
-  const [trailer, setTrailer] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<{ images: string[]; index: number; kind: Tab } | null>(
     null,
   );
@@ -206,7 +204,7 @@ export function MediaGallery({
               <VideoTile
                 key={v.ytId}
                 v={v}
-                onPlay={() => setTrailer(v.ytId)}
+                onPlay={() => onPlayTrailer(v.ytId)}
                 onDownload={() => downloadVideo(v)}
               />
             ))}
@@ -260,9 +258,6 @@ export function MediaGallery({
         )}
       </div>
 
-      {trailer && (
-        <TrailerOverlay id={trailer} title={title} logo={logo} onClose={() => setTrailer(null)} />
-      )}
       {lightbox &&
         createPortal(
           <MediaLightbox
