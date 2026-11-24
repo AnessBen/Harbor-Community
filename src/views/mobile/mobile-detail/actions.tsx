@@ -5,7 +5,7 @@ import { Play } from "@/components/icons/play-filled";
 import type { Meta } from "@/lib/cinemeta";
 import type { TmdbDetail } from "@/lib/providers/tmdb";
 import type { RemoteLibraryAction, RemoteLibraryItem } from "@/lib/remote/protocol";
-import { resolveTrailerId } from "@/lib/trailer";
+import { resolveTrailerCandidates } from "@/lib/trailer-resolver";
 import { useSettings } from "@/lib/settings";
 import { useT } from "@/lib/i18n";
 import { useMobileRemote } from "../mobile-remote";
@@ -31,21 +31,25 @@ export function DetailActions({
   const { settings } = useSettings();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [trailerOpen, setTrailerOpen] = useState(false);
-  const [trailer, setTrailer] = useState<string | null>(trailerId);
+  const [trailer, setTrailer] = useState<string | null>(null);
 
   useEffect(() => {
-    setTrailer(trailerId);
-    if (trailerId || !settings.tmdbKey) return;
+    setTrailer(null);
     let alive = true;
-    resolveTrailerId(meta, settings.tmdbKey)
-      .then((id) => {
-        if (alive && id) setTrailer(id);
+    resolveTrailerCandidates(meta, settings.tmdbKey, {
+      candidateIds: [trailerId ?? "", ...(detail?.trailerCandidates ?? [])],
+      excludedIds: (detail?.extraVideos ?? []).filter((v) => !/^(Trailer|Teaser)$/i.test(v.type)).map((video) => video.ytId),
+      aliases: detail?.originalTitle ? [detail.originalTitle] : [],
+      year: detail?.year,
+    })
+      .then((ids) => {
+        if (alive) setTrailer(ids[0] ?? null);
       })
       .catch(() => {});
     return () => {
       alive = false;
     };
-  }, [trailerId, meta.id, settings.tmdbKey]);
+  }, [trailerId, meta, detail, settings.tmdbKey]);
 
   return (
     <>

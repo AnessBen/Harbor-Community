@@ -510,9 +510,9 @@ fn select_hls_video<'a>(
                     .as_str()
                     .is_some_and(|codec| codec.starts_with("avc1"))
                 && format["url"].as_str().is_some()
-                && format["height"].as_u64().is_some_and(|height| {
-                    max_height.map_or(true, |cap| height <= cap)
-                })
+                && format["height"]
+                    .as_u64()
+                    .is_some_and(|height| max_height.map_or(true, |cap| height <= cap))
         })
         .max_by_key(|format| format["height"].as_u64().unwrap_or(0))
 }
@@ -569,9 +569,9 @@ fn select_muxed<'a>(
                 && format["acodec"]
                     .as_str()
                     .is_some_and(|codec| !codec.is_empty() && codec != "none")
-                && format["height"].as_u64().is_some_and(|height| {
-                    max_height.map_or(true, |cap| height <= cap)
-                })
+                && format["height"]
+                    .as_u64()
+                    .is_some_and(|height| max_height.map_or(true, |cap| height <= cap))
         })
         .max_by_key(|format| format["height"].as_u64().unwrap_or(0))
 }
@@ -617,10 +617,13 @@ pub async fn resolve_youtube_stream(
         "--dump-single-json".to_string(),
         format!("https://www.youtube.com/watch?v={id}"),
     ];
-    let output = crate::ytdlp_update::run(&app, args, Duration::from_secs(45), "YouTube stream").await?;
+    let output =
+        crate::ytdlp_update::run(&app, args, Duration::from_secs(45), "YouTube stream").await?;
     let metadata: serde_json::Value = serde_json::from_slice(&output.stdout)
         .map_err(|_| "YouTube did not return stream metadata".to_string())?;
-    let formats = metadata.get("formats").and_then(serde_json::Value::as_array);
+    let formats = metadata
+        .get("formats")
+        .and_then(serde_json::Value::as_array);
 
     // Addon YouTube sources call this without a quality preference. Keep the
     // master manifest there: those callers do not pass a separate audio URL
@@ -658,13 +661,14 @@ pub async fn resolve_youtube_stream(
         if let Some(hls) = select_hls_video(formats, max_height) {
             let selected_height = hls["height"].as_u64().unwrap_or(0);
             if selected_height >= target_height {
-                let audio_url = if format_has_audio(hls) {
-                    None
-                } else {
-                    Some(select_hls_audio(formats).ok_or_else(|| {
-                        "YouTube did not return an HLS audio stream".to_string()
-                    })?)
-                };
+                let audio_url =
+                    if format_has_audio(hls) {
+                        None
+                    } else {
+                        Some(select_hls_audio(formats).ok_or_else(|| {
+                            "YouTube did not return an HLS audio stream".to_string()
+                        })?)
+                    };
                 let stream = stream_from_format(hls, audio_url, true)?;
                 verify_youtube_stream(&stream).await?;
                 return Ok(stream);
@@ -716,12 +720,17 @@ async fn verify_media_url(
     }
     // Extraction can succeed while the CDN refuses the URL. Test an actual
     // media GET, not HEAD, before publishing a source to the video element.
-    let mut response = request.header(reqwest::header::RANGE, "bytes=0-")
-        .send().await.map_err(|_| "YouTube playback verification failed".to_string())?;
+    let mut response = request
+        .header(reqwest::header::RANGE, "bytes=0-")
+        .send()
+        .await
+        .map_err(|_| "YouTube playback verification failed".to_string())?;
     if !response.status().is_success() {
         return Err(format!("YouTube rejected playback: {}", response.status()));
     }
-    if response.headers().get(reqwest::header::CONTENT_TYPE)
+    if response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .is_some_and(|value| value.starts_with("text/") || value.contains("json"))
     {
@@ -873,3 +882,219 @@ async fn trailer_stream_url(
 #[cfg(test)]
 #[path = "trailer_tests.rs"]
 mod tests;
+
+#[derive(Deserialize, Serialize)]
+pub struct TrailerSearchVideo {
+    id: String,
+    title: String,
+    #[serde(default)]
+    channel: Option<String>,
+    #[serde(default)]
+    duration: Option<f64>,
+}
+
+#[tauri::command]
+pub async fn search_trailer_videos(
+    app: tauri::AppHandle,
+    query: String,
+) -> Result<Vec<TrailerSearchVideo>, String> {
+    let query = query.trim();
+    if query.is_empty() || query.chars().count() > 300 || query.chars().any(char::is_control) {
+        return Err("invalid trailer search".into());
+    }
+    let args = vec![
+        "--ignore-config".into(),
+        "--no-warnings".into(),
+        "--flat-playlist".into(),
+        "--dump-single-json".into(),
+        "--skip-download".into(),
+        "--socket-timeout".into(),
+        "8".into(),
+        "--retries".into(),
+        "0".into(),
+        "--".into(),
+        format!("ytsearch12:{query}"),
+    ];
+    let output = run_yt_dlp(&app, args, Duration::from_secs(25), "trailer search")
+        .await
+        .map_err(|_| "trailer search unavailable".to_string())?;
+    if !output.success {
+        return Err("trailer search unavailable".into());
+    }
+    #[derive(Deserialize)]
+    struct SearchResult {
+        entries: Vec<Option<TrailerSearchVideo>>,
+    }
+    let result: SearchResult = serde_json::from_slice(&output.stdout)
+        .map_err(|_| "invalid trailer search response".to_string())?;
+    Ok(result.entries.into_iter().flatten().take(12).collect())
+}
+
+#[tauri::command]
+pub async fn inspect_trailer_video(video_id: String) -> Result<TrailerSearchVideo, String> {
+    if video_id.len() != 11
+        || !video_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        return Err("invalid video id".into());
+    }
+    #[derive(Deserialize)]
+    struct Oembed {
+        title: String,
+        author_name: Option<String>,
+    }
+    let url = format!("https://www.youtube.com/watch?v={video_id}");
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(7))
+        .build()
+        .map_err(|_| "trailer metadata unavailable".to_string())?;
+    let info = client
+        .get("https://www.youtube.com/oembed")
+        .query(&[("url", url.as_str()), ("format", "json")])
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(|_| "trailer metadata unavailable".to_string())?
+        .json::<Oembed>()
+        .await
+        .map_err(|_| "trailer metadata unavailable".to_string())?;
+    Ok(TrailerSearchVideo {
+        id: video_id,
+        title: info.title,
+        channel: info.author_name,
+        duration: None,
+    })
+}
+
+#[derive(Serialize)]
+pub struct TrailerEditionProbe {
+    id: String,
+    height: Option<u64>,
+    duration: Option<f64>,
+    // Short, coarse energy envelope only: never return media or signed URLs.
+    envelope: Vec<f64>,
+}
+
+async fn trailer_audio_envelope(input: &str, remote: bool) -> Vec<f64> {
+    let Some(ffmpeg) = crate::transcode::locate_ffmpeg() else {
+        return Vec::new();
+    };
+    let mut command = tokio::process::Command::new(ffmpeg);
+    command
+        .kill_on_drop(true)
+        .args(["-hide_banner", "-loglevel", "error", "-nostdin"]);
+    #[cfg(windows)]
+    command.creation_flags(0x08000000);
+    if remote {
+        command.args([
+            "-protocol_whitelist",
+            "https,tls,tcp,crypto",
+            "-rw_timeout",
+            "5000000",
+        ]);
+    }
+    command.args([
+        "-i", input, "-vn", "-t", "35", "-ac", "1", "-ar", "4000", "-f", "s16le", "pipe:1",
+    ]);
+    let Ok(Ok(output)) = tokio::time::timeout(Duration::from_secs(12), command.output()).await
+    else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    output
+        .stdout
+        .chunks_exact(800)
+        .take(350)
+        .map(|chunk| {
+            let energy = chunk
+                .chunks_exact(2)
+                .map(|s| {
+                    let sample = f64::from(i16::from_le_bytes([s[0], s[1]]));
+                    sample * sample
+                })
+                .sum::<f64>()
+                / 400.0;
+            energy.sqrt().ln_1p()
+        })
+        .collect()
+}
+
+#[tauri::command]
+pub async fn probe_trailer_edition(
+    app: tauri::AppHandle,
+    video_id: String,
+) -> Result<TrailerEditionProbe, String> {
+    if video_id.len() != 11
+        || !video_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
+        return Err("invalid video id".into());
+    }
+    // A best-quality cached copy already records its actual downloaded height.
+    let path = quality_path(&video_id, "best");
+    if let Ok(bytes) = std::fs::read(path.with_extension("json")) {
+        if let Ok(meta) = serde_json::from_slice::<DownloadMetadata>(&bytes) {
+            if path.is_file() && meta.height.is_some() && meta.duration.is_some() {
+                let envelope = trailer_audio_envelope(&path.to_string_lossy(), false).await;
+                return Ok(TrailerEditionProbe {
+                    id: video_id,
+                    height: meta.height,
+                    duration: meta.duration,
+                    envelope,
+                });
+            }
+        }
+    }
+    let args = vec![
+        "--ignore-config".into(),
+        "--no-warnings".into(),
+        "--no-playlist".into(),
+        "--skip-download".into(),
+        "--socket-timeout".into(),
+        "6".into(),
+        "--retries".into(),
+        "0".into(),
+        "-f".into(),
+        "bestaudio[protocol=https]/best[protocol=https]".into(),
+        "--dump-single-json".into(),
+        "--".into(),
+        format!("https://www.youtube.com/watch?v={video_id}"),
+    ];
+    let output = run_yt_dlp(&app, args, Duration::from_secs(15), "trailer edition").await?;
+    if !output.success {
+        return Err("trailer edition unavailable".into());
+    }
+    let data: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|_| "invalid trailer edition response".to_string())?;
+    let height = data
+        .get("formats")
+        .and_then(serde_json::Value::as_array)
+        .map(|formats| highest_video_height(formats))
+        .filter(|height| *height > 0);
+    let duration = data["duration"].as_f64();
+    // Only a YouTube CDN URL from our own extractor is accepted by FFmpeg.
+    let audio_url = data["url"].as_str().filter(|url| {
+        reqwest::Url::parse(url).ok().is_some_and(|u| {
+            u.scheme() == "https"
+                && u.host_str().is_some_and(|host| {
+                    host == "googlevideo.com" || host.ends_with(".googlevideo.com")
+                })
+        })
+    });
+    let envelope = match audio_url {
+        Some(url) if duration.is_some_and(|d| (15.0..=360.0).contains(&d)) => {
+            trailer_audio_envelope(url, true).await
+        }
+        _ => Vec::new(),
+    };
+    Ok(TrailerEditionProbe {
+        id: video_id,
+        height,
+        duration,
+        envelope,
+    })
+}

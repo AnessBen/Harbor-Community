@@ -1953,6 +1953,9 @@ pub fn run() {
             diagnostics::diagnostics_collect,
             diagnostics::diagnostics_cleanup,
             trailer::fetch_trailer,
+            trailer::search_trailer_videos,
+            trailer::inspect_trailer_video,
+            trailer::probe_trailer_edition,
             trailer::resolve_youtube_stream,
             profile_audio::resolve_profile_audio,
             #[cfg(feature = "music")]

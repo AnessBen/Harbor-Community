@@ -23,10 +23,9 @@ test("orders trailer videos and keeps their names", () => {
     [
       ["trailer", "Official Trailer"],
       ["teaser", "Official Teaser"],
-      ["clip", "Clip"],
     ],
   );
-  assert.deepEqual(pickTrailers(videos), ["trailer", "teaser", "clip"]);
+  assert.deepEqual(pickTrailers(videos), ["trailer", "teaser"]);
 });
 
 test("sorts newest first within trailer and teaser groups", () => {
@@ -110,4 +109,18 @@ test("keeps season videos before show-level videos and removes duplicates", () =
     mergeTrailerVideoGroups(season, show).map((video) => video.key),
     ["season-pv", "show-2016", "show-2015"],
   );
+});
+
+test("clips and featurettes never become trailer candidates, including an official clip", () => {
+  assert.deepEqual(pickTrailers([
+    { key: "0lGyuTtYUJo", site: "YouTube", type: "Clip", official: true, name: "Krabby Patties Ranked By Size!" },
+    { key: "featurette", site: "YouTube", type: "Featurette", official: true },
+  ]), []);
+});
+
+test("show-level official trailer outranks season teaser", () => {
+  const season = [{ key: "season-teaser", site: "YouTube", type: "Teaser", official: true }];
+  const show = [{ key: "show-trailer", site: "YouTube", type: "Trailer", official: true }];
+  assert.deepEqual(sortTrailerVideos(mergeTrailerVideoGroups(show, season)).map(v => v.key),
+    ["show-trailer", "season-teaser"]);
 });

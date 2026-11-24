@@ -352,10 +352,10 @@ export async function tmdbDetails(
     kind === "tv" ? [...videos, ...seasonVideos.map((entry) => entry.video)] : videos;
   const chosenVideos =
     kind === "tv"
-      ? mergeTrailerVideoGroups(
-          sortTrailerVideos(pickTrailerVideos(seasonVideos.map((entry) => entry.video))),
-          sortTrailerVideos(pickTrailerVideos(videos)),
-        )
+      ? sortTrailerVideos(mergeTrailerVideoGroups(
+          pickTrailerVideos(videos),
+          pickTrailerVideos(seasonVideos.map((entry) => entry.video)),
+        ))
       : sortTrailerVideos(pickTrailerVideos(videos));
   const trailerVideos: ExtraVideo[] = chosenVideos.map((video) => {
     const seasonNumber = seasonByKey.get(video.key);

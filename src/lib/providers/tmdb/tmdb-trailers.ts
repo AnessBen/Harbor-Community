@@ -15,8 +15,7 @@ export const pickTrailerVideos = (videos: Video[]): Video[] => {
     ...yt.filter((v) => v.type === "Trailer" && v.official),
     ...yt.filter((v) => v.type === "Trailer" && !v.official),
     ...yt.filter((v) => v.type === "Teaser" && v.official),
-    ...yt.filter((v) => v.type === "Teaser"),
-    ...yt.filter((v) => v.type === "Clip" || v.type === "Featurette"),
+    ...yt.filter((v) => v.type === "Teaser" && !v.official),
   ];
   const seen = new Set<string>();
   const out: Video[] = [];
@@ -38,7 +37,7 @@ const trailerRank = (video: Video): number => {
   return 4;
 };
 
-/** Keep trailers before teasers and clips, newest first within each group. */
+/** Keep trailers before teasers, newest first within each group. */
 export const sortTrailerVideos = (videos: Video[]): Video[] =>
   [...videos].sort((a, b) => {
     const rank = trailerRank(a) - trailerRank(b);
@@ -62,7 +61,7 @@ export const mergeTrailerVideoGroups = (...groups: Video[][]): Video[] => {
   return out;
 };
 
-export async function tmdbTrailerList(key: string, metaId: string): Promise<string[]> {
+export async function tmdbTrailerVideos(key: string, metaId: string): Promise<Video[]> {
   if (!key) return [];
   const match = metaId.match(/^tmdb:(movie|tv):(\d+)$/);
   if (!match) return [];
@@ -98,10 +97,14 @@ export async function tmdbTrailerList(key: string, metaId: string): Promise<stri
       pickTrailerVideos(seasonVideos.flatMap((season) => season?.results ?? [])),
     );
     const showPool = sortTrailerVideos(pickTrailerVideos(showVideos?.results ?? []));
-    return mergeTrailerVideoGroups(seasonPool, showPool).map((video) => video.key);
+    return sortTrailerVideos(mergeTrailerVideoGroups(showPool, seasonPool));
   }
   const data = await get<{ results?: Video[] }>(key, `${kind}/${id}/videos`);
-  return sortTrailerVideos(pickTrailerVideos(data?.results ?? [])).map((video) => video.key);
+  return sortTrailerVideos(pickTrailerVideos(data?.results ?? []));
+}
+
+export async function tmdbTrailerList(key: string, metaId: string): Promise<string[]> {
+  return (await tmdbTrailerVideos(key, metaId)).map((video) => video.key);
 }
 
 export async function tmdbTrailer(key: string, metaId: string): Promise<string | null> {

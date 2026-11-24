@@ -11,9 +11,7 @@ function trailer(
     "fetchTrailer",
     {
       "@tauri-apps/api/core": { invoke },
-      "@/lib/cache": {},
-      "@/lib/cinemeta": {},
-      "@/lib/providers/tmdb": {},
+      "@/lib/trailer-resolver": {},
       "@/lib/stream-proxy": {
         registerStreamProxy: async (url: string, headers: unknown, options: unknown) => {
           assert.equal(url, "https://media.example/trailer.mp4");
@@ -91,9 +89,7 @@ test("manual trailer prefetch starts the seekable download path", async () => {
           return { file_path: "fixture.mp4" };
         },
       },
-      "@/lib/cache": {},
-      "@/lib/cinemeta": {},
-      "@/lib/providers/tmdb": {},
+      "@/lib/trailer-resolver": {},
       "@/lib/stream-proxy": {},
     },
     { window: { __TAURI_INTERNALS__: {} } },

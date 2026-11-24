@@ -20,6 +20,7 @@ import { BpGalleryRow, type BpGalleryShape } from "./bp-gallery-row";
 import { BpFacts } from "./bp-facts";
 import { BpRow } from "./bp-row";
 import { BpTrailer } from "./bp-trailer";
+import { resolveTrailerCandidates } from "@/lib/trailer-resolver";
 import { BpStreams } from "./bp-streams";
 import { useBpCardBadges } from "./use-bp-card-badges";
 import {
@@ -173,7 +174,21 @@ export function BpDetail({
     onSources(meta, ep, onResumeTarget, auto, true);
   };
 
-  const trailerYtId = detail?.trailerYtId ?? shell.trailerStreams?.[0]?.ytId ?? null;
+  const [resolvedTrailer, setResolvedTrailer] = useState<{ id: string; ytId: string | null } | null>(null);
+  useEffect(() => {
+    if (!meta) return;
+    let alive = true;
+    resolveTrailerCandidates(meta, settings.tmdbKey, {
+      candidateIds: detail?.trailerCandidates,
+      excludedIds: (detail?.extraVideos ?? []).filter((v) => !/^(Trailer|Teaser)$/i.test(v.type)).map((v) => v.ytId),
+      aliases: detail?.originalTitle ? [detail.originalTitle] : [],
+      year: detail?.year,
+    }).then((ids) => {
+      if (alive) setResolvedTrailer({ id: meta.id, ytId: ids[0] ?? null });
+    });
+    return () => { alive = false; };
+  }, [meta, detail, settings.tmdbKey]);
+  const trailerYtId = resolvedTrailer?.id === shell.id ? resolvedTrailer.ytId : null;
 
   const actions = useBpDetailActions({
     meta: shell,

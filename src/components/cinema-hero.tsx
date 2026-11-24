@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ImdbIcon } from "@/components/icons/imdb-icon";
 import { MetaAwardsCorner } from "@/components/meta-awards-corner";
 import { meta as fetchMeta, narrowMediaType, type Meta } from "@/lib/cinemeta";
-import { tmdbLogo, tmdbTrailerList, useTmdbImdbId } from "@/lib/providers/tmdb";
+import { tmdbLogo, useTmdbImdbId } from "@/lib/providers/tmdb";
 import { useImdbRating } from "@/lib/imdb-rating";
 import { useSettings } from "@/lib/settings";
 import { useTitleLogo } from "@/lib/title-logo";
@@ -22,6 +22,7 @@ import { useView } from "@/lib/view";
 import { useHeroContext } from "@/lib/context-menu";
 import { observe, usePageVisible } from "@/lib/visibility";
 import { useTrailerVideo } from "@/lib/use-trailer-video";
+import { resolveTrailerCandidates } from "@/lib/trailer-resolver";
 
 const ROTATE_MS = 11000;
 const EASE_OUT = "cubic-bezier(0.32, 0.72, 0.24, 1)";
@@ -281,17 +282,7 @@ function CinemaSlide({
     setTrailerCandidates([]);
     setTrailerResult(null);
     let cancelled = false;
-    const isTmdb = meta.id.startsWith("tmdb:");
-    const lookup: Promise<string[]> = isTmdb
-      ? tmdbTrailerList(settings.tmdbKey, meta.id)
-      : fetchMeta(narrowMediaType(meta.type), meta.id).then((full) => {
-          const ids = [
-            full?.trailers?.[0]?.source,
-            full?.trailerStreams?.[0]?.ytId,
-            ...(full?.trailerStreams?.slice(1).map((s) => s.ytId) ?? []),
-          ].filter((s): s is string => !!s);
-          return Array.from(new Set(ids));
-        });
+    const lookup = resolveTrailerCandidates(meta, settings.tmdbKey);
     lookup
       .then((ids) => {
         if (cancelled) return;

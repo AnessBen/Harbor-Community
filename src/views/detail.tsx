@@ -208,8 +208,8 @@ import { TrailerOverlay } from "./detail/trailer-overlay";
 import { DetailHeroTrailer } from "./detail/detail-hero-trailer";
 import { useScrollUpTrailer } from "./detail/use-scroll-up-trailer";
 import { prefetchTrailerDownload, resolveTrailerQuality } from "@/lib/trailer";
-import { mergeTrailerCandidates } from "@/lib/trailer-candidates";
 import { discardIdleTrailerVideo } from "@/lib/trailer-video";
+import { resolveTrailerCandidates } from "@/lib/trailer-resolver";
 import { SeriesEpisodes } from "./detail/series-episodes";
 import { CinemetaEpisodes } from "./detail/cinemeta-episodes";
 import { AnimeEpisodes } from "./detail/anime-episodes";
@@ -631,34 +631,27 @@ function DetailContent({
   const addonNative = liveContext || isAddonNativeMeta(meta);
   const capstanMeta = useCapstanDetail(meta);
   const capstanCanonicalId = capstanMeta?.canonicalId ?? null;
-  const trailerCandidates = useMemo(() => {
-    const fromMeta = [
-      ...(meta.trailerStreams?.map((trailer) => trailer.ytId) ?? []),
-      ...(meta.trailers?.map((trailer) => trailer.source) ?? []),
-    ].filter((id): id is string => !!id);
-    const fromFranchise = franchise
-      .flatMap((entry) => entry.meta.trailerStreams ?? [])
-      .map((trailer) => trailer.ytId)
-      .filter((id): id is string => !!id);
-    const hasTmdbTrailers =
-      animeIdentity && !prioritizeMetadataAddons && (detail?.trailerVideos?.length ?? 0) > 0;
-    return mergeTrailerCandidates(
-      ...(hasTmdbTrailers
-        ? [detail?.trailerCandidates]
-        : animeIdentity
-          ? [detail?.trailerCandidates, sourceText.trailerCandidates, fromMeta, fromFranchise]
-          : [sourceText.trailerCandidates, detail?.trailerCandidates, fromMeta, fromFranchise]),
-    );
-  }, [
-    animeIdentity,
-    prioritizeMetadataAddons,
-    sourceText.trailerCandidates,
-    detail?.trailerCandidates,
-    detail?.trailerVideos,
-    meta.trailerStreams,
-    meta.trailers,
-    franchise,
-  ]);
+  const trailerRequest = useMemo(() => ({
+    meta,
+    tmdbKey: settings.tmdbKey,
+    options: {
+      candidateIds: [...(sourceText.trailerCandidates ?? []), ...(detail?.trailerCandidates ?? [])],
+      excludedIds: (detail?.extraVideos ?? [])
+        .filter((video) => !/^(Trailer|Teaser)$/i.test(video.type))
+        .map((video) => video.ytId),
+      aliases: [detail?.originalTitle, detail?.title].filter((name): name is string => !!name),
+      year: detail?.year,
+    },
+  }), [meta, settings.tmdbKey, sourceText.trailerCandidates, detail?.trailerCandidates,
+    detail?.extraVideos, detail?.originalTitle, detail?.title, detail?.year]);
+  const [resolvedTrailers, setResolvedTrailers] = useState<{ request: typeof trailerRequest; ids: string[] } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    resolveTrailerCandidates(trailerRequest.meta, trailerRequest.tmdbKey, trailerRequest.options)
+      .then((ids) => { if (alive) setResolvedTrailers({ request: trailerRequest, ids }); });
+    return () => { alive = false; };
+  }, [trailerRequest]);
+  const trailerCandidates = resolvedTrailers?.request === trailerRequest ? resolvedTrailers.ids : [];
   const trailerCandidate = trailerCandidates[0] ?? null;
   useEffect(() => {
     if (playerOpen) discardIdleTrailerVideo();

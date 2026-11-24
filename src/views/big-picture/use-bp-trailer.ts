@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { meta as fetchMeta, narrowMediaType, type Meta } from "@/lib/cinemeta";
-import { tmdbTrailerList } from "@/lib/providers/tmdb";
+import type { Meta } from "@/lib/cinemeta";
+import { resolveTrailerCandidates } from "@/lib/trailer-resolver";
 import {
   fetchFirstTrailer,
   prefetchTrailer,
@@ -19,11 +19,13 @@ export function useBpTrailer(meta: Meta | null): { src: string | null } {
   const pageVisible = usePageVisible();
   const id = meta?.id ?? "";
   const type = meta?.type;
+  const name = meta?.name ?? "";
+  const releaseInfo = meta?.releaseInfo;
   const enabled = Boolean(id) && settings.heroTrailers !== false;
   const quality = resolveTrailerQuality(settings.autoplayTrailerQuality);
   const request = useMemo(
-    () => ({ id, type, quality, enabled, tmdbKey: settings.tmdbKey }),
-    [id, type, quality, enabled, settings.tmdbKey],
+    () => ({ id, type, name, releaseInfo, quality, enabled, tmdbKey: settings.tmdbKey }),
+    [id, type, name, releaseInfo, quality, enabled, settings.tmdbKey],
   );
   const [result, setResult] = useState<{ request: typeof request; info: TrailerInfo } | null>(null);
 
@@ -45,15 +47,11 @@ export function useBpTrailer(meta: Meta | null): { src: string | null } {
 
     // A short settle keeps fast focus changes from starting an extraction.
     const resolve = () => {
-      const lookup: Promise<string[]> = request.id.startsWith("tmdb:")
-        ? tmdbTrailerList(request.tmdbKey, request.id)
-        : fetchMeta(narrowMediaType(request.type), request.id).then((full) => {
-            const ids = [
-              full?.trailers?.[0]?.source,
-              ...(full?.trailerStreams?.map((s) => s.ytId) ?? []),
-            ].filter((s): s is string => Boolean(s));
-            return [...new Set(ids)];
-          });
+      if (!request.type) return;
+      const lookup = resolveTrailerCandidates(
+        { id: request.id, type: request.type, name: request.name, releaseInfo: request.releaseInfo },
+        request.tmdbKey,
+      );
 
       lookup
         .then((ids) => {

@@ -30,7 +30,7 @@ import { meta as fetchMeta, narrowMediaType, type Meta } from "@/lib/cinemeta";
 import { useT } from "@/lib/i18n";
 import { omdbPrefetch, useOmdbScores } from "@/lib/providers/omdb";
 import { useImdbRating } from "@/lib/imdb-rating";
-import { tmdbImdbId, tmdbMovieImages, tmdbTrailerList, useTmdbImdbId } from "@/lib/providers/tmdb";
+import { tmdbImdbId, tmdbMovieImages, useTmdbImdbId } from "@/lib/providers/tmdb";
 import { peekCachedLogo, resolveLogo } from "@/lib/logo";
 import { useSettings } from "@/lib/settings";
 import { useTitleLogo } from "@/lib/title-logo";
@@ -52,6 +52,7 @@ import {
   syncHeroMutedFromSetting,
 } from "@/lib/hero-mute";
 import { getHeroEnded, setHeroEnded } from "@/lib/hero-ended";
+import { resolveTrailerCandidates } from "@/lib/trailer-resolver";
 import { usePageVisible } from "@/lib/visibility";
 import { useTrailerVideo } from "@/lib/use-trailer-video";
 import { toggleWatchlist, useInWatchlist } from "@/lib/watchlist";
@@ -154,17 +155,7 @@ export const Hero = memo(function Hero({
   useEffect(() => {
     if (!warmTrailer || trailerCandidates.length > 0) return;
     let cancelled = false;
-    const isTmdb = meta.id.startsWith("tmdb:");
-    const lookup: Promise<string[]> = isTmdb
-      ? tmdbTrailerList(settings.tmdbKey, meta.id)
-      : fetchMeta(narrowMediaType(meta.type), meta.id).then((full) => {
-          const ids = [
-            full?.trailers?.[0]?.source,
-            full?.trailerStreams?.[0]?.ytId,
-            ...(full?.trailerStreams?.slice(1).map((s) => s.ytId) ?? []),
-          ].filter((s): s is string => !!s);
-          return Array.from(new Set(ids));
-        });
+    const lookup = resolveTrailerCandidates(meta, settings.tmdbKey);
     lookup
       .then((ids) => {
         if (cancelled) return;

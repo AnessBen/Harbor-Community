@@ -75,10 +75,22 @@ fn selects_the_highest_hls_variant_at_or_below_the_requested_quality() {
         serde_json::json!({"protocol":"m3u8_native","vcodec":"avc1.640028","acodec":"none","height":1080,"url":"https://video/1080"}),
         serde_json::json!({"protocol":"m3u8_native","vcodec":"avc1.640032","acodec":"none","height":1440,"url":"https://video/1440"}),
     ];
-    assert_eq!(select_hls_video(&formats, Some(360)).unwrap()["url"], "https://video/360");
-    assert_eq!(select_hls_video(&formats, Some(720)).unwrap()["url"], "https://video/720");
-    assert_eq!(select_hls_video(&formats, Some(1080)).unwrap()["url"], "https://video/1080");
-    assert_eq!(select_hls_video(&formats, None).unwrap()["url"], "https://video/1440");
+    assert_eq!(
+        select_hls_video(&formats, Some(360)).unwrap()["url"],
+        "https://video/360"
+    );
+    assert_eq!(
+        select_hls_video(&formats, Some(720)).unwrap()["url"],
+        "https://video/720"
+    );
+    assert_eq!(
+        select_hls_video(&formats, Some(1080)).unwrap()["url"],
+        "https://video/1080"
+    );
+    assert_eq!(
+        select_hls_video(&formats, None).unwrap()["url"],
+        "https://video/1440"
+    );
 }
 
 #[test]
@@ -89,7 +101,10 @@ fn prefers_the_original_hls_audio_track() {
         serde_json::json!({"protocol":"m3u8_native","vcodec":"none","format_id":"233-7","language":"en-US","language_preference":10,"url":"https://audio/233-7"}),
         serde_json::json!({"protocol":"m3u8_native","vcodec":"none","format_id":"234-7","language":"en-US","language_preference":10,"url":"https://audio/234-7"}),
     ];
-    assert_eq!(select_hls_audio(&formats).as_deref(), Some("https://audio/234-7"));
+    assert_eq!(
+        select_hls_audio(&formats).as_deref(),
+        Some("https://audio/234-7")
+    );
 }
 
 #[test]
@@ -465,9 +480,15 @@ fn adaptive_selection_and_cache_version_do_not_reuse_legacy_720p_files() {
 }
 #[test]
 fn addon_youtube_stream_preserves_url_and_headers_without_downloading() {
-    let stream = parse_youtube_stream(br#"{"url":"https://media.example/video.mp4","http_headers":{"User-Agent":"resolver"}}"#).unwrap();
+    let stream = parse_youtube_stream(
+        br#"{"url":"https://media.example/video.mp4","http_headers":{"User-Agent":"resolver"}}"#,
+    )
+    .unwrap();
     assert_eq!(stream.url, "https://media.example/video.mp4");
-    assert_eq!(stream.headers.get("User-Agent").map(String::as_str), Some("resolver"));
+    assert_eq!(
+        stream.headers.get("User-Agent").map(String::as_str),
+        Some("resolver")
+    );
     assert!(parse_youtube_stream(br#"{"url":"file:///private"}"#).is_err());
     assert!(parse_youtube_stream(br#"{"requested_formats":[]}"#).is_err());
 }

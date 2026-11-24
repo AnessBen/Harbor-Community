@@ -1,7 +1,6 @@
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
-import { lruSet } from "@/lib/cache";
-import { meta as fetchMeta, narrowMediaType, type Meta } from "@/lib/cinemeta";
-import { tmdbTrailerList } from "@/lib/providers/tmdb";
+import type { Meta } from "@/lib/cinemeta";
+import { resolveTrailerCandidates } from "@/lib/trailer-resolver";
 import { registerStreamProxy } from "@/lib/stream-proxy";
 
 export type TrailerInfo = {
@@ -203,28 +202,6 @@ export function trailerSrc(info: TrailerInfo): string {
   return info.stream_url ?? convertFileSrc(info.file_path);
 }
 
-const TRAILER_CACHE_MAX = 500;
-const trailerIdCache = new Map<string, string | null>();
-const trailerIdInflight = new Map<string, Promise<string | null>>();
-
 export function resolveTrailerId(meta: Meta, tmdbKey: string): Promise<string | null> {
-  const cached = trailerIdCache.get(meta.id);
-  if (cached !== undefined) return Promise.resolve(cached);
-  const inflight = trailerIdInflight.get(meta.id);
-  if (inflight) return inflight;
-  const isTmdb = meta.id.startsWith("tmdb:");
-  const lookup = isTmdb
-    ? tmdbTrailerList(tmdbKey, meta.id).then((ids) => ids[0] ?? null)
-    : fetchMeta(narrowMediaType(meta.type), meta.id).then((full) => {
-        return full?.trailers?.[0]?.source ?? full?.trailerStreams?.[0]?.ytId ?? null;
-      });
-  const p = lookup
-    .catch(() => null)
-    .then((id) => {
-      lruSet(trailerIdCache, meta.id, id, TRAILER_CACHE_MAX);
-      trailerIdInflight.delete(meta.id);
-      return id;
-    });
-  trailerIdInflight.set(meta.id, p);
-  return p;
+  return resolveTrailerCandidates(meta, tmdbKey).then((ids) => ids[0] ?? null);
 }
