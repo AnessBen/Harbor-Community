@@ -110,6 +110,21 @@ fn main() {
     }
 
     if target_os == "linux" {
+        println!("cargo:rerun-if-env-changed=HARBOR_LINUX_HDR_LIBDIR");
+        // Release packaging supplies a private, pinned MPV runtime. Resolve
+        // that ABI before system libraries, including transitive dependencies.
+        if let Some(dir) = std::env::var_os("HARBOR_LINUX_HDR_LIBDIR") {
+            let dir = PathBuf::from(dir);
+            assert!(
+                dir.is_absolute() && dir.join("libmpv.so").is_file(),
+                "invalid HARBOR_LINUX_HDR_LIBDIR"
+            );
+            println!("cargo:rustc-link-search=native={}", dir.display());
+            println!("cargo:rustc-link-arg=-Wl,--disable-new-dtags");
+            println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN/../lib/harbor-hdr");
+            // Portable bundlers may place the executable in a different bin directory.
+            println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN/harbor-hdr");
+        }
         let mut found = false;
         if let Ok(out) = std::process::Command::new("pkg-config")
             .args(["--variable=libdir", "mpv"])

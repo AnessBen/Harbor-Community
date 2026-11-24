@@ -1,5 +1,5 @@
-//! Opt-in native Wayland HDR backend. The optional renderer is discovered
-//! through an explicit developer override.
+//! Opt-in native Wayland HDR backend. Packaged builds discover the renderer
+//! beside their private libmpv; ordinary builds can use a developer override.
 use gtk::glib::translate::ToGlibPtr;
 use gtk::prelude::*;
 use libmpv2::Mpv;
@@ -39,9 +39,54 @@ pub(crate) fn configured_library() -> Option<PathBuf> {
     if unsafe { libmpv2_sys::mpv_client_api_version() } < ((2 << 16) | 7) {
         return None;
     }
-    std::env::var_os("HARBOR_LINUX_EMBEDDED_HDR_LIBRARY")
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute() && path.is_file())
+    if let Some(path) = std::env::var_os("HARBOR_LINUX_EMBEDDED_HDR_LIBRARY") {
+        let path = PathBuf::from(path);
+        return (path.is_absolute() && path.is_file()).then_some(path);
+    }
+    // Do not search the working directory, PATH, or user-data directories.
+    // DEB/RPM/AUR/Nix and Flatpak share this executable-relative layout.
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    [
+        dir.join("../lib/harbor-hdr/libharbor-linux-hdr.so"),
+        dir.join("harbor-hdr/libharbor-linux-hdr.so"),
+        // Some AppImage packers relocate the executable inside the image.
+        dir.join("../../usr/lib/harbor-hdr/libharbor-linux-hdr.so"),
+    ]
+    .into_iter()
+    .find(|path| path.is_file())
+}
+
+/// Headless packaging smoke check. Use the exact library resolution of Harbor,
+/// not an independent test executable that could load a different libmpv.
+pub(crate) fn verify_packaged_runtime() -> Result<String, String> {
+    let path = configured_library().ok_or("compatible packaged HDR library not found")?;
+    let cpath = CString::new(path.as_os_str().as_bytes()).map_err(|_| "invalid library path")?;
+    unsafe {
+        let library = libc::dlopen(cpath.as_ptr(), libc::RTLD_NOW | libc::RTLD_LOCAL);
+        if library.is_null() {
+            return Err("could not load packaged HDR library".into());
+        }
+        let abi = libc::dlsym(library, c"harbor_hdr_abi".as_ptr());
+        let version = libc::dlsym(library, c"mpv_client_api_version".as_ptr());
+        let ok = !abi.is_null()
+            && version == libmpv2_sys::mpv_client_api_version as *const () as *mut c_void
+            && std::mem::transmute::<_, Abi>(abi)() == 1
+            && !libc::dlsym(library, c"harbor_hdr_supported".as_ptr()).is_null()
+            && !libc::dlsym(library, c"harbor_hdr_attach".as_ptr()).is_null()
+            && !libc::dlsym(library, c"harbor_hdr_detach".as_ptr()).is_null();
+        libc::dlclose(library);
+        if !ok {
+            return Err("packaged HDR renderer ABI/libmpv mismatch".into());
+        }
+        let version = libmpv2_sys::mpv_client_api_version();
+        Ok(format!(
+            "Harbor native HDR ABI 1 / libmpv API {}.{} ({})",
+            version >> 16,
+            version & 65535,
+            path.display()
+        ))
+    }
 }
 
 /// Probe the compositor on GTK's main thread, without attaching a renderer.

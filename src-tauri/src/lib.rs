@@ -124,6 +124,11 @@ mod linux_hdr;
 mod mpv_render_linux;
 #[cfg(target_os = "linux")]
 mod linux_hdr_embed;
+
+#[cfg(target_os = "linux")]
+pub fn verify_linux_hdr_runtime() -> Result<String, String> {
+    linux_hdr_embed::verify_packaged_runtime()
+}
 #[cfg(target_os = "macos")]
 mod mpv_render_mac;
 #[cfg(desktop)]
