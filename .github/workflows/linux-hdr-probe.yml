@@ -1,0 +1,52 @@
+name: Linux embedded HDR prototype
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - tools/linux-hdr-probe/**
+      - .github/workflows/linux-hdr-probe.yml
+  push:
+    branches: [beta-branch, main]
+    paths:
+      - tools/linux-hdr-probe/**
+      - .github/workflows/linux-hdr-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build-prototype:
+    name: Compile native HDR prototype (no hardware validation)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install test-only Linux development dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libgtk-3-dev \
+            libwebkit2gtk-4.1-dev libwayland-dev libegl-dev libgl-dev libmpv-dev
+      - name: Obtain color-management protocol v1
+        # Noble's wayland-protocols is older than this protocol. Use a pinned
+        # upstream revision from the mirror, rather than installing a new stack.
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/wayland-mirror/wayland-protocols/71da8bd7f9fd3ea7c5d87ad19ca087eeca137673/staging/color-management/color-management-v1.xml \
+            --output "$RUNNER_TEMP/harbor-color-management-v1.xml"
+      - name: Compile and test portable policy
+        working-directory: tools/linux-hdr-probe
+        run: make check
+      - name: Compile the GTK3/WebKit/Wayland prototype
+        working-directory: tools/linux-hdr-probe
+        run: make COLOR_XML="$RUNNER_TEMP/harbor-color-management-v1.xml"
+      - name: Check usage fails without opening a window
+        working-directory: tools/linux-hdr-probe
+        run: |
+          set -euo pipefail
+          status=0
+          ./harbor-linux-hdr-probe || status=$?
+          test "$status" -eq 2
+      # This is a compile gate, not a claim of HDR playback on CI. Runtime
+      # validation requires libmpv 2.7 and an HDR Wayland session.
