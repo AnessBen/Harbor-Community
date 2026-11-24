@@ -72,8 +72,19 @@ export function usePlayerBridge(params: {
   const [engine, setEngine] = useState<"html5" | "mpv">("html5");
   const [autoFallbackTried, setAutoFallbackTried] = useState(false);
 
-  const { embed: embedActive, linuxHdrWindow } = mpvWindowPolicy(
-    settings, isLinuxDesktop(), isWindowsDesktop(),
+  const linuxHdrRequested = isLinuxDesktop() && !settings.playerHdrToSdr && settings.playerLinuxEmbeddedHdr;
+  const [linuxHdrAvailable, setLinuxHdrAvailable] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!linuxHdrRequested || linuxHdrAvailable !== null) return;
+    let active = true;
+    void probeMpv().then((p) => {
+      if (active) setLinuxHdrAvailable(p.linux_embedded_hdr_experimental === true);
+    });
+    return () => { active = false; };
+  }, [linuxHdrRequested, linuxHdrAvailable]);
+  const linuxHdrPending = linuxHdrRequested && linuxHdrAvailable === null;
+  const { embed: embedActive, linuxHdrWindow, linuxHdrEmbedded } = mpvWindowPolicy(
+    settings, isLinuxDesktop(), isWindowsDesktop(), linuxHdrAvailable === true,
   );
   const anime4kWanted = anime4kWantedFor(settings, src);
   // mpv only compiles a shader chain whose files it can open, and it drops the
@@ -149,10 +160,10 @@ export function usePlayerBridge(params: {
   const externalMpv = externalMpvEnabled(settings);
   const chosenEngine =
     isLiveLike && !src.notWebReady ? "html5" : autoFallbackTried ? "mpv" : settings.playerEngine;
-  const bridgeKey = `${chosenEngine}|${anime4kOn}|${embedActive}|${linuxHdrWindow}|${anime4kOn ? settings.playerAnime4kShaders.join(",") : ""}|${generalShaderKey(settings)}|${svpOn}|${svpOn ? settings.svpVpyPath : ""}|${externalMpv ? `ext:${settings.playerExternalMpvPath}:${settings.playerExternalMpvArgs}` : ""}`;
+  const bridgeKey = `${chosenEngine}|${anime4kOn}|${embedActive}|${linuxHdrWindow}|${linuxHdrEmbedded}|${anime4kOn ? settings.playerAnime4kShaders.join(",") : ""}|${generalShaderKey(settings)}|${svpOn}|${svpOn ? settings.svpVpyPath : ""}|${externalMpv ? `ext:${settings.playerExternalMpvPath}:${settings.playerExternalMpvArgs}` : ""}`;
   const [bridgeReady, setBridgeReady] = useState(false);
   useEffect(() => {
-    if (svpPending || anime4kPending) return;
+    if (svpPending || anime4kPending || linuxHdrPending) return;
     const host = videoMountRef.current;
     if (!host) return;
     let cancelled = false;
@@ -176,12 +187,13 @@ export function usePlayerBridge(params: {
       const { bridge: choose, engine: chosen } = await pickBridge(want, src.notWebReady === true, {
         anime4k: anime4kOn,
         hdrToSdr: settings.playerHdrToSdr,
+        linuxEmbeddedHdr: linuxHdrEmbedded,
         rtxHdr: settings.playerRtxHdr && !settings.playerHdrToSdr && !svpOn,
         rtxVsr: settings.playerRtxVsr && !svpOn,
         embed: embedActive,
         d3d11Flip: settings.playerD3d11Flip,
         renderer: settings.mpvRenderer,
-        forceYuv420p: settings.mpvForceYuv420p && !linuxHdrWindow,
+        forceYuv420p: settings.mpvForceYuv420p && !linuxHdrWindow && !linuxHdrEmbedded,
         anime4kShaders: fullShaderChain(
           settings,
           src,
@@ -228,7 +240,7 @@ export function usePlayerBridge(params: {
       setPlaybackStatus("idle");
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bridgeKey, svpPending, anime4kPending]);
+  }, [bridgeKey, svpPending, anime4kPending, linuxHdrPending]);
 
   useEffect(() => {
     if (engine !== "html5") return;

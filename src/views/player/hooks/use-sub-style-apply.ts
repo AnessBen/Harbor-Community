@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { isLinuxDesktop, isMacDesktop } from "@/lib/platform";
-import { mpvWindowPolicy } from "@/lib/player/mpv-window-policy";
 import { applyMotionInterp } from "@/lib/player/motion-interp";
 import { applyRtxVideo, resetRtxVideoState } from "@/lib/player/rtx-video";
 import {
@@ -13,6 +12,7 @@ import {
 import type { useSettings } from "@/lib/settings";
 
 export function useSubStyleApply(params: {
+  embedActive: boolean;
   engine: "html5" | "mpv";
   settings: ReturnType<typeof useSettings>["settings"];
   assNativeActive: boolean;
@@ -116,10 +116,7 @@ export function useSubStyleApply(params: {
 
   useEffect(() => {
     if (engine !== "mpv") return;
-    if (
-      (isMacDesktop() || isLinuxDesktop()) &&
-      mpvWindowPolicy(settings, isLinuxDesktop(), false).embed
-    ) return;
+    if ((isMacDesktop() || isLinuxDesktop()) && params.embedActive) return;
     if (!bridgeReady) return;
     if (!mediaReady || !sourceGamma) {
       void applyRtxVideo(
@@ -145,7 +142,7 @@ export function useSubStyleApply(params: {
     sourceGamma,
     bridgeKey,
     svpActive,
-    settings.playerMpvEmbed,
+    params.embedActive,
     settings.playerMotionInterp,
     settings.playerHdrToSdr,
     settings.playerRtxHdr,

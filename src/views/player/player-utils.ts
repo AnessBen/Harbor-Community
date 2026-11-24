@@ -59,6 +59,7 @@ export async function pickBridge(
   mpvOpts: {
     anime4k: boolean;
     hdrToSdr: boolean;
+    linuxEmbeddedHdr?: boolean;
     rtxHdr?: boolean;
     rtxVsr?: boolean;
     embed?: boolean;

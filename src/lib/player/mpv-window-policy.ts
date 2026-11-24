@@ -3,12 +3,25 @@ import type { Settings } from "@/lib/settings";
 type WindowSettings = Pick<
   Settings,
   "playerMpvEmbed" | "playerHdrToSdr" | "playerHdrOpaqueWindow"
->;
+> & Partial<Pick<Settings, "playerLinuxEmbeddedHdr">>;
 
-/** Linux's GTK3 render API is SDR-only; native HDR needs mpv's own window.
- * Keep the saved embed preference intact so switching back to SDR restores it. */
-export function mpvWindowPolicy(settings: WindowSettings, linux: boolean, windows: boolean) {
-  const linuxHdrWindow = linux && !settings.playerHdrToSdr;
+/** The optional experimental backend is only routed when explicitly selected
+ * and the running desktop advertises a compatible renderer and compositor. */
+export function mpvWindowPolicy(
+  settings: WindowSettings,
+  linux: boolean,
+  windows: boolean,
+  linuxEmbeddedHdrAvailable = false,
+) {
+  const linuxHdrEmbedded =
+    linux && !settings.playerHdrToSdr && settings.playerLinuxEmbeddedHdr === true &&
+    linuxEmbeddedHdrAvailable;
+  const linuxHdrWindow = linux && !settings.playerHdrToSdr && !linuxHdrEmbedded;
   const hdrWindow = linuxHdrWindow || (windows && settings.playerHdrOpaqueWindow);
-  return { linuxHdrWindow, hdrWindow, embed: settings.playerMpvEmbed && !hdrWindow };
+  return {
+    linuxHdrWindow,
+    linuxHdrEmbedded,
+    hdrWindow,
+    embed: linuxHdrEmbedded || (settings.playerMpvEmbed && !hdrWindow),
+  };
 }

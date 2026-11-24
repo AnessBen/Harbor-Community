@@ -4,8 +4,7 @@ import { downloadText } from "@/lib/download-text";
 import { getCuesAnySource, subtitleDownloadError } from "@/lib/subtitles/extract";
 import { invoke } from "@tauri-apps/api/core";
 import { toSrt } from "@/lib/subtitles/serialize";
-import { isLinuxDesktop, isWindowsDesktop } from "@/lib/platform";
-import { mpvWindowPolicy } from "@/lib/player/mpv-window-policy";
+import { isWindowsDesktop } from "@/lib/platform";
 import { isAssTrack, isImageSubTrack } from "@/lib/player/sub-format";
 import { hasCustomMpvSubtitleStyle } from "@/lib/player/mpv-tuning";
 import { clearImportedSubs } from "@/lib/player/imported-subs";
@@ -53,6 +52,7 @@ import { sdhSafeForLanguage } from "@/lib/subtitles/sdh-filter";
 const HDR_NATIVE_GAMMAS = new Set(["pq", "hlg"]);
 
 export function usePlayerMedia(params: {
+  embedActive: boolean;
   src: PlayerSrc;
   snap: PlayerSnapshot;
   engine: "html5" | "mpv";
@@ -241,9 +241,7 @@ export function usePlayerMedia(params: {
   // window. "True HDR, separate window" keeps playerMpvEmbed on but moves the
   // video to a separate VO window, so keying only off playerMpvEmbed drew the
   // HTML subtitle overlay on the Harbor window while mpv played elsewhere.
-  const videoInHarborWebview =
-    engine === "mpv" &&
-    mpvWindowPolicy(settings, isLinuxDesktop(), isWindowsDesktop()).embed;
+  const videoInHarborWebview = engine === "mpv" && params.embedActive;
   const subEmbed = engine === "mpv" && videoInHarborWebview;
   const mpvNativeWindow = engine === "mpv" && !videoInHarborWebview;
   const hdrNativeSurface =
@@ -295,6 +293,7 @@ export function usePlayerMedia(params: {
   const hideSdh = settings.subHideSdh && sdhFilterAllowed;
   const controlsInset = useSubtitleLiftCover(settings.subLiftAboveControls, settings.subMarginY);
   const subLiftPct = useSubStyleApply({
+    embedActive: params.embedActive,
     engine,
     settings,
     assNativeActive,

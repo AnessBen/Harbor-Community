@@ -48,6 +48,7 @@ import {
 
 export type MpvProbe = {
   available: boolean;
+  linux_embedded_hdr_experimental?: boolean;
   binary: string | null;
   version: string | null;
   error: string | null;
@@ -145,6 +146,7 @@ export type MpvRect = PlayerEmbedRect;
 export type MpvOptions = {
   anime4k: boolean;
   hdrToSdr: boolean;
+  linuxEmbeddedHdr?: boolean;
   rtxHdr?: boolean;
   rtxVsr?: boolean;
   embed?: boolean;
@@ -163,6 +165,7 @@ function mpvReuseConfigKey(options: MpvOptions | undefined, hdrToSdr: boolean): 
   return JSON.stringify({
     anime4k: options?.anime4k === true,
     hdrToSdr,
+    linuxEmbeddedHdr: options?.linuxEmbeddedHdr === true,
     rtxHdr: options?.rtxHdr === true,
     rtxVsr: options?.rtxVsr === true,
     embed: options?.embed === true,
@@ -1363,6 +1366,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
             rtxHdr: opts.rtxHdr === true,
             rtxVsr: opts.rtxVsr === true,
             embed: opts.embed === true,
+            linuxEmbeddedHdr: opts.linuxEmbeddedHdr === true,
             anime4kShaders: opts.anime4kShaders ?? [],
             d3d11Flip: opts.d3d11Flip === true,
             macEdr: opts.macEdr === true,
@@ -1621,7 +1625,7 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
       // Native Linux HDR is a session-level output decision. The Rust
       // startup path negotiates Wayland colorspace or chooses explicit SDR
       // fallback on X11. Do not overwrite that fallback from this live pass.
-      if (isLinuxDesktop() && mpvOptions?.embed === false && !on) return;
+      if (isLinuxDesktop() && (mpvOptions?.linuxEmbeddedHdr || (mpvOptions?.embed === false && !on))) return;
       const properties: Array<[string, string]> = on
         ? [
             ["tone-mapping", "spline"],

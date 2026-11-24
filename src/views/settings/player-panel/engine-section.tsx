@@ -18,10 +18,11 @@ import { ExternalPlayerSection } from "./external-player-section";
 export function PlayerEnginePanel() {
   const { settings, update } = useSettings();
   const t = useT();
-  const { hdrWindow, linuxHdrWindow } = mpvWindowPolicy(
-    settings, isLinuxDesktop(), isWindowsDesktop(),
-  );
   const [mpvProbe, setMpvProbe] = useState<MpvProbe | null>(null);
+  const linuxEmbeddedHdrAvailable = mpvProbe?.linux_embedded_hdr_experimental === true;
+  const { hdrWindow, linuxHdrWindow, linuxHdrEmbedded } = mpvWindowPolicy(
+    settings, isLinuxDesktop(), isWindowsDesktop(), linuxEmbeddedHdrAvailable,
+  );
 
   useEffect(() => {
     if (!isTauri) return;
@@ -111,17 +112,17 @@ export function PlayerEnginePanel() {
               sub={t(
                 "Renders mpv inline so playback lives in Harbor itself. Turn off to open it in a separate window instead.",
               )}
-              value={settings.playerMpvEmbed && !linuxHdrWindow}
+              value={linuxHdrEmbedded || (settings.playerMpvEmbed && !linuxHdrWindow)}
               onChange={(v) => update({ playerMpvEmbed: v })}
               lockReason={
                 hdrWindow
                   ? t(
                       "True HDR, separate window is selected. That mode always plays in its own window, so mpv cannot be embedded. Choose a different HDR mode to change this.",
                     )
-                  : undefined
+                  : linuxHdrEmbedded ? t("True HDR, embedded") : undefined
               }
             />
-            {(!settings.playerMpvEmbed || hdrWindow) && !linuxHdrWindow && (
+            {(!settings.playerMpvEmbed || hdrWindow) && !linuxHdrWindow && !linuxHdrEmbedded && (
               <>
                 <DisplayPickerRow
                   label={t("Separate window display")}
@@ -159,13 +160,22 @@ export function PlayerEnginePanel() {
             />
             <ChoiceBlock
               selected={linuxHdrWindow}
-              onClick={() => update({ playerHdrToSdr: false })}
+              onClick={() => update({ playerHdrToSdr: false, playerLinuxEmbeddedHdr: false })}
               label={t("True HDR, separate window")}
               sub={t(
                 "Uses mpv's native window and automatic Wayland color management (mpv 0.41 or newer recommended). Requires a compatible GPU driver, compositor and HDR-enabled display. X11 falls back to SDR. Restart playback to apply.",
               )}
               tags={<Tag text={t("Experimental")} />}
             />
+            {linuxEmbeddedHdrAvailable && (
+              <ChoiceBlock
+                selected={linuxHdrEmbedded}
+                onClick={() => update({ playerHdrToSdr: false, playerLinuxEmbeddedHdr: true })}
+                label={t("True HDR, embedded")}
+                sub={t("Experimental") + ". Native Wayland 10-bit video surface. Restart playback to apply."}
+                tags={<Tag text={t("Experimental")} />}
+              />
+            )}
             <DisplayPanelSelector />
           </SettingGroup>
         ) : (

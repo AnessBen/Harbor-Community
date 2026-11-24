@@ -356,6 +356,7 @@ export type Settings = {
   /** Last explicit switch-on time; allows retrying a manually canceled episode. */
   autoPreDownloadNextEpisodeEnabledAt: number;
   playerHdrToSdr: boolean;
+  playerLinuxEmbeddedHdr: boolean;
   playerRtxHdr: boolean;
   playerRtxVsr: boolean;
   playerMacEdr: boolean;

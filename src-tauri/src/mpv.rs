@@ -31,6 +31,7 @@ use uuid::Uuid;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MpvProbe {
     pub available: bool,
+    pub linux_embedded_hdr_experimental: bool,
     pub binary: Option<String>,
     pub version: Option<String>,
     pub error: Option<String>,
@@ -47,6 +48,7 @@ pub struct MpvStartArgs {
     pub rtx_hdr: Option<bool>,
     pub rtx_vsr: Option<bool>,
     pub embed: Option<bool>,
+    pub linux_embedded_hdr: Option<bool>,
     pub anime4k_shaders: Option<Vec<String>>,
     pub d3d11_flip: Option<bool>,
     pub mac_edr: Option<bool>,
@@ -176,6 +178,8 @@ struct MpvSession {
     is_live: bool,
     #[cfg(any(windows, target_os = "linux"))]
     embedded: bool,
+    #[cfg(target_os = "linux")]
+    linux_hdr_embedded: bool,
     /// OS-level HDR state when the session started. Compared against the
     /// script-reported state at teardown: only an off->on flip waits.
     #[cfg(windows)]
@@ -206,6 +210,15 @@ impl MpvState {
         guard
             .as_ref()
             .map(|session| session.mpv.ctx.as_ptr() as usize)
+    }
+
+    #[cfg(target_os = "linux")]
+    pub(crate) async fn native_hdr_embedded(&self) -> bool {
+        self.inner
+            .lock()
+            .await
+            .as_ref()
+            .is_some_and(|s| s.linux_hdr_embedded)
     }
 
     /// Preserve the exact selected video track while Linux moves the libmpv
@@ -398,6 +411,12 @@ pub async fn mpv_probe(_app: AppHandle) -> MpvProbe {
                 .or_else(|| Some("libmpv (embedded)".to_string()));
             MpvProbe {
                 available: true,
+                linux_embedded_hdr_experimental: {
+                    #[cfg(target_os = "linux")]
+                    { crate::linux_hdr_embed::available(&_app).await }
+                    #[cfg(not(target_os = "linux"))]
+                    { false }
+                },
                 binary: Some("embedded libmpv".into()),
                 version,
                 error: None,
@@ -405,6 +424,7 @@ pub async fn mpv_probe(_app: AppHandle) -> MpvProbe {
         }
         Err(e) => MpvProbe {
             available: false,
+            linux_embedded_hdr_experimental: false,
             binary: None,
             version: None,
             error: Some(format!("libmpv init failed: {}", e)),
@@ -1000,6 +1020,10 @@ pub async fn mpv_start(
     #[cfg(windows)]
     let _lifecycle = state.lifecycle.lock().await;
     let want_embed = args.embed.unwrap_or(false);
+    #[cfg(target_os = "linux")]
+    let native_hdr_library = crate::linux_hdr_embed::requested(
+        args.linux_embedded_hdr == Some(true), want_embed, args.hdr_to_sdr,
+    )?;
     // Resolve the monitor this session's video lands on before anything reads HDR
     // state. Embedded mpv is a child of "main"; a separate window goes to the
     // chosen display, or "main"'s when the setting is Automatic or the monitor is
@@ -1089,14 +1113,22 @@ pub async fn mpv_start(
         }
         #[cfg(target_os = "linux")]
         {
-            let (tx, rx) = std::sync::mpsc::sync_channel::<()>(1);
-            let _ = app.run_on_main_thread(move || {
-                let _ = crate::mpv_render_linux::uninstall();
+            if prev.linux_hdr_embedded {
+                if let Err(error) = detach_native_hdr(&app).await {
+                    *g = Some(prev);
+                    return Err(error);
+                }
                 let _ = prev.mpv.command("quit", &[]);
-                drop(prev);
-                let _ = tx.send(());
-            });
-            let _ = rx.recv_timeout(std::time::Duration::from_millis(4000));
+            } else {
+                let (tx, rx) = std::sync::mpsc::sync_channel::<()>(1);
+                let _ = app.run_on_main_thread(move || {
+                    let _ = crate::mpv_render_linux::uninstall();
+                    let _ = prev.mpv.command("quit", &[]);
+                    drop(prev);
+                    let _ = tx.send(());
+                });
+                let _ = rx.recv_timeout(std::time::Duration::from_millis(4000));
+            }
         }
         #[cfg(all(not(target_os = "macos"), not(target_os = "linux"), not(windows)))]
         {
@@ -1250,7 +1282,7 @@ pub async fn mpv_start(
     }
 
     #[cfg(target_os = "linux")]
-    if use_render_api {
+    if use_render_api && native_hdr_library.is_none() {
         let window = app
             .get_webview_window("main")
             .ok_or_else(|| "main window missing for render API install".to_string())?;
@@ -1382,6 +1414,33 @@ pub async fn mpv_start(
     }
 
     let mpv_arc = Arc::new(mpv);
+    #[cfg(target_os = "linux")]
+    if let Some(path) = native_hdr_library.as_deref() {
+        let window = app
+            .get_webview_window("main")
+            .ok_or_else(|| "main window missing for native HDR".to_string())?;
+        let mpv = mpv_arc.clone();
+        let path = path.to_owned();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        app.run_on_main_thread(move || {
+            let result = (|| {
+                let gtk_window = window
+                    .gtk_window()
+                    .map_err(|e| format!("gtk_window: {e:?}"))?;
+                let vbox = window
+                    .default_vbox()
+                    .map_err(|e| format!("default_vbox: {e:?}"))?;
+                crate::linux_hdr_embed::install(&path, mpv, &gtk_window, &vbox)
+            })();
+            let attached = result.is_ok();
+            if tx.send(result).is_err() && attached {
+                let _ = crate::linux_hdr_embed::uninstall();
+            }
+        })
+        .map_err(|e| format!("schedule native HDR install: {e}"))?;
+        rx.await
+            .map_err(|_| "native HDR install cancelled".to_string())??;
+    }
     let preload = Arc::new(crate::mpv_preload::PreloadSelection::default());
     // on_preloaded runs after demuxing, before track selection and decoding.
     let _ =
@@ -1421,10 +1480,15 @@ pub async fn mpv_start(
         "[harbor::mpv] loadfile source_kind={}",
         source_kind(&args.url)
     );
-    mpv_argv_command(&*mpv_arc, &["loadfile", &args.url, "replace"]).map_err(|e| {
+    if let Err(e) = mpv_argv_command(&*mpv_arc, &["loadfile", &args.url, "replace"]) {
         eprintln!("[harbor::mpv] loadfile FAILED: {}", e);
-        format!("loadfile: {}", e)
-    })?;
+        #[cfg(target_os = "linux")]
+        if native_hdr_library.is_some() {
+            detach_native_hdr(&app).await?;
+            let _ = mpv_arc.command("quit", &[]);
+        }
+        return Err(format!("loadfile: {}", e));
+    }
     eprintln!("[harbor::mpv] loadfile OK");
 
     // `loadfile replace` clears tracks added to the previous playlist entry,
@@ -1453,6 +1517,8 @@ pub async fn mpv_start(
         embedded: embed_hwnd.is_some(),
         #[cfg(target_os = "linux")]
         embedded: use_render_api,
+        #[cfg(target_os = "linux")]
+        linux_hdr_embedded: native_hdr_library.is_some(),
         #[cfg(windows)]
         hdr_baseline_on,
         #[cfg(windows)]
@@ -3047,6 +3113,10 @@ pub async fn mpv_set_property(
     let (mpv, is_live) = {
         let g = state.inner.lock().await;
         let session = g.as_ref().ok_or_else(|| "mpv not started".to_string())?;
+        #[cfg(target_os = "linux")]
+        if session.linux_hdr_embedded && crate::linux_hdr_embed::protected_output_property(&name) {
+            return Err("native embedded HDR output is fixed for this session; restart playback to change HDR mode".into());
+        }
         (session.mpv.clone(), session.is_live)
     };
     if mpv_property_blocked(&name) {
@@ -4524,6 +4594,17 @@ pub async fn sub_download(
     Ok(path.to_string_lossy().to_string())
 }
 
+#[cfg(target_os = "linux")]
+async fn detach_native_hdr(app: &AppHandle) -> Result<(), String> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.run_on_main_thread(move || {
+        let _ = tx.send(crate::linux_hdr_embed::uninstall());
+    })
+    .map_err(|e| format!("schedule native HDR detach: {e}"))?;
+    rx.await
+        .map_err(|_| "native HDR detach cancelled".to_string())?
+}
+
 #[tauri::command]
 pub async fn mpv_stop(app: AppHandle, state: State<'_, MpvState>) -> Result<(), String> {
     #[cfg(windows)]
@@ -4543,14 +4624,22 @@ pub async fn mpv_stop(app: AppHandle, state: State<'_, MpvState>) -> Result<(), 
         }
         #[cfg(target_os = "linux")]
         {
-            let (tx, rx) = std::sync::mpsc::sync_channel::<()>(1);
-            let _ = app.run_on_main_thread(move || {
-                let _ = crate::mpv_render_linux::uninstall();
+            if session.linux_hdr_embedded {
+                if let Err(error) = detach_native_hdr(&app).await {
+                    *g = Some(session);
+                    return Err(error);
+                }
                 let _ = session.mpv.command("quit", &[]);
-                drop(session);
-                let _ = tx.send(());
-            });
-            let _ = rx.recv_timeout(std::time::Duration::from_millis(4000));
+            } else {
+                let (tx, rx) = std::sync::mpsc::sync_channel::<()>(1);
+                let _ = app.run_on_main_thread(move || {
+                    let _ = crate::mpv_render_linux::uninstall();
+                    let _ = session.mpv.command("quit", &[]);
+                    drop(session);
+                    let _ = tx.send(());
+                });
+                let _ = rx.recv_timeout(std::time::Duration::from_millis(4000));
+            }
         }
         #[cfg(all(not(target_os = "macos"), not(target_os = "linux"), not(windows)))]
         {

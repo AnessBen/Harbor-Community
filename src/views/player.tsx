@@ -537,6 +537,7 @@ function NativePlayerView({ src }: { src: PlayerSrc }) {
     subDropToast,
     prepareLiveSync,
   } = usePlayerMedia({
+    embedActive,
     onEnterSync: handleEnterSync,
     src: activeMediaSrc,
     snap,

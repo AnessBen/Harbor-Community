@@ -282,6 +282,7 @@ export const DEFAULT: Settings = {
   autoPreDownloadNotifications: true,
   autoPreDownloadNextEpisodeEnabledAt: 0,
   playerHdrToSdr: true,
+  playerLinuxEmbeddedHdr: false,
   playerRtxHdr: false,
   playerRtxVsr: false,
   playerMacEdr: false,

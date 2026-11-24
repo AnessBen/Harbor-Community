@@ -262,6 +262,9 @@ pub fn prepare(mpv_ctx: NonNull<mpv_handle>) -> Result<(), String> {
 }
 
 pub fn install(gtk_window: &gtk::ApplicationWindow, vbox: &gtk::Box) -> Result<(), String> {
+    if crate::linux_hdr_embed::active() {
+        return Err("native HDR renderer must be detached before standard embedding".into());
+    }
     if let Some(stale) = EMBED.with(|slot| slot.borrow_mut().take()) {
         restore_webview(stale);
     }
@@ -483,6 +486,7 @@ pub fn resize_to(_css: crate::mpv::MpvGeometry) -> Result<(), String> {
 }
 
 pub fn uninstall() -> Result<(), String> {
+    crate::linux_hdr_embed::uninstall()?;
     let Some(embed) = EMBED.with(|slot| slot.borrow_mut().take()) else {
         return Ok(());
     };

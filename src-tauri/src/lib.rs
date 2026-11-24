@@ -122,6 +122,8 @@ mod linux_gamescope;
 mod linux_hdr;
 #[cfg(target_os = "linux")]
 mod mpv_render_linux;
+#[cfg(target_os = "linux")]
+mod linux_hdr_embed;
 #[cfg(target_os = "macos")]
 mod mpv_render_mac;
 #[cfg(desktop)]

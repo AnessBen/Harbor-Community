@@ -3,3 +3,6 @@
 /color-management-v1-client-protocol.h
 /color-management-v1-protocol.c
 !/README.md
+
+/libharbor-linux-hdr.so
+/test_embedded

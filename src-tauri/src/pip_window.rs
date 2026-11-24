@@ -92,6 +92,10 @@ mod win {
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 async fn retarget_render(app: &AppHandle, label: &str) -> Result<(), String> {
     let mpv_state = app.state::<crate::mpv::MpvState>();
+    #[cfg(target_os = "linux")]
+    if mpv_state.native_hdr_embedded().await {
+        return Err("detached PiP is not supported by experimental native embedded HDR".into());
+    }
     let ctx_addr = mpv_state
         .ctx_addr()
         .await
