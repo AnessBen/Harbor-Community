@@ -16,6 +16,7 @@ import type { PlayerSrc } from "@/lib/view";
 import type { Settings } from "@/lib/settings";
 import { setPlaybackClock, setPlaybackStatus } from "@/lib/player/playback-clock";
 import { isLinuxDesktop, isMacDesktop, isWindowsDesktop } from "@/lib/platform";
+import { mpvWindowPolicy } from "@/lib/player/mpv-window-policy";
 import { isLivePlaybackSrc } from "@/lib/player/live-src";
 import { readEmbedRect } from "@/lib/player/embed-rect";
 import { svpEnsureRunning, svpStatus } from "@/lib/svp";
@@ -71,8 +72,9 @@ export function usePlayerBridge(params: {
   const [engine, setEngine] = useState<"html5" | "mpv">("html5");
   const [autoFallbackTried, setAutoFallbackTried] = useState(false);
 
-  const hdrOpaqueWindow = isWindowsDesktop() && settings.playerHdrOpaqueWindow;
-  const embedActive = settings.playerMpvEmbed && !hdrOpaqueWindow;
+  const { embed: embedActive, linuxHdrWindow } = mpvWindowPolicy(
+    settings, isLinuxDesktop(), isWindowsDesktop(),
+  );
   const anime4kWanted = anime4kWantedFor(settings, src);
   // mpv only compiles a shader chain whose files it can open, and it drops the
   // rest without a word. Presets that name a kernel the installed pack predates
@@ -147,7 +149,7 @@ export function usePlayerBridge(params: {
   const externalMpv = externalMpvEnabled(settings);
   const chosenEngine =
     isLiveLike && !src.notWebReady ? "html5" : autoFallbackTried ? "mpv" : settings.playerEngine;
-  const bridgeKey = `${chosenEngine}|${anime4kOn}|${embedActive}|${anime4kOn ? settings.playerAnime4kShaders.join(",") : ""}|${generalShaderKey(settings)}|${svpOn}|${svpOn ? settings.svpVpyPath : ""}|${externalMpv ? `ext:${settings.playerExternalMpvPath}:${settings.playerExternalMpvArgs}` : ""}`;
+  const bridgeKey = `${chosenEngine}|${anime4kOn}|${embedActive}|${linuxHdrWindow}|${anime4kOn ? settings.playerAnime4kShaders.join(",") : ""}|${generalShaderKey(settings)}|${svpOn}|${svpOn ? settings.svpVpyPath : ""}|${externalMpv ? `ext:${settings.playerExternalMpvPath}:${settings.playerExternalMpvArgs}` : ""}`;
   const [bridgeReady, setBridgeReady] = useState(false);
   useEffect(() => {
     if (svpPending || anime4kPending) return;
@@ -179,7 +181,7 @@ export function usePlayerBridge(params: {
         embed: embedActive,
         d3d11Flip: settings.playerD3d11Flip,
         renderer: settings.mpvRenderer,
-        forceYuv420p: settings.mpvForceYuv420p,
+        forceYuv420p: settings.mpvForceYuv420p && !linuxHdrWindow,
         anime4kShaders: fullShaderChain(
           settings,
           src,

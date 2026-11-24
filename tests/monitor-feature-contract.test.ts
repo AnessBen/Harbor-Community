@@ -81,14 +81,14 @@ test("subtitle surface follows the real embed state, including True HDR separate
 
 test("embed toggle locks with an explanation when True HDR separate window is on", () => {
   assert.match(engineSection, /lockReason/);
-  assert.match(engineSection, /settings\.playerHdrOpaqueWindow/);
+  assert.match(engineSection, /mpvWindowPolicy\(/);
   assert.match(engineSection, /cannot be embedded/);
 });
 
 test("cover-taskbar toggle and separate-window picker appear only for a separate window", () => {
   assert.match(engineSection, /Cover the taskbar/);
   assert.match(engineSection, /playerSeparateCoverTaskbar/);
-  assert.match(engineSection, /\(!settings\.playerMpvEmbed \|\| settings\.playerHdrOpaqueWindow\)/);
+  assert.match(engineSection, /\(!settings\.playerMpvEmbed \|\| hdrWindow\)/);
 });
 
 test("display settings default to auto with taskbar covered", () => {

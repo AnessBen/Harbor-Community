@@ -4,7 +4,8 @@ import { downloadText } from "@/lib/download-text";
 import { getCuesAnySource, subtitleDownloadError } from "@/lib/subtitles/extract";
 import { invoke } from "@tauri-apps/api/core";
 import { toSrt } from "@/lib/subtitles/serialize";
-import { isWindowsDesktop } from "@/lib/platform";
+import { isLinuxDesktop, isWindowsDesktop } from "@/lib/platform";
+import { mpvWindowPolicy } from "@/lib/player/mpv-window-policy";
 import { isAssTrack, isImageSubTrack } from "@/lib/player/sub-format";
 import { hasCustomMpvSubtitleStyle } from "@/lib/player/mpv-tuning";
 import { clearImportedSubs } from "@/lib/player/imported-subs";
@@ -241,9 +242,8 @@ export function usePlayerMedia(params: {
   // video to a separate VO window, so keying only off playerMpvEmbed drew the
   // HTML subtitle overlay on the Harbor window while mpv played elsewhere.
   const videoInHarborWebview =
-    engine === "mpv"
-      ? settings.playerMpvEmbed && !(isWindowsDesktop() && settings.playerHdrOpaqueWindow)
-      : false;
+    engine === "mpv" &&
+    mpvWindowPolicy(settings, isLinuxDesktop(), isWindowsDesktop()).embed;
   const subEmbed = engine === "mpv" && videoInHarborWebview;
   const mpvNativeWindow = engine === "mpv" && !videoInHarborWebview;
   const hdrNativeSurface =

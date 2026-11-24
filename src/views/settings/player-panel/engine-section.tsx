@@ -1,6 +1,7 @@
 import { AlertTriangle } from "../icons";
 import { useEffect, useState } from "react";
-import { isMacDesktop, isWindowsDesktop } from "@/lib/platform";
+import { isLinuxDesktop, isMacDesktop, isWindowsDesktop } from "@/lib/platform";
+import { mpvWindowPolicy } from "@/lib/player/mpv-window-policy";
 import { probeMpv, type MpvProbe } from "@/lib/player/mpv";
 import { useSettings } from "@/lib/settings";
 import { useT } from "@/lib/i18n";
@@ -17,6 +18,9 @@ import { ExternalPlayerSection } from "./external-player-section";
 export function PlayerEnginePanel() {
   const { settings, update } = useSettings();
   const t = useT();
+  const { hdrWindow, linuxHdrWindow } = mpvWindowPolicy(
+    settings, isLinuxDesktop(), isWindowsDesktop(),
+  );
   const [mpvProbe, setMpvProbe] = useState<MpvProbe | null>(null);
 
   useEffect(() => {
@@ -107,17 +111,17 @@ export function PlayerEnginePanel() {
               sub={t(
                 "Renders mpv inline so playback lives in Harbor itself. Turn off to open it in a separate window instead.",
               )}
-              value={settings.playerMpvEmbed}
+              value={settings.playerMpvEmbed && !linuxHdrWindow}
               onChange={(v) => update({ playerMpvEmbed: v })}
               lockReason={
-                settings.playerHdrOpaqueWindow
+                hdrWindow
                   ? t(
                       "True HDR, separate window is selected. That mode always plays in its own window, so mpv cannot be embedded. Choose a different HDR mode to change this.",
                     )
                   : undefined
               }
             />
-            {(!settings.playerMpvEmbed || settings.playerHdrOpaqueWindow) && (
+            {(!settings.playerMpvEmbed || hdrWindow) && !linuxHdrWindow && (
               <>
                 <DisplayPickerRow
                   label={t("Separate window display")}
@@ -144,6 +148,26 @@ export function PlayerEnginePanel() {
 
         {isWindowsDesktop() ? (
           <HdrModePicker />
+        ) : isLinuxDesktop() ? (
+          <SettingGroup label={t("HDR")}>
+            <ChoiceBlock
+              selected={settings.playerHdrToSdr}
+              onClick={() => update({ playerHdrToSdr: true })}
+              label={t("Tonemap to SDR")}
+              sub={t("Maps HDR sources to SDR. Works with embedded playback and SDR displays.")}
+              tags={<Tag accent text={t("Recommended")} />}
+            />
+            <ChoiceBlock
+              selected={linuxHdrWindow}
+              onClick={() => update({ playerHdrToSdr: false })}
+              label={t("True HDR, separate window")}
+              sub={t(
+                "Uses mpv's native window and automatic Wayland color management (mpv 0.41 or newer recommended). Requires a compatible GPU driver, compositor and HDR-enabled display. X11 falls back to SDR. Restart playback to apply.",
+              )}
+              tags={<Tag text={t("Experimental")} />}
+            />
+            <DisplayPanelSelector />
+          </SettingGroup>
         ) : (
           <SettingGroup label={t("HDR")}>
             <ToggleRow

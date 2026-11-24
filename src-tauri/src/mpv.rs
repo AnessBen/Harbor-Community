@@ -590,6 +590,21 @@ fn apply_pre_init(
     if !header_fields.is_empty() {
         set("http-header-fields", &header_fields.join(","));
     }
+    #[cfg(target_os = "linux")]
+    let linux_hdr = crate::linux_hdr::current_output(
+        args.embed.unwrap_or(false),
+        args.hdr_to_sdr,
+    );
+    #[cfg(target_os = "linux")]
+    let linux_hdr_requested = linux_hdr != crate::linux_hdr::LinuxHdrOutput::Unchanged;
+    #[cfg(not(target_os = "linux"))]
+    let linux_hdr_requested = false;
+    #[cfg(target_os = "linux")]
+    let hdr_to_sdr = args.hdr_to_sdr.unwrap_or(false)
+        || linux_hdr == crate::linux_hdr::LinuxHdrOutput::SdrFallback;
+    #[cfg(not(target_os = "linux"))]
+    let hdr_to_sdr = args.hdr_to_sdr.unwrap_or(false);
+
     let rtx = cfg!(windows) && args.rtx_hdr.unwrap_or(false);
     let rtx_vsr = cfg!(windows) && args.rtx_vsr.unwrap_or(false);
     // RTX Video HDR and RTX Video Super Resolution both need native D3D11
@@ -629,13 +644,22 @@ fn apply_pre_init(
         // libmpv reports `vo` as empty after initialization, so setting it
         // afterwards always tears down and rebuilds the GPU context. Do it
         // before mpv_initialize instead.
-        set(
-            "vo",
-            match args.renderer.as_deref() {
-                Some("gpu") => "gpu",
-                _ => "gpu-next",
-            },
-        );
+        if linux_hdr_requested {
+            // gpu-next is required for native HDR; keep legacy GPU as a
+            // video-output fallback for builds without gpu-next.
+            if let Err(error) = init.set_property("vo", "gpu-next,gpu") {
+                eprintln!("[harbor::mpv] HDR VO priority unsupported: {error}; using gpu");
+                set("vo", "gpu");
+            }
+        } else {
+            set(
+                "vo",
+                match args.renderer.as_deref() {
+                    Some("gpu") => "gpu",
+                    _ => "gpu-next",
+                },
+            );
+        }
     }
     if args.embed.unwrap_or(false) && (cfg!(target_os = "macos") || cfg!(target_os = "linux")) {
         // libmpv normally wakes the render callback ahead of the target
@@ -713,11 +737,35 @@ fn apply_pre_init(
     if let Some(dir) = shader_cache_dir {
         opt("gpu-shader-cache-dir", &dir.to_string_lossy());
     }
+    #[cfg(target_os = "linux")]
+    match linux_hdr {
+        crate::linux_hdr::LinuxHdrOutput::WaylandAuto => {
+            opt("gpu-api", "auto");
+            // Recent mpv accepts a priority list. Older distro builds may
+            // reject it; keep their automatic context selection rather than
+            // pinning a Vulkan context that might not initialize.
+            if let Err(error) = init.set_property("gpu-context", "waylandvk,wayland,x11egl,x11vk") {
+                eprintln!("[harbor::mpv] HDR context priority unsupported: {error}; using auto");
+                opt("gpu-context", "auto");
+            }
+            opt("target-colorspace-hint", "auto");
+            opt("target-colorspace-hint-mode", "target");
+            opt("target-trc", "auto");
+            opt("target-prim", "auto");
+            opt("target-peak", "auto");
+            eprintln!("[harbor::mpv] Linux separate-window HDR: Wayland automatic color management requested");
+        }
+        crate::linux_hdr::LinuxHdrOutput::SdrFallback => {
+            opt("target-colorspace-hint", "no");
+            eprintln!("[harbor::mpv] Linux separate-window HDR: no Wayland session; using SDR tone mapping");
+        }
+        crate::linux_hdr::LinuxHdrOutput::Unchanged => {}
+    }
     if rtx {
         opt("gpu-api", "d3d11");
         opt("target-colorspace-hint", "yes");
         opt("target-peak", "10000");
-    } else if args.hdr_to_sdr.unwrap_or(false) {
+    } else if hdr_to_sdr {
         opt("tone-mapping", "spline");
         opt("gamut-mapping-mode", "perceptual");
         opt("hdr-compute-peak", "yes");
@@ -2177,6 +2225,10 @@ fn spawn_event_loop(
             crate::log_privacy::start_log(&dir.join("harbor-mpv.log")).ok()
         });
         let mut last_timepos: Option<std::time::Instant> = None;
+        // Report the negotiated VO output, not just the source HDR transfer.
+        // Older mpv builds may not expose all of these properties.
+        #[cfg(target_os = "linux")]
+        let mut linux_output_logged = false;
         #[cfg(windows)]
         let mut resume_trace = ResumeTraceState::default();
         #[cfg(windows)]
@@ -2637,6 +2689,29 @@ fn spawn_event_loop(
                                 }
                             }
                             last_timepos = Some(now);
+                        }
+                    }
+                    #[cfg(target_os = "linux")]
+                    if !embedded {
+                        if matches!(&event, Event::FileLoaded) {
+                            linux_output_logged = false;
+                        } else if !linux_output_logged && matches!(&event, Event::PlaybackRestart) {
+                            linux_output_logged = true;
+                            let read = |name: &str| mpv_keepalive
+                                .get_property::<String>(name)
+                                .unwrap_or_else(|_| "unknown".into());
+                            let message = format!(
+                                "[harbor/linux-hdr] info: vo={} context={} source_gamma={} target_gamma={} target_primaries={}",
+                                read("current-vo"),
+                                read("current-gpu-context"),
+                                read("video-params/gamma"),
+                                read("video-target-params/gamma"),
+                                read("video-target-params/primaries"),
+                            );
+                            eprintln!("{message}");
+                            if let Some(log) = &log {
+                                let _ = log.try_send(message);
+                            }
                         }
                     }
                     #[cfg(windows)]

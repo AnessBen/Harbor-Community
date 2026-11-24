@@ -1323,7 +1323,7 @@ function NativePlayerView({ src }: { src: PlayerSrc }) {
     return () => setSkipSegmentsView([]);
   }, [skipSegments]);
 
-  useMpvEmbed({ engine, settings });
+  useMpvEmbed({ engine, embedActive });
 
   useSdrBoostGate({
     engine,

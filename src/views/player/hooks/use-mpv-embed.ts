@@ -1,22 +1,21 @@
 import { useEffect } from "react";
 import { modalOverlayClose, modalOverlaySync } from "@/lib/modal-overlay";
 import { isLinuxDesktop, isMacDesktop } from "@/lib/platform";
-import type { Settings } from "@/lib/settings";
 
-export function useMpvEmbed(params: { engine: "html5" | "mpv"; settings: Settings }) {
-  const { engine, settings } = params;
+export function useMpvEmbed(params: { engine: "html5" | "mpv"; embedActive: boolean }) {
+  const { engine, embedActive } = params;
 
   useEffect(() => {
     const needsTransparentWebView = isLinuxDesktop() || isMacDesktop();
-    if (engine !== "mpv" || !settings.playerMpvEmbed || !needsTransparentWebView) return;
+    if (engine !== "mpv" || !embedActive || !needsTransparentWebView) return;
     document.documentElement.dataset.mpvEmbed = "1";
     return () => {
       delete document.documentElement.dataset.mpvEmbed;
     };
-  }, [engine, settings.playerMpvEmbed]);
+  }, [engine, embedActive]);
 
   useEffect(() => {
-    if (engine !== "mpv" || !settings.playerMpvEmbed) return;
+    if (engine !== "mpv" || !embedActive) return;
     let unMove: (() => void) | null = null;
     let unResize: (() => void) | null = null;
     void (async () => {
@@ -32,5 +31,5 @@ export function useMpvEmbed(params: { engine: "html5" | "mpv"; settings: Setting
       unResize?.();
       void modalOverlayClose();
     };
-  }, [engine, settings.playerMpvEmbed]);
+  }, [engine, embedActive]);
 }

@@ -47,7 +47,11 @@ export function playerSnapshotChanged() {
   )() as (a: PlayerSnapshot, b: PlayerSnapshot) => boolean;
 }
 
-export function mpvBridgeHarness(prefs = { volume: 0.35, muted: false }, options?: MpvOptions) {
+export function mpvBridgeHarness(
+  prefs = { volume: 0.35, muted: false },
+  options?: MpvOptions,
+  platform: "windows" | "linux" | "macos" = "windows",
+) {
   const source = readFileSync(new URL("../../src/lib/player/mpv.ts", import.meta.url), "utf8");
   const compiled = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
@@ -123,9 +127,9 @@ export function mpvBridgeHarness(prefs = { volume: 0.35, muted: false }, options
     "./mpv-failure": failures,
     "./pause-trace": pauseTrace,
     "@/lib/platform": {
-      isWindowsDesktop: () => true,
-      isLinuxDesktop: () => false,
-      isMacDesktop: () => false,
+      isWindowsDesktop: () => platform === "windows",
+      isLinuxDesktop: () => platform === "linux",
+      isMacDesktop: () => platform === "macos",
     },
     "@/lib/tauri-unlisten": { makeSafeTauriUnlisten: (fn: unknown) => fn },
     "./mpv-properties": {
