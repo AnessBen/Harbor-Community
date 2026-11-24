@@ -723,6 +723,7 @@ function MidnightMoreMenu({
         <div
           role="menu"
           aria-label={t("common.more")}
+          data-tauri-drag-region="false"
           data-harbor-context-layer="true"
           className="midnight-more-popover absolute start-0 top-[calc(100%+8px)] z-[70] flex min-w-[200px] flex-col overflow-hidden rounded-2xl p-1.5"
         >

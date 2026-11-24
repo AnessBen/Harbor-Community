@@ -148,3 +148,68 @@ test("Feishin's action bar drags the window, its scrolling list does not", () =>
   // A press on the list must stay a press on the list: it has a scrollbar to drag.
   assert.equal(dragsFrom(list), false);
 });
+
+test("Midnight capsule drags through nested gaps, but not buttons, edit handles or popovers", () => {
+  const nav = readFileSync(
+    new URL("../src/themes/midnight/components/MidnightTopNav.tsx", import.meta.url),
+    "utf8",
+  );
+  const overflow = readFileSync(
+    new URL("../src/themes/midnight/components/MidnightOverflowNav.tsx", import.meta.url),
+    "utf8",
+  );
+  const capsule = nav.match(/ref=\{capsuleRef\}\s+data-tauri-drag-region="([^"]+)"/)?.[1];
+  const actions = nav.match(
+    /<div data-tauri-drag-region="([^"]+)" className="ms-1 flex shrink-0 items-center gap-1">/,
+  )?.[1];
+  const menu = overflow.match(
+    /role="menu"\s+aria-label=\{t\("common.more"\)\}\s+data-tauri-drag-region="([^"]+)"/,
+  )?.[1];
+  assert.equal(capsule, "deep");
+  assert.equal(actions, "false");
+  assert.equal(menu, "false");
+  assert.ok(overflow.includes('data-tauri-drag-region={editing ? "false" : undefined}'));
+  const page = everyElement(`
+    <header><div id="capsule" data-tauri-drag-region="${capsule}">
+      <div id="content"><div id="gap"><span id="nested-gap"></span></div>
+        <button id="brand"><svg><path id="brand-icon"></path></svg></button>
+        <button id="nav"><span id="nav-label"></span></button>
+        <button id="edit" data-tauri-drag-region="false"><span id="edit-label"></span></button>
+        <button id="more"><span id="more-label"></span></button>
+        <div id="menu" role="menu" data-tauri-drag-region="${menu}">
+          <div id="menu-gap"></div><button id="menu-item" role="menuitem"></button>
+        </div>
+        <div id="actions" data-tauri-drag-region="${actions}">
+          <button id="search"></button><button id="account"></button>
+          <button id="maximize"></button><button id="close"></button>
+          <div id="account-menu"><div id="scrollable"></div></div>
+        </div>
+      </div>
+      <div id="collapsed-tag"><span id="tag-label"></span></div>
+    </div></header>`);
+  for (const id of ["capsule", "content", "gap", "nested-gap", "collapsed-tag", "tag-label"]) {
+    assert.equal(dragsFrom(page.find("#" + id)[0]), true, id);
+  }
+  for (const id of [
+    "brand",
+    "brand-icon",
+    "nav",
+    "nav-label",
+    "edit",
+    "edit-label",
+    "more",
+    "more-label",
+    "menu",
+    "menu-gap",
+    "menu-item",
+    "actions",
+    "search",
+    "account",
+    "maximize",
+    "close",
+    "account-menu",
+    "scrollable",
+  ]) {
+    assert.equal(dragsFrom(page.find("#" + id)[0]), false, id);
+  }
+});

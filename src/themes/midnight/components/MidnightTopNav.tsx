@@ -371,7 +371,7 @@ export function MidnightTopNav() {
         {/* Floating Liquid-Glass Capsule */}
         <div
           ref={capsuleRef}
-          data-tauri-drag-region
+          data-tauri-drag-region="deep"
           data-midnight-island={island}
           onContextMenu={openEmptyMenu}
           style={
@@ -430,8 +430,8 @@ export function MidnightTopNav() {
               entranceActive={entranceActive}
             />
 
-            {/* Action Cluster */}
-            <div className="ms-1 flex shrink-0 items-center gap-1">
+            {/* Action Cluster: menus and their blank/scrollable areas must not drag the window. */}
+            <div data-tauri-drag-region="false" className="ms-1 flex shrink-0 items-center gap-1">
               <RecordingPill />
               {/* The panel, without Harbor's bell: on this theme notifications are reached from the
                   account menu, and the unread mark rides that trigger. Mounted here because the panel
