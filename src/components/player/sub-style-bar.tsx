@@ -39,11 +39,13 @@ export function SubStyleBar() {
     window.addEventListener("pointermove", bump);
     window.addEventListener("pointerdown", bump);
     window.addEventListener("keydown", bump);
+    window.addEventListener("click", bump, true);
     return () => {
       window.clearTimeout(timer);
       window.removeEventListener("pointermove", bump);
       window.removeEventListener("pointerdown", bump);
       window.removeEventListener("keydown", bump);
+      window.removeEventListener("click", bump, true);
     };
   }, [open]);
 

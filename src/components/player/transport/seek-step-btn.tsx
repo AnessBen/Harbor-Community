@@ -80,6 +80,10 @@ export function SeekStepBtn({
     }
   };
 
+  useEffect(() => () => {
+    if (holdTimerRef.current != null) window.clearTimeout(holdTimerRef.current);
+  }, []);
+
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     if (pickerOpen) return;
@@ -125,6 +129,13 @@ export function SeekStepBtn({
       <Tooltip label={t("Hold for more options")}>
         <button
           type="button"
+          onClick={(e) => {
+            // Keyboard and assistive technology dispatch a click without pointer events.
+            // Pointer releases already seek above; never seek twice for a mouse click.
+            if (e.detail !== 0 || pickerOpen) return;
+            onSeekStep(direction === "back" ? -seconds : seconds);
+            playNudge();
+          }}
           onPointerDown={onPointerDown}
           onPointerUp={onPointerUp}
           onPointerLeave={onPointerLeave}
