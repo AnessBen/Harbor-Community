@@ -435,7 +435,8 @@ aside[data-harbor-sidebar][data-collapsed="true"]:not([aria-hidden="true"]) {
 html.ef-sidebar-shown:not(.ef-games) {
   --ef-header-inset: 4.25rem;
 }
-html.ef-sidebar-rail:not(.ef-games) {
+/* The rail is on screen without the theme script, so its room does not wait for the script either. */
+[data-harbor-shell][data-sidebar-rail]:not([data-games-library]) {
   --ef-rail-space: var(--ef-rail-width);
   --ef-header-inset: calc(var(--ef-rail-width) + 1rem);
 }
@@ -1153,7 +1154,6 @@ function buildElegantFinJs(): string {
     ["ef-games", "[data-games-library]"],
     ["ef-sidebar", "aside[data-harbor-sidebar]"],
     ["ef-sidebar-shown", 'aside[data-harbor-sidebar]:not([aria-hidden="true"])'],
-    ["ef-sidebar-rail", 'aside[data-harbor-sidebar][data-collapsed="true"]:not([aria-hidden="true"])'],
     ["ef-sidebar-collapsed", 'aside[data-harbor-sidebar][data-collapsed="true"]'],
     ["ef-sidebar-expanded", 'aside[data-harbor-sidebar][data-collapsed="false"]:not([aria-hidden="true"])'],
     ["ef-topbar", "header.fixed.inset-x-0.top-0"]
