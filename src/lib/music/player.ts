@@ -22,6 +22,7 @@ import { createDeckAdoption, nativePlaybackAdoption } from "./deck-primary";
 import { engineSnapshot } from "./decks";
 import { markManuallyQueued, queueInsertAfterManualBlock, withTrackNext } from "./queue-insert";
 import { queueTrackKey } from "./queue-order";
+import { NextTrackWarmup } from "./next-track-warmup";
 import { adoptRequestedIdentity } from "./queue-source";
 import {
   shouldReportSpotifyStartupTimeout,
@@ -40,7 +41,9 @@ import {
   getMusicTransport,
   musicAdvance,
   musicPrevious,
-  musicWarmTargets,
+  musicUpcoming,
+  musicPriorityNext,
+  subscribeTransport,
   resetMusicOrder,
   setMusicPriorityNext,
 } from "./transport";
@@ -142,7 +145,7 @@ function sourcesFor(
   ttlMs: number = SOURCE_TTL_MS,
   fresh = false,
 ): Promise<MusicSourceCandidate[]> {
-  const key = `${track.connectorId}:${track.id}:${track.title}:${track.artist}`;
+  const key = `${activeProfile}:${track.connectorId}:${track.id}:${track.title}:${track.artist}`;
   if (fresh) queuedSources.delete(key);
   const saved = queuedSources.get(key);
   if (saved && saved.until > Date.now()) return saved.promise;
@@ -162,7 +165,7 @@ function sourcesFor(
       ),
     )
     .catch((error) => {
-      queuedSources.delete(key);
+      if (queuedSources.get(key)?.promise === promise) queuedSources.delete(key);
       throw error;
     })
     .finally(() => clearTimeout(timer));
@@ -172,56 +175,98 @@ function sourcesFor(
   return promise;
 }
 
-const warmed = new Map<string, number>();
-const WARM_AGAIN_MS = 600_000;
+const nextTrackWarmup = new NextTrackWarmup();
 const NEAR_END_MS = 45_000;
-let warmTimer: ReturnType<typeof setTimeout> | null = null;
 let nearEndKey: string | null = null;
 
-// A cached resolution or prewarm must not outlive the listener turning its source off.
-subscribeMusicSourceConsent(() => {
+function resetWarmups(): void {
   queuedSources.clear();
-  warmed.clear();
-});
+  nextTrackWarmup.reset();
+  nearEndKey = null;
+}
 
-function warmNeighbours(): void {
-  if (warmTimer) return;
-  warmTimer = setTimeout(() => {
-    warmTimer = null;
-    const around = musicWarmTargets(state.queue, state.queueIndex, 3);
-    const now = Date.now();
-    for (const track of around) {
-      if (!track || !musicPlaybackSourceAllowed(track)) continue;
-      const key = `${track.connectorId ?? ""}:${track.id}`;
-      const last = warmed.get(key);
-      if (last !== undefined && now - last < WARM_AGAIN_MS) continue;
-      warmed.set(key, now);
-      if (warmed.size > 24) warmed.delete(warmed.keys().next().value!);
-      void invoke("music_prewarm_track", { track }).catch(() => {});
-      void sourcesFor(track, PRELOAD_TTL_MS).catch(() => {});
+subscribeMusicSourceConsent(resetWarmups);
+
+function nextWarmTarget(): MusicTrack | undefined {
+  if (!state.current || state.phase !== "playing" || state.queueIndex < 0) return;
+  if (getMusicTransport().repeat === "one" || ownsMusicVideo() || isDeckWindow()) return;
+  const priority = musicPriorityNext();
+  const target =
+    (priority && state.queue.find((item) => queueTrackKey(item) === queueTrackKey(priority))) ||
+    musicUpcoming(state.queue, state.queueIndex, 1)[0];
+  if (!target || queueTrackKey(target) === queueTrackKey(state.current)) return;
+  return target;
+}
+
+function warmNextTrack(): void {
+  // Let foreground playback settle before spending any requests on a neighbour.
+  if (state.currentTime < 3 || getMusicSpeakerState().active) return;
+  const target = nextWarmTarget();
+  if (!target || target.mediaKind === "video") return;
+  const preferred = readMusicPreference("harbor.music.preferred-source.v1");
+  const resolve =
+    (target.connectorId === "catalog" && !target.playbackUrl) ||
+    !musicPlaybackSourceAllowed(target) ||
+    shouldResolvePreferredSource(target, preferred, false, false);
+  // Only warm YouTube audio; short-lived SoundCloud URLs and Spotify's own
+  // preload mechanism need different timing. Never resolve raw catalog IDs.
+  if ((resolve ? preferred || state.current?.connectorId : target.connectorId) !== "youtube")
+    return;
+  const key = `${activeProfile}:${queueTrackKey(target)}:${target.connectorId}:${target.id}:${preferred}`;
+  const current = () => {
+    const next = nextWarmTarget();
+    return (
+      !!next &&
+      state.currentTime >= 3 &&
+      !getMusicSpeakerState().active &&
+      key ===
+        `${activeProfile}:${queueTrackKey(next)}:${next.connectorId}:${next.id}:${readMusicPreference("harbor.music.preferred-source.v1")}`
+    );
+  };
+  void nextTrackWarmup.run(key, current, async (stillCurrent) => {
+    let playable = target;
+    if (resolve) {
+      const candidates = (await sourcesFor(target, PRELOAD_TTL_MS)).filter(
+        (candidate) => candidate.health !== "offline" && candidate.track.connectorId !== "catalog",
+      );
+      if (!stillCurrent()) return false;
+      const match = selectSourceCandidate(
+        rankByExplicitness(candidates, explicitnessOf(target)),
+        preferred,
+        peekPinnedSource(target),
+        state.current?.connectorId,
+      );
+      if (!match) return false;
+      playable = match.track;
     }
-  }, 400);
+    if (
+      !stillCurrent() ||
+      playable.connectorId !== "youtube" ||
+      !musicPlaybackSourceAllowed(playable)
+    )
+      return false;
+    return invoke<boolean>("music_prewarm_track", { track: playable });
+  });
 }
 
 function warmBeforeEnd(): void {
   const total = state.duration;
-  if (!total || total <= 0 || !state.current) return;
+  if (!total || total <= 0 || !state.current || state.phase !== "playing") return;
   if ((total - state.currentTime) * 1000 > NEAR_END_MS) return;
   const key = `${state.current.connectorId ?? ""}:${state.current.id}`;
   if (nearEndKey === key) return;
   nearEndKey = key;
   if (state.current.connectorId === "spotify") {
-    // librespot plays a preloaded track without a load gap; stream URLs are warmed below.
-    const next = musicWarmTargets(state.queue, state.queueIndex, 1)[0];
-    if (
-      next &&
-      musicPlaybackSourceAllowed(next) &&
-      queueTrackKey(next) !== queueTrackKey(state.current)
-    )
+    const next = nextWarmTarget();
+    if (next?.connectorId === "spotify" && musicPlaybackSourceAllowed(next))
       void invoke("music_spotify_preload", { track: next }).catch(() => {});
   }
-  warmNeighbours();
 }
+
+subscribeTransport(() => {
+  nearEndKey = null;
+  warmNextTrack();
+});
 
 export function musicSourceCandidates(track: MusicTrack): Promise<MusicSourceCandidate[]> {
   return sourcesFor(track).catch(() => [] as MusicSourceCandidate[]);
@@ -355,9 +400,16 @@ function publish(patch: Partial<MusicPlayerState>): void {
   broadcastDeckState(state);
   if (patch.current !== undefined || patch.queueIndex !== undefined || patch.queue !== undefined) {
     nearEndKey = null;
-    warmNeighbours();
   }
   if (patch.currentTime !== undefined) warmBeforeEnd();
+  if (
+    patch.currentTime !== undefined ||
+    patch.phase !== undefined ||
+    patch.current !== undefined ||
+    patch.queue !== undefined ||
+    patch.queueIndex !== undefined
+  )
+    warmNextTrack();
   for (const listener of listeners) listener();
 }
 
@@ -395,6 +447,7 @@ export function resetMusicForProfile(): void {
   if (activeProfile === activeProfileId() && initialization) return;
   cancelMusicQueueAutomation();
   activeProfile = activeProfileId();
+  resetWarmups();
   initialization = null;
   enginePrimed = false;
   audioReady = null;
@@ -1213,9 +1266,6 @@ export async function playMusic(
     armSpotifyStartupWatchdog(request, track);
     if (deckAdoption.deck() !== 0 && !getMusicSpeakerState().active)
       publish({ phase: "playing", error: null });
-    const upcoming = queue[queueIndex + 1];
-    if (upcoming?.connectorId === "catalog" && !upcoming.playbackUrl)
-      void sourcesFor(upcoming).catch(() => {});
   } catch (error) {
     if (!ownsRequest()) return;
     enginePrimed = false;

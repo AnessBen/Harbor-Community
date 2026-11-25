@@ -81,7 +81,7 @@ function warmMusicVideoStream(track: MusicTrack | null | undefined): void {
 function warmQueuedVideos(): void {
   const state = getMusicState();
   const next = state.queue
-    .slice(state.queueIndex + 1, state.queueIndex + 3)
+    .slice(state.queueIndex + 1, state.queueIndex + 2)
     .filter((track) => track.mediaKind === "video");
   if (next.length > 0) prefetchMusicVideoStreams(next, next.length);
 }
@@ -94,8 +94,11 @@ subscribeMusic(() => {
     // A quality chosen for one video lasts only for that video.
     clearMusicVideoSessionQuality();
   }
-  warmMusicVideoStream(state.current);
-  warmQueuedVideos();
+  // Do not extract an unused video while an audio-only track is loading.
+  if (state.current?.mediaKind === "video" || isMusicVideoActive()) {
+    warmMusicVideoStream(state.current);
+    if (state.phase === "playing") warmQueuedVideos();
+  }
 });
 
 export const musicVideoSurfaces = createMusicVideoSurfaces(async (track, signal) => {
