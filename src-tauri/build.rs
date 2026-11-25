@@ -124,6 +124,7 @@ fn main() {
             println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN/../lib/harbor-hdr");
             // Portable bundlers may place the executable in a different bin directory.
             println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN/harbor-hdr");
+            println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN/../../lib/harbor-hdr");
         }
         let mut found = false;
         if let Ok(out) = std::process::Command::new("pkg-config")

@@ -52,6 +52,8 @@ pub(crate) fn configured_library() -> Option<PathBuf> {
         dir.join("harbor-hdr/libharbor-linux-hdr.so"),
         // Some AppImage packers relocate the executable inside the image.
         dir.join("../../usr/lib/harbor-hdr/libharbor-linux-hdr.so"),
+        // Sharun places the real executable in AppDir/shared/bin.
+        dir.join("../../lib/harbor-hdr/libharbor-linux-hdr.so"),
     ]
     .into_iter()
     .find(|path| path.is_file())
