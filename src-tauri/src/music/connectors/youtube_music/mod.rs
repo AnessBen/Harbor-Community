@@ -11,6 +11,7 @@ mod parse;
 mod player;
 mod rows;
 mod ytdlp;
+pub(crate) mod extraction_cooldown;
 mod video_page;
 
 use super::super::connector::{ConnectorHealth, HealthCell, MusicConnector};

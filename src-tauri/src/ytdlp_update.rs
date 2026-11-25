@@ -158,15 +158,19 @@ where
         // Reserve time for the bundled helper when the current release cannot run.
         let budget = timeout.saturating_sub(started.elapsed()).mul_f32(0.65);
         if let Ok(output) = execute(executable, &args, budget).await {
-            if let Ok(validated) = validate_output(output, &validate).await {
-                crate::music::trace::log(format!(
-                    "{label}: verified extractor {} ok",
-                    executable
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .unwrap_or("?")
-                ));
-                return Ok(validated);
+            if !output.success && !retry_after_update(&output.stderr) {
+                return Err(extraction_error(&output.stderr));
+            }
+            match validate_output(output, &validate).await {
+                Ok(validated) => {
+                    crate::music::trace::log(format!(
+                        "{label}: verified extractor {} ok",
+                        executable.file_name().and_then(|name| name.to_str()).unwrap_or("?")
+                    ));
+                    return Ok(validated);
+                }
+                Err(error) if extraction_restricted(&error) => return Err(error),
+                Err(_) => {}
             }
         }
     }
@@ -183,6 +187,7 @@ where
                 crate::music::trace::log(format!("{label}: bundled extractor ok"));
                 return Ok(validated);
             }
+            Err(error) if extraction_restricted(&error) => return Err(error),
             Err(error) => error,
         },
         Ok(output) => {
@@ -192,6 +197,7 @@ where
             }
             error
         }
+        Err(error) if extraction_restricted(&error) => return Err(error),
         Err(error) => error,
     };
     // A background update used to benefit only the user's next manual retry.
@@ -212,26 +218,46 @@ where
     Err(error)
 }
 
-fn retry_after_update(stderr: &[u8]) -> bool {
-    let message = String::from_utf8_lossy(stderr).to_ascii_lowercase();
-    ![
-        "not a bot",
+fn extraction_restricted(error: &str) -> bool {
+    let message = error.to_ascii_lowercase();
+    [
+        "http 429",
         "http error 429",
-        "private video",
-        "sign in to confirm your age",
-        "video is unavailable",
-        "video has been removed",
-        "not available in your country",
+        "too many requests",
+        "rate limit",
+        "not a bot",
+        "browser verification",
+        "limiting requests",
     ]
     .iter()
     .any(|marker| message.contains(marker))
 }
 
+fn retry_after_update(stderr: &[u8]) -> bool {
+    let message = String::from_utf8_lossy(stderr).to_ascii_lowercase();
+    !extraction_restricted(&message)
+        && ![
+            "private video",
+            "sign in to confirm your age",
+            "video is unavailable",
+            "video has been removed",
+            "not available in your country",
+        ]
+        .iter()
+        .any(|marker| message.contains(marker))
+}
+
 fn extraction_error(stderr: &[u8]) -> String {
     let message = String::from_utf8_lossy(stderr).to_ascii_lowercase();
     // Return categories, never raw extractor output containing signed URLs or cookies.
-    if message.contains("not a bot") || message.contains("http error 429") {
-        return "YouTube is limiting requests or requires a browser verification. Wait before retrying, or open this track on YouTube.".to_string();
+    if message.contains("http error 429") || message.contains("http 429") {
+        return "YouTube rate limit (HTTP 429). Wait before retrying, or open this track on YouTube.".to_string();
+    }
+    if message.contains("not a bot") || message.contains("browser verification") {
+        return "YouTube requires browser verification. Wait before retrying, or open this track on YouTube.".to_string();
+    }
+    if extraction_restricted(&message) {
+        return "YouTube rate limit. Wait before retrying, or open this track on YouTube.".to_string();
     }
     if message.contains("javascript runtime") || message.contains("challenge solving failed") {
         return "YouTube extraction needs a supported JavaScript runtime. Install Deno or Node.js 22 or newer, restart Harbor, and retry.".to_string();
@@ -583,6 +609,9 @@ mod tests {
     fn extraction_errors_explain_requirements_without_exposing_output() {
         assert!(extraction_error(b"Sign in to confirm you're not a bot").contains("verification"));
         assert!(extraction_error(b"HTTP Error 429").contains("Wait"));
+        assert!(extraction_error(b"YouTube is rate limiting requests").contains("rate limit"));
+        assert!(extraction_restricted("YouTube rejected the audio stream (HTTP 429)"));
+        assert!(!extraction_restricted("YouTube rejected the audio stream (HTTP 403)"));
         assert!(extraction_error(b"No supported JavaScript runtime").contains("Node.js 22"));
         assert!(
             extraction_error(b"Private video https://private.example/?token=secret")

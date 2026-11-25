@@ -203,7 +203,14 @@ pub(super) fn process_category(line: &str) -> &'static str {
         "missing-file"
     } else if has(&["expired", "expiration"]) {
         "expired"
-    } else if has(&["rate limit", "too many requests"]) {
+    } else if has(&[
+        "limiting requests or requires a browser verification",
+        "rate limit or browser verification",
+    ]) {
+        "rate-limited-or-verification"
+    } else if has(&["browser verification", "not a bot"]) {
+        "browser-verification"
+    } else if has(&["rate limit", "too many requests", "limiting requests"]) {
         "rate-limited"
     } else if has(&["forbidden", "permission denied"]) {
         "forbidden"
@@ -423,6 +430,9 @@ mod tests {
             "missing-file"
         );
         assert_eq!(process_category("HTTP 503"), "server-error");
+        assert_eq!(process_category("YouTube rate limit. Wait 120 seconds"), "rate-limited");
+        assert_eq!(process_category("YouTube requires browser verification"), "browser-verification");
+        assert_eq!(process_category("YouTube is limiting requests or requires a browser verification"), "rate-limited-or-verification");
         assert_eq!(process_category("HTTP error 403"), "forbidden");
         assert_eq!(
             process_category("Server returned 4XX Client Error"),

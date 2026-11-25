@@ -346,5 +346,16 @@ pub async fn music_prewarm_track(
     state: tauri::State<'_, MusicState>,
     track: MusicTrack,
 ) -> Result<bool, String> {
-    Ok(resolve_track(&app, state.inner(), &track).await.is_ok())
+    use super::super::connectors::youtube_music::extraction_cooldown::{prewarm_blocked, restriction};
+    let youtube = track.connector_id.as_deref().unwrap_or("youtube") == "youtube";
+    if youtube {
+        if let Some(error) = prewarm_blocked() {
+            return Err(error);
+        }
+    }
+    match resolve_track(&app, state.inner(), &track).await {
+        Ok(_) => Ok(true),
+        Err(error) if youtube && restriction(&error).is_some() => Err(error),
+        Err(_) => Ok(false),
+    }
 }

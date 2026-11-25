@@ -11,6 +11,7 @@
 //! the media actually needs the account.
 
 use super::super::super::{MusicStream, MusicVideoStream};
+use super::extraction_cooldown::{restriction, Extraction};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock, Mutex, Weak};
@@ -162,17 +163,20 @@ pub async fn stream(app: &tauri::AppHandle, video_id: &str) -> Result<MusicStrea
     }
     flight.get_or_init(|| async {
         let _permit = AUDIO_SLOTS.acquire().await.map_err(|_| "Music extraction unavailable".to_string())?;
-        extract_stream(app, video_id, session.as_deref()).await
+        let extraction = Extraction::begin()?;
+        let result = extract_stream(app, video_id, session.as_deref(), &extraction).await;
+        extraction.finish(result)
     }).await.clone()
 }
 
-async fn extract_stream(app: &tauri::AppHandle, video_id: &str, session: Option<&super::auth::Session>) -> AudioResult {
+async fn extract_stream(app: &tauri::AppHandle, video_id: &str, session: Option<&super::auth::Session>, extraction: &Extraction) -> AudioResult {
     let cookies = cookie_file_for(session);
     // Public audio extracts faster anonymously; only restricted media needs the account. Try
     // anonymously first and fall back to the session, rather than paying that cost on every song.
     match extract_audio(app, video_id, &None).await {
         Ok(stream) => Ok(stream),
-        Err(anonymous_error) if cookies.is_some() => {
+        Err(anonymous_error) if cookies.is_some() && restriction(&anonymous_error).is_none() => {
+            extraction.check_followup()?;
             note_session_retry(&anonymous_error);
             extract_audio(app, video_id, &cookies).await
         }
@@ -214,16 +218,20 @@ pub async fn video_stream(
     video_id: &str,
     max_height: Option<u32>,
 ) -> Result<MusicVideoStream, String> {
+    let _permit = AUDIO_SLOTS.acquire().await.map_err(|_| "Music extraction unavailable".to_string())?;
+    let extraction = Extraction::begin()?;
     let cap = max_height.unwrap_or(1080).clamp(144, 2160);
     let cookies = cookie_file();
-    match extract_video(app, video_id, cap, &None).await {
+    let result = match extract_video(app, video_id, cap, &None).await {
         Ok(stream) => Ok(stream),
-        Err(anonymous_error) if cookies.is_some() => {
+        Err(anonymous_error) if cookies.is_some() && restriction(&anonymous_error).is_none() => {
+            extraction.check_followup()?;
             note_session_retry(&anonymous_error);
             extract_video(app, video_id, cap, &cookies).await
         }
         Err(error) => Err(error),
-    }
+    };
+    extraction.finish(result)
 }
 
 /// Format selection for a video height cap.
