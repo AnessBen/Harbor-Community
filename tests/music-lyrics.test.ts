@@ -681,3 +681,192 @@ test("full artist credit wins over a subset with equal recording duration", asyn
     [{ at: 2, text: "Full" }],
   );
 });
+
+test("broad lyrics search resolves joined and vowel-variant transliterations without changing the track", async () => {
+  const row = {
+    trackName: "Kan We Kan",
+    artistName: "Hamaki",
+    albumName: "Omroh Ma Yeghib",
+    duration: 189.912,
+    syncedLyrics: "[00:02]Matched",
+  };
+  const original = track({
+    title: "Kanw Kan",
+    artist: "Hamaki",
+    album: "Omro M Yegheeb",
+    durationSeconds: 190,
+  });
+  const { lyrics, calls } = build(async (url) =>
+    ok(new URL(url).searchParams.get("q") === "kan hamaki" ? [row] : []),
+  );
+  assert.deepEqual(await lyrics.loadTrackLyrics(original), [{ at: 2, text: "Matched" }]);
+  assert.equal(original.title, "Kanw Kan");
+  assert.equal(original.artist, "Hamaki");
+  assert.equal(calls.length, 5);
+  assert.ok(calls.slice(0, 4).every((url) => !new URL(url).searchParams.has("q")));
+  await lyrics.loadTrackLyrics(original);
+  assert.equal(calls.length, 5);
+});
+
+test("broad matching accepts a shortened single artist credit when album and duration agree", async () => {
+  const { lyrics } = build(async (url) =>
+    ok(
+      new URL(url).searchParams.has("q")
+        ? [
+            {
+              trackName: "Kan W Kan",
+              artistName: "Mohamed Hamaki",
+              albumName: "Omroh Ma Yeghib",
+              duration: 190,
+              syncedLyrics: "[00:03]Matched",
+            },
+          ]
+        : [],
+    ),
+  );
+  assert.deepEqual(
+    await lyrics.loadTrackLyrics(
+      track({
+        title: "Kanw Kan",
+        artist: "Hamaki",
+        album: "Omro M Yegheeb",
+        durationSeconds: 190,
+      }),
+    ),
+    [{ at: 3, text: "Matched" }],
+  );
+});
+
+test("broad matching handles word boundaries without requiring an album when the artist and duration are exact", async () => {
+  const { lyrics } = build(async (url) =>
+    ok(
+      new URL(url).searchParams.has("q")
+        ? [
+            {
+              trackName: "Night Fall",
+              artistName: "Example Artist",
+              duration: 180,
+              syncedLyrics: "[00:03]Matched",
+            },
+          ]
+        : [],
+    ),
+  );
+  assert.deepEqual(
+    await lyrics.loadTrackLyrics(
+      track({
+        title: "Nightfall",
+        artist: "Example Artist",
+        durationSeconds: 180,
+      }),
+    ),
+    [{ at: 3, text: "Matched" }],
+  );
+});
+
+test("broader searches reject missing metadata, unrelated artists, wrong albums and different recordings", async () => {
+  const requested = track({
+    title: "Kanw Kan",
+    artist: "Hamaki",
+    album: "Omro M Yegheeb",
+    durationSeconds: 190,
+  });
+  const row = {
+    trackName: "Kan We Kan",
+    artistName: "Hamaki",
+    albumName: "Omroh Ma Yeghib",
+    duration: 190,
+    syncedLyrics: "[00:02]Wrong",
+  };
+  const { lyrics, calls } = build(async (url) =>
+    ok(
+      new URL(url).searchParams.has("q")
+        ? [
+            { ...row, trackName: "Kan Mali" },
+            { ...row, artistName: "Another Singer" },
+            { ...row, albumName: "Another Album" },
+            { ...row, albumName: undefined },
+            { ...row, duration: 205 },
+            { ...row, duration: undefined },
+            { ...row, artistName: undefined },
+            { ...row, trackName: undefined },
+            { ...row, trackName: "Kan We Kan (Live)" },
+            { ...row, artistName: "Mohamed Hamaki", albumName: "Another Album" },
+          ]
+        : [],
+    ),
+  );
+  assert.equal(await lyrics.loadTrackLyrics(requested), null);
+  assert.ok(calls.filter((url) => new URL(url).searchParams.has("q")).length <= 2);
+});
+
+test("shared surnames are not enough for broader matching", async () => {
+  const { lyrics } = build(async (url) =>
+    ok(
+      new URL(url).searchParams.has("q")
+        ? [
+            {
+              trackName: "Night Fall",
+              artistName: "Other Singer",
+              albumName: "Example Album",
+              duration: 180,
+              syncedLyrics: "[00:03]Wrong",
+            },
+          ]
+        : [],
+    ),
+  );
+  assert.equal(
+    await lyrics.loadTrackLyrics(
+      track({
+        title: "Nightfall",
+        artist: "First Singer",
+        album: "Example Album",
+        durationSeconds: 180,
+      }),
+    ),
+    null,
+  );
+});
+
+test("no broad search is made without a known duration", async () => {
+  const { lyrics, calls } = build(async () => ok([]));
+  assert.equal(await lyrics.loadTrackLyrics(track({ durationSeconds: 0 })), null);
+  assert.ok(calls.every((url) => !new URL(url).searchParams.has("q")));
+});
+
+test("a stronger broad match is preferred over a weaker spelling and artist match", async () => {
+  const { lyrics } = build(async (url) =>
+    ok(
+      new URL(url).searchParams.has("q")
+        ? [
+            {
+              trackName: "Kan We Kan",
+              artistName: "Mohamed Hamaki",
+              albumName: "Omroh Ma Yeghib",
+              duration: 190,
+              syncedLyrics: "[00:02]Weaker",
+            },
+            {
+              trackName: "Kan W Kan",
+              artistName: "Hamaki",
+              albumName: "Omroh Ma Yeghib",
+              duration: 189.9,
+              syncedLyrics: "[00:03]Stronger",
+            },
+          ]
+        : [],
+    ),
+  );
+  assert.deepEqual(
+    await lyrics.loadTrackLyrics(
+      track({
+        title: "Kanw Kan",
+        artist: "Hamaki",
+        album: "Omro M Yegheeb",
+        durationSeconds: 190,
+      }),
+    ),
+    [{ at: 3, text: "Stronger" }],
+  );
+});

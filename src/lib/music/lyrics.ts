@@ -300,6 +300,168 @@ function creditSetMatch(requested: string, candidate: string): number {
   return leftInRight || rightInLeft ? 1 : 0;
 }
 
+/** A fuzzy match is only attempted with explicit metadata and a close duration.
+ * Compact forms allow word-boundary differences; vowel changes are common in
+ * Latin transliterations, but require independent album corroboration. */
+function compact(value: string): string {
+  return normalizeMatch(value).replace(/\s+/g, "");
+}
+
+function latinSkeleton(value: string): string {
+  return /^[a-z]+$/.test(value) ? value.replace(/[aeiou]/g, "") : "";
+}
+
+function withinEdits(left: string, right: string, limit: number): boolean {
+  if (Math.abs(left.length - right.length) > limit || left.length > 160 || right.length > 160)
+    return false;
+  let previous = Array.from({ length: right.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= left.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= right.length; j++) {
+      current[j] = Math.min(
+        previous[j] + 1,
+        current[j - 1] + 1,
+        previous[j - 1] + Number(left[i - 1] !== right[j - 1]),
+      );
+    }
+    previous = current;
+  }
+  return previous[right.length] <= limit;
+}
+
+function albumCorroborates(left: string, right: string): boolean {
+  const a = compact(left);
+  const b = compact(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const x = latinSkeleton(a);
+  const y = latinSkeleton(b);
+  // Longer album names can tolerate small transliteration differences (including
+  // a missing h), but not arbitrary similarly spelled or unrelated albums.
+  return (
+    Math.min(x.length, y.length) >= 6 &&
+    withinEdits(x, y, 1) &&
+    withinEdits(a, b, Math.min(4, Math.floor(Math.min(a.length, b.length) / 3)))
+  );
+}
+
+function titleMatchRank(name: string, titles: string[], albumMatch: boolean): number {
+  if (!name) return 0;
+  if (compatible(name, titles)) return 3;
+  const a = compact(name);
+  for (const title of titles) {
+    const b = compact(title);
+    if (a.length >= 4 && a === b) return 2;
+  }
+  if (!albumMatch) return 0;
+  const x = latinSkeleton(a);
+  if (x.length < 4) return 0;
+  return titles.some((title) => {
+    const b = compact(title);
+    return x === latinSkeleton(b) && withinEdits(a, b, 2);
+  })
+    ? 1
+    : 0;
+}
+
+function artistNameRank(
+  name: string,
+  artists: string[],
+  credits: string[],
+  albumMatch: boolean,
+): number {
+  if (!name) return 0;
+  if (compatible(name, artists)) return 4;
+  const creditRank = Math.max(0, ...credits.map((credit) => creditSetMatch(credit, name)));
+  if (creditRank) return creditRank + 1;
+  // Only allow a whole, distinctive name at an edge of a longer single credit.
+  // Sharing a token in two different full names is not an artist match.
+  if (!albumMatch || creditParts(name).length !== 1) return 0;
+  const a = normalizeMatch(name);
+  return artists.some((artist) => {
+    if (creditParts(artist).length !== 1) return false;
+    const b = normalizeMatch(artist);
+    const [shorter, longer] = a.length < b.length ? [a, b] : [b, a];
+    return (
+      shorter.length >= 5 &&
+      longer.split(" ").length - shorter.split(" ").length <= 2 &&
+      (longer.startsWith(shorter + " ") || longer.endsWith(" " + shorter))
+    );
+  })
+    ? 1
+    : 0;
+}
+
+function chooseFallbackLyrics(
+  rows: LrcRow[],
+  duration: number,
+  titles: string[],
+  artists: string[],
+  credits: string[],
+  album: string,
+): LyricLine[] | null {
+  if (duration <= 0) return null;
+  const ranked = rows
+    .flatMap((row) => {
+      const time = seconds(row.duration);
+      const gap = Math.abs(time - duration);
+      if (!time || gap > 3) return [];
+      const albumMatch = albumCorroborates(album, text(row.albumName));
+      const titleRank = titleMatchRank(text(row.trackName ?? row.name), titles, albumMatch);
+      const artistRank = artistNameRank(text(row.artistName), artists, credits, albumMatch);
+      if (!titleRank || !artistRank) return [];
+      // Do not stack two weak matches without corroboration from the album.
+      if ((titleRank === 1 || artistRank === 1) && !albumMatch) return [];
+      return [{ row, titleRank, artistRank, albumMatch, gap }];
+    })
+    .sort(
+      (a, b) =>
+        b.titleRank - a.titleRank ||
+        b.artistRank - a.artistRank ||
+        Number(b.albumMatch) - Number(a.albumMatch) ||
+        a.gap - b.gap,
+    );
+  const best = ranked[0];
+  if (!best || (best.row.instrumental === true && best.gap <= 2)) return null;
+  // Don't trade recording confidence for a timed result on a weaker candidate.
+  return readRankedLyrics(
+    ranked
+      .filter(
+        (match) =>
+          match.titleRank === best.titleRank &&
+          match.artistRank === best.artistRank &&
+          match.albumMatch === best.albumMatch,
+      )
+      .map((match) => match.row),
+    duration,
+  );
+}
+
+/** At most two broad searches, using distinctive title tokens and a full artist
+ * credit (or a distinctive last name). Search results still have to pass the
+ * recording checks above; this only widens discovery, never acceptance. */
+function broadQueries(title: string, artist: string): string[] {
+  const words = unique(
+    normalizeMatch(title)
+      .split(" ")
+      .filter((word) => word.length >= 3),
+  );
+  const name = normalizeMatch(artist);
+  if (!words.length || name.length < 3) return [];
+  const last = words.at(-1)!;
+  const first = words[0];
+  const artistWords = name.split(" ");
+  const lastName = artistWords.at(-1)!;
+  return unique([
+    last + " " + name,
+    first !== last
+      ? first + " " + name
+      : artistWords.length > 1 && lastName.length >= 5
+        ? last + " " + lastName
+        : "",
+  ]).slice(0, 2);
+}
+
 function chooseLyrics(
   rows: LrcRow[],
   target: number,
@@ -339,6 +501,12 @@ function chooseLyrics(
     gap(ranked[0]) <= 2
   )
     return null;
+  return readRankedLyrics(ranked, target);
+}
+
+function readRankedLyrics(ranked: LrcRow[], target: number): LyricLine[] | null {
+  const gap = (row: LrcRow) =>
+    target && seconds(row.duration) ? Math.abs(seconds(row.duration) - target) : 0;
   let plain: LyricLine[] | null = null;
   for (const row of ranked) {
     if (row.instrumental === true) continue;
@@ -487,6 +655,29 @@ async function fetchLyrics(track: MusicTrack, signal?: AbortSignal): Promise<Lyr
       if (signal?.aborted) throw error;
       if (plain) return plain;
       throw error;
+    }
+  }
+  // Keep exact/alias lookups on the fast path. Only widen a genuine miss or
+  // unsynced result, with the same timeout, cancellation and throttling budget.
+  if (duration > 0) {
+    for (const query of broadQueries(title, artist)) {
+      try {
+        const rows = rowsOf(await json(API + "/search?q=" + encodeURIComponent(query), lookup));
+        const found = chooseFallbackLyrics(
+          rows,
+          duration,
+          titles,
+          artists,
+          requestedCredits,
+          album,
+        );
+        if (hasTimedLyrics(found)) return found;
+        if (found && !plain) plain = found;
+      } catch (error) {
+        if (signal?.aborted) throw error;
+        if (plain) return plain;
+        throw error;
+      }
     }
   }
   return plain;
