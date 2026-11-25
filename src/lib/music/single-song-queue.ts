@@ -14,6 +14,8 @@ export type SingleSongQueueDependencies = {
   recommendations: (seed: MusicTrack) => Promise<MusicTrack[]>;
   filter: (tracks: MusicTrack[]) => MusicTrack[];
   apply: (queue: MusicTrack[]) => void;
+  /** The generated-session owner may explicitly adopt individual edits during the lookup. */
+  acceptsQueue?: (queue: MusicTrack[]) => boolean;
 };
 
 /** Populate a newly started standalone song, not a collection or an edited queue. */
@@ -42,8 +44,10 @@ export async function fillSingleSongQueue(
     // Only changes to playback or the ordered track identities invalidate this request.
     const matches =
       latest.revision === initial.revision &&
-      latest.queue.length === initialKeys.length &&
-      latest.queue.every((track, index) => queueTrackKey(track) === initialKeys[index]) &&
+      (api.acceptsQueue
+        ? api.acceptsQueue(latest.queue)
+        : latest.queue.length === initialKeys.length &&
+          latest.queue.every((track, index) => queueTrackKey(track) === initialKeys[index])) &&
       latest.current !== null &&
       queueTrackKey(latest.current) === key &&
       latest.phase !== "error" &&

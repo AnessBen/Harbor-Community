@@ -687,7 +687,9 @@ function playerEntries() {
   const entryPoints = tree.statements.filter(
     (node) =>
       ts.isFunctionDeclaration(node) &&
-      ["playMusic", "enqueueMusic", "setMusicQueue"].includes(node.name?.text ?? ""),
+      ["playMusic", "enqueueMusic", "setMusicQueue", "editMusicQueue"].includes(
+        node.name?.text ?? "",
+      ),
   );
   const module = { exports: {} },
     initialized = deferred();
@@ -703,7 +705,7 @@ function playerEntries() {
     likedTracks: [],
   };
   const sourceReady = deferred();
-  const declarations = `let explicitSource=null, playRequest=0, observedPause=null, resumeAt=null, recoverPlayback=null, audioReady=null, enginePrimed=false, pendingSpeakerDevice=null, returningToComputer=false, speakerTransfer=false; const autoSkipped=new Set();`;
+  const declarations = `let recommendationContinuation=null; let explicitSource=null, playRequest=0, observedPause=null, resumeAt=null, recoverPlayback=null, audioReady=null, enginePrimed=false, pendingSpeakerDevice=null, returningToComputer=false, speakerTransfer=false; const autoSkipped=new Set();`;
   const code = ts.transpileModule(
     declarations + entryPoints.map((node) => node.getText(tree)).join("\n"),
     { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } },

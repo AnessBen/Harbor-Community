@@ -3,7 +3,13 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 import { RecommendationContinuation } from "../src/lib/music/recommendation-continuation";
-import { MusicQueueOrder } from "../src/lib/music/queue-order";
+import { fillSingleSongQueue } from "../src/lib/music/single-song-queue";
+import {
+  queueInsertAfterManualBlock,
+  withTrackNext,
+  markManuallyQueued,
+} from "../src/lib/music/queue-insert";
+import { MusicQueueOrder, queueTrackKey } from "../src/lib/music/queue-order";
 import {
   cancelMusicQueueAutomation,
   ownMusicQueueAutomation,
@@ -118,7 +124,7 @@ test("metadata changes and advancing within the same queue preserve the pending 
   assert.equal(await p, true);
   assert.equal(f.get().queue[37], measured);
 });
-test("queue edits, cancellation, repeat changes and error discard in-flight results", async () => {
+test("unrecognized replacements, cancellation, repeat changes and error discard in-flight results", async () => {
   for (const change of ["edit", "cancel", "repeat", "error"]) {
     const f = fixture();
     f.at(36);
@@ -169,7 +175,7 @@ test("failed or duplicate-only batches back off and never loop on the same seed"
   f.resolve([song("new")]);
   assert.equal(await p3, true);
 });
-test("ordinary manual edits cancel ownership without dropping existing recommendations", () => {
+test("explicit queue replacement cancels ownership without dropping existing recommendations", () => {
   let stopped = false;
   const owner = ownMusicQueueAutomation(() => {
     stopped = true;
@@ -308,4 +314,171 @@ test("a replaced queue cannot inherit recommendation ownership even without an e
   f.update({ current: replacement, queue: [replacement] });
   assert.equal(f.c.request(true), null);
   assert.equal(f.count(), 0);
+});
+
+test("adding, removing and reordering during a refill keeps edits and excludes removed recordings", async () => {
+  const f = fixture();
+  f.at(36);
+  const p = f.c.request()!;
+  await tick();
+  const old = f.get().queue;
+  const removed = old[38];
+  const manual = song("manual");
+  const edited = [...old.slice(0, 37), manual, old[40], old[37], old[39]];
+  assert.equal(f.c.adoptEdit(edited), true);
+  f.update({ queue: edited });
+  f.resolve([
+    removed,
+    { ...removed, id: "different-upload", connectorId: "catalog" },
+    manual,
+    song("new"),
+  ]);
+  assert.equal(await p, true);
+  assert.deepEqual(f.get().queue, [...edited, song("new")]);
+  f.at(f.get().queue.length - 1);
+  const p2 = f.c.request()!;
+  await tick();
+  f.resolve([removed, song("later")]);
+  assert.equal(await p2, true);
+  assert.equal(f.get().queue.at(-1)?.id, "later");
+  assert.ok(!f.get().queue.includes(removed));
+});
+test("a user may explicitly re-add a removed song, but automatic refills may not", async () => {
+  const f = fixture();
+  f.at(36);
+  const removed = f.get().queue[38];
+  const edited = f.get().queue.filter((t) => t !== removed);
+  assert.equal(f.c.adoptEdit(edited), true);
+  f.update({ queue: edited });
+  const restored = [...edited, removed];
+  assert.equal(f.c.adoptEdit(restored), true);
+  f.update({ queue: restored });
+  const p = f.c.request()!;
+  await tick();
+  f.resolve([removed, song("fresh")]);
+  assert.equal(await p, true);
+  assert.equal(f.get().queue.filter((t) => t === removed).length, 1);
+});
+test("individual edits cannot retain ownership when they remove the current song", () => {
+  const f = fixture();
+  assert.equal(f.c.adoptEdit([]), false);
+  assert.equal(f.c.adoptEdit(f.get().queue.slice(1)), false);
+});
+test("initial recommendations accept explicitly adopted edits without overwriting the user's queue", async () => {
+  const seed = song("seed"),
+    manual = song("manual"),
+    removed = song("removed");
+  let state = { current: seed, queue: [seed], phase: "playing", revision: 1, enabled: true };
+  let resolve!: (tracks: MusicTrack[]) => void;
+  const pending = new Promise<MusicTrack[]>((yes) => {
+    resolve = yes;
+  });
+  const controller = new RecommendationContinuation(
+    {
+      snapshot: () => state,
+      remaining: () => 0,
+      recommendations: () => pending,
+      filter: (t) => t,
+      apply: (queue) => {
+        state = { ...state, queue };
+      },
+    },
+    false,
+  );
+  const result = fillSingleSongQueue(seed, {
+    snapshot: () => state,
+    recommendations: () => pending,
+    acceptsQueue: (q) => controller.acceptsQueue(q),
+    filter: (t) => controller.excludeSeen(t),
+    apply: (queue) => {
+      assert.equal(controller.adoptEdit(queue), true);
+      state = { ...state, queue };
+    },
+  });
+  assert.equal(controller.request(), null);
+  let edited = [seed, manual, removed];
+  assert.equal(controller.adoptEdit(edited), true);
+  state = { ...state, queue: edited };
+  edited = [seed, manual];
+  assert.equal(controller.adoptEdit(edited), true);
+  state = { ...state, queue: edited };
+  resolve([manual, removed, song("fresh")]);
+  await result;
+  assert.deepEqual(state.queue, [seed, manual, song("fresh")]);
+});
+test("actual player individual edits preserve generated ownership and Clear Queue cancels it", async () => {
+  const source = readFileSync(new URL("../src/lib/music/player.ts", import.meta.url), "utf8");
+  const tree = ts.createSourceFile("player.ts", source, ts.ScriptTarget.Latest, true);
+  const names = ["setMusicQueue", "editMusicQueue", "enqueueMusic", "playNextMusic"];
+  const functions = tree.statements.filter(
+    (n) => ts.isFunctionDeclaration(n) && names.includes(n.name?.text ?? ""),
+  );
+  const code = ts.transpileModule(functions.map((n) => n.getText(tree)).join("\n"), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+  }).outputText;
+  const seed = song("seed"),
+    a = song("a"),
+    b = song("b"),
+    manual = song("manual"),
+    next = song("next");
+  const state = {
+    current: seed,
+    queue: [seed, a, b],
+    queueIndex: 0,
+    phase: "playing",
+    enabled: true,
+  };
+  let resolve!: (tracks: MusicTrack[]) => void;
+  let pending = new Promise<MusicTrack[]>((yes) => {
+    resolve = yes;
+  });
+  const exports = {} as Pick<
+    typeof import("../src/lib/music/player"),
+    "setMusicQueue" | "editMusicQueue" | "enqueueMusic" | "playNextMusic"
+  >;
+  const controller = new RecommendationContinuation({
+    snapshot: () => state,
+    remaining: () => 2,
+    recommendations: () => pending,
+    filter: (t) => t,
+    apply: (queue) => exports.setMusicQueue(queue, owner),
+  });
+  const owner = ownMusicQueueAutomation(() => controller.stop());
+  const scope = {
+    state,
+    recommendationContinuation: controller,
+    queueTrackKey,
+    filterBlockedTracks: (t: MusicTrack[]) => t,
+    ownsMusicQueueAutomation,
+    cancelMusicQueueAutomation,
+    queueInsertAfterManualBlock,
+    withTrackNext,
+    markManuallyQueued,
+    setMusicPriorityNext: () => {},
+    publish: (patch: Partial<typeof state>) => Object.assign(state, patch),
+    invoke: async () => {},
+  };
+  new Function(...Object.keys(scope), "exports", code)(...Object.values(scope), exports);
+  const refill = controller.request()!;
+  await tick();
+  exports.enqueueMusic(manual);
+  exports.playNextMusic(next);
+  exports.editMusicQueue([seed, next, manual, b]);
+  assert.equal(ownsMusicQueueAutomation(owner), true);
+  resolve([a, song("fresh")]);
+  assert.equal(await refill, true);
+  assert.deepEqual(state.queue, [seed, next, manual, b, song("fresh")]);
+  state.current = next;
+  state.queueIndex = 1;
+  pending = new Promise<MusicTrack[]>((yes) => {
+    resolve = yes;
+  });
+  const lateRefill = controller.request()!;
+  await tick();
+  exports.setMusicQueue([seed, next]);
+  assert.equal(ownsMusicQueueAutomation(owner), false);
+  resolve([song("late")]);
+  assert.equal(await lateRefill, false);
+  assert.equal(controller.request(true), null);
+  assert.deepEqual(state.queue, [seed, next]);
 });

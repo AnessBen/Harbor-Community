@@ -1,5 +1,6 @@
 import { freshContinuationTracks } from "./queue-continuation";
 import { queueTrackKey } from "./queue-order";
+import { musicTrackIdentity } from "./track-identity";
 import type { MusicTrack } from "./types";
 
 export const RECOMMENDATION_LOW_WATER = 4;
@@ -24,7 +25,7 @@ type Dependencies = {
 };
 
 /** One owner per generated queue. Metadata updates and advancing within it keep
- * the owner; an explicit queue replacement/edit cancels it. */
+ * the owner; only an explicit takeover or unrecognized replacement cancels it. */
 export class RecommendationContinuation {
   private stopped = false;
   private pending: Promise<boolean> | null = null;
@@ -34,11 +35,56 @@ export class RecommendationContinuation {
   private api: Dependencies;
   private ownedQueue: MusicTrack[];
   private ownedKeys: string[];
+  private seenKeys = new Set<string>();
+  private seenRecordings = new Set<string>();
+  private ready: boolean;
 
-  constructor(api: Dependencies) {
+  constructor(api: Dependencies, ready = true) {
     this.api = api;
     this.ownedQueue = api.snapshot().queue;
     this.ownedKeys = this.ownedQueue.map(queueTrackKey);
+    this.ready = ready;
+    this.remember(this.ownedQueue);
+  }
+
+  activate(): void {
+    this.ready = true;
+  }
+
+  private remember(queue: readonly MusicTrack[]): void {
+    for (const track of queue) {
+      this.seenKeys.add(queueTrackKey(track));
+      this.seenRecordings.add(musicTrackIdentity(track));
+    }
+  }
+
+  excludeSeen(tracks: MusicTrack[]): MusicTrack[] {
+    return tracks.filter(
+      (track) =>
+        !this.seenKeys.has(queueTrackKey(track)) &&
+        !this.seenRecordings.has(musicTrackIdentity(track)),
+    );
+  }
+
+  /** Explicit individual edits retain the owner, including while a refill is pending. */
+  adoptEdit(queue: MusicTrack[]): boolean {
+    if (this.stopped) return false;
+    const state = this.api.snapshot();
+    if (
+      !state.current ||
+      !this.matchesQueue(state.queue) ||
+      !queue.some((track) => queueTrackKey(track) === queueTrackKey(state.current!))
+    )
+      return false;
+    this.remember(state.queue);
+    this.remember(queue);
+    this.ownedQueue = queue;
+    this.ownedKeys = queue.map(queueTrackKey);
+    return true;
+  }
+
+  acceptsQueue(queue: MusicTrack[]): boolean {
+    return !this.stopped && this.matchesQueue(queue);
   }
 
   private matchesQueue(queue: MusicTrack[]): boolean {
@@ -52,6 +98,7 @@ export class RecommendationContinuation {
       return false;
     }
     this.ownedQueue = queue;
+    this.remember(queue);
     return true;
   }
 
@@ -60,7 +107,7 @@ export class RecommendationContinuation {
   }
 
   request(force = false): Promise<boolean> | null {
-    if (this.stopped) return null;
+    if (this.stopped || !this.ready) return null;
     const state = this.api.snapshot();
     if (!this.matchesQueue(state.queue)) return null;
     const seed = state.current;
@@ -103,7 +150,7 @@ export class RecommendationContinuation {
         )
           return false;
         const tracks = freshContinuationTracks(
-          this.api.filter(candidates),
+          this.excludeSeen(this.api.filter(candidates)),
           latest.queue,
         ).slice(0, RECOMMENDATION_BATCH_SIZE);
         if (!tracks.length) {
@@ -113,6 +160,7 @@ export class RecommendationContinuation {
         const next = [...latest.queue, ...tracks];
         this.ownedQueue = next;
         this.ownedKeys = next.map(queueTrackKey);
+        this.remember(next);
         this.api.apply(next);
         return true;
       } catch {

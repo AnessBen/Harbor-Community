@@ -23,6 +23,7 @@ import { MusicServiceLogo } from "./music-service-logo";
 import "./music-queue.css";
 import { useT } from "@/lib/i18n";
 import {
+  editMusicQueue,
   playQueuedMusic,
   setMusicQueue,
   toggleMusicPlayback,
@@ -333,7 +334,7 @@ export function MusicQueue({
     const [track] = next.splice(from, 1);
     if (!track) return;
     next.splice(to, 0, track);
-    setMusicQueue(next);
+    editMusicQueue(next);
   };
   const beginDrag = (event: ReactPointerEvent<HTMLElement>, from: number) => {
     if (event.button !== 0 || from < firstUpcoming) return;
@@ -373,10 +374,10 @@ export function MusicQueue({
     const currentIndex = playingAt >= 0 ? playingAt - Number(index < playingAt) : -1;
     setMusicPriorityNext(track);
     next.splice(currentIndex + 1, 0, track);
-    setMusicQueue(next);
+    editMusicQueue(next);
   };
   const remove = (index: number) => {
-    setMusicQueue(queue.filter((_, at) => at !== index));
+    editMusicQueue(queue.filter((_, at) => at !== index));
     heading.current?.focus({ preventScroll: true });
   };
   const row = (track: MusicTrack, index: number, current = false) => (
@@ -403,7 +404,7 @@ export function MusicQueue({
       onMove={(direction) => move(index, index + direction)}
       onNext={() => playNext(index)}
       onRemove={() => remove(index)}
-      onSource={(candidate) => setMusicQueue(replaceQueueTrack(queue, index, candidate.track))}
+      onSource={(candidate) => editMusicQueue(replaceQueueTrack(queue, index, candidate.track))}
       canUp={index > firstUpcoming}
       canDown={index >= firstUpcoming && index < queue.length - 1}
     />
@@ -457,7 +458,7 @@ export function MusicQueue({
                 <h3>{t("music.row.upNext")}</h3>
                 <button
                   type="button"
-                  disabled={!upcoming.length}
+                  disabled={!upcoming.length && !player.current}
                   onClick={() => {
                     setMusicPriorityNext(null);
                     setMusicQueue(playingAt >= 0 ? queue.slice(0, playingAt + 1) : []);

@@ -989,8 +989,7 @@ export function warmMusicSourceCache(track: MusicTrack): void {
 }
 
 /** The initial recommendation fetch owns its session before asynchronous work starts.
- * The owner deliberately is not marked as a Surprise Me session: queue edits keep the songs
- * already generated, but stop future automatic additions. */
+ * Unlike Surprise Me, individual queue edits preserve this session and its existing tracks. */
 function startRecommendationQueue(track: MusicTrack): void {
   let controller: RecommendationContinuation | null = null;
   let unsubscribe = () => {};
@@ -1006,6 +1005,26 @@ function startRecommendationQueue(track: MusicTrack): void {
     filterBlockedTracks(filterBlockedTracks(tracks, "show"), "play");
   const recommendations = (seed: MusicTrack) =>
     withTimeout(singleSongRecommendations(seed), 25_000);
+  let generated = false;
+  controller = new RecommendationContinuation(
+    {
+      snapshot: () => ({
+        ...state,
+        enabled:
+          ownsMusicQueueAutomation(owner) &&
+          !followingListenHost &&
+          !ownsMusicVideo() &&
+          getMusicTransport().repeat === "off",
+      }),
+      remaining: () => musicUpcoming(state.queue, state.queueIndex, 5, false).length,
+      recommendations,
+      filter,
+      apply: (next) => setMusicQueue(next, owner),
+      onInvalidated: () => releaseMusicQueueAutomation(owner),
+    },
+    false,
+  );
+  recommendationContinuation = controller;
   void fillSingleSongQueue(track, {
     snapshot: () => ({
       ...state,
@@ -1016,27 +1035,14 @@ function startRecommendationQueue(track: MusicTrack): void {
           : "idle",
     }),
     recommendations,
-    filter,
+    acceptsQueue: (queue) => controller?.acceptsQueue(queue) ?? false,
+    filter: (tracks) => controller?.excludeSeen(filter(tracks)) ?? [],
     apply: (queue) => {
-      if (!ownsMusicQueueAutomation(owner)) return;
+      if (!ownsMusicQueueAutomation(owner) || !controller?.adoptEdit(queue)) return;
       setMusicQueue(queue, owner);
       if (!ownsMusicQueueAutomation(owner)) return;
-      controller = new RecommendationContinuation({
-        snapshot: () => ({
-          ...state,
-          enabled:
-            ownsMusicQueueAutomation(owner) &&
-            !followingListenHost &&
-            !ownsMusicVideo() &&
-            getMusicTransport().repeat === "off",
-        }),
-        remaining: () => musicUpcoming(state.queue, state.queueIndex, 5, false).length,
-        recommendations,
-        filter,
-        apply: (next) => setMusicQueue(next, owner),
-        onInvalidated: () => releaseMusicQueueAutomation(owner),
-      });
-      recommendationContinuation = controller;
+      generated = true;
+      controller.activate();
       const check = () => {
         void controller?.request();
       };
@@ -1045,7 +1051,7 @@ function startRecommendationQueue(track: MusicTrack): void {
       check();
     },
   }).finally(() => {
-    if (!controller) releaseMusicQueueAutomation(owner);
+    if (!generated) releaseMusicQueueAutomation(owner);
   });
 }
 
@@ -1492,12 +1498,20 @@ export function pauseMusicPlayer(): void {
   if (state.phase === "playing") toggleMusicPlayback();
 }
 
-export function setMusicQueue(input: MusicTrack[], automationOwner?: symbol): void {
+export function setMusicQueue(
+  input: MusicTrack[],
+  automationOwner?: symbol,
+  preserveRecommendations = false,
+): void {
   if (automationOwner && !ownsMusicQueueAutomation(automationOwner)) return;
-  if (!automationOwner) cancelMusicQueueAutomation();
   const current = state.current;
   const kept = filterBlockedTracks(input, "play");
   const tracks = kept.length > 0 ? kept : input;
+  if (
+    !automationOwner &&
+    !(preserveRecommendations && recommendationContinuation?.adoptEdit(tracks))
+  )
+    cancelMusicQueueAutomation();
   const queueIndex = current
     ? tracks.findIndex((item) => queueTrackKey(item) === queueTrackKey(current))
     : -1;
@@ -1505,6 +1519,11 @@ export function setMusicQueue(input: MusicTrack[], automationOwner?: symbol): vo
   void invoke("music_set_queue", { tracks }).catch((error) =>
     publish({ error: error instanceof Error ? error.message : String(error) }),
   );
+}
+
+/** Individual edits preserve generated-song radio; replacements and Clear Queue use setMusicQueue. */
+export function editMusicQueue(input: MusicTrack[]): void {
+  setMusicQueue(input, undefined, true);
 }
 
 export function loopMusic(start: number | null, end: number | null): void {
@@ -1530,7 +1549,7 @@ export function seekMusic(position: number): void {
 
 /** Queues after what is playing, ahead of the rest of the collection, without disturbing playback. */
 export function enqueueMusic(track: MusicTrack): void {
-  const automated = cancelMusicQueueAutomation();
+  const automated = recommendationContinuation ? false : cancelMusicQueueAutomation();
   const queue = automated ? state.queue.slice(0, state.queueIndex + 1) : state.queue;
   const next = queueInsertAfterManualBlock(queue, track, state.queueIndex);
   if (next === queue) {
@@ -1538,7 +1557,7 @@ export function enqueueMusic(track: MusicTrack): void {
     return;
   }
   markManuallyQueued(track);
-  setMusicQueue(next);
+  editMusicQueue(next);
 }
 
 /** Plays next, ahead of songs queued earlier, and keeps the transport pointed at it. */
@@ -1549,13 +1568,13 @@ export function playNextMusic(track: MusicTrack): void {
   }
   if (queueTrackKey(state.current) === queueTrackKey(track)) return;
   if (filterBlockedTracks([track], "play").length === 0) return;
-  const automated = cancelMusicQueueAutomation();
+  const automated = recommendationContinuation ? false : cancelMusicQueueAutomation();
   const queue = automated ? state.queue.slice(0, state.queueIndex + 1) : state.queue;
   const next = withTrackNext(queue, track, state.queueIndex);
   if (next === queue) return;
   markManuallyQueued(track);
   setMusicPriorityNext(track);
-  setMusicQueue(next);
+  editMusicQueue(next);
 }
 
 /**
