@@ -10,6 +10,7 @@ export function MusicStickyTitle({
   title,
   tracks,
   playbackQueue,
+  singleSong = false,
   onPlay,
   children,
   revealAfter,
@@ -17,6 +18,7 @@ export function MusicStickyTitle({
   title: string;
   tracks: MusicTrack[];
   playbackQueue?: MusicTrack[];
+  singleSong?: boolean;
   onPlay: (track: MusicTrack, queue: MusicTrack[]) => void;
   children?: ReactNode;
   revealAfter?: RefObject<HTMLElement | null>;
@@ -25,7 +27,7 @@ export function MusicStickyTitle({
   const host = useRef<HTMLDivElement>(null);
   const [stuck, setStuck] = useState(false);
   const now = useRef(false);
-  const { playing, busy, play } = useCollectionPlayback(tracks, onPlay, playbackQueue);
+  const { playing, busy, play } = useCollectionPlayback(tracks, onPlay, playbackQueue, singleSong);
   useLayoutEffect(() => {
     const node = host.current;
     const scroller = node?.closest("main");

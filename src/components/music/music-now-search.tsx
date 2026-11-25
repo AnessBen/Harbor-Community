@@ -7,6 +7,7 @@ import { searchTyped } from "@/lib/music/catalog";
 import { enqueueMusic, playMusic } from "@/lib/music/player";
 import { rankMusicSearch } from "@/lib/music/search-ranking";
 import { searchPlaybackQueue } from "@/lib/music/search-playback-queue";
+import { registerMusicQueueOrigin } from "@/lib/music/playback-origin";
 import { searchMusicVideoPage } from "@/lib/music/video-pages";
 import {
   dedupeSearchTracks,
@@ -133,7 +134,13 @@ export function MusicNowSearch({ onClose }: { onClose: () => void }) {
 
   const play = (track: MusicTrack, index: number) => {
     setCursor(index);
-    void playMusic(track, searchPlaybackQueue(track, results ?? [])).catch(() => {});
+    if (track.mediaKind === "video") {
+      void playMusic(track, searchPlaybackQueue(track, results ?? [])).catch(() => {});
+    } else {
+      const queue = [track];
+      registerMusicQueueOrigin(queue, null);
+      void playMusic(track, queue, undefined, false, false, false, undefined, true).catch(() => {});
+    }
   };
   const enqueue = (track: MusicTrack) => {
     enqueueMusic(track);

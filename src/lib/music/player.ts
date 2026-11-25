@@ -23,6 +23,7 @@ import { engineSnapshot } from "./decks";
 import { markManuallyQueued, queueInsertAfterManualBlock, withTrackNext } from "./queue-insert";
 import { queueTrackKey } from "./queue-order";
 import { NextTrackWarmup } from "./next-track-warmup";
+import { fillSingleSongQueue, singleSongRecommendations } from "./single-song-queue";
 import { youtubeRestrictionDelay } from "./youtube-restriction";
 import { adoptRequestedIdentity } from "./queue-source";
 import {
@@ -988,6 +989,7 @@ export async function playMusic(
   skipUnavailable = false,
   explicit = false,
   automationOwner?: symbol,
+  singleSong = false,
 ): Promise<void> {
   if (automationOwner && !ownsMusicQueueAutomation(automationOwner)) return;
   if (!continuing && !failedAttempts.size && !automationOwner) cancelMusicQueueAutomation();
@@ -1279,6 +1281,14 @@ export async function playMusic(
     }
     if (!ownsRequest()) return;
     enginePrimed = true;
+    if (singleSong && !automationOwner && !isDeckWindow()) {
+      void fillSingleSongQueue(track, {
+        snapshot: () => ({ ...state, revision: playRequest }),
+        recommendations: singleSongRecommendations,
+        filter: (tracks) => filterBlockedTracks(filterBlockedTracks(tracks, "show"), "play"),
+        apply: setMusicQueue,
+      });
+    }
     armSpotifyStartupWatchdog(request, track);
     if (deckAdoption.deck() !== 0 && !getMusicSpeakerState().active)
       publish({ phase: "playing", error: null });
@@ -1313,7 +1323,16 @@ export async function playMusic(
       failedAttempts.add(attemptKey);
       publish({ phase: "resolving", error: null });
       try {
-        await playMusic(track, queue, failedAttempts, true, skipUnavailable);
+        await playMusic(
+          track,
+          queue,
+          failedAttempts,
+          true,
+          skipUnavailable,
+          false,
+          undefined,
+          singleSong,
+        );
         return;
       } catch {
         /* the retry failed too; fall through to another source */
@@ -1330,6 +1349,9 @@ export async function playMusic(
             failedAttempts,
             true,
             skipUnavailable,
+            false,
+            undefined,
+            singleSong,
           );
           return;
         } catch {

@@ -21,15 +21,16 @@ const PREFERRED_LOOKUP_MS = 9_000;
 export async function resolveAndPlayMusicTrack(
   track: MusicTrack,
   queue: MusicTrack[] = [track],
+  singleSong = false,
 ): Promise<ResolvedMusicPlayback | null> {
   cancelMusicQueueAutomation();
   if (track.playbackUrl) {
-    await playMusic(track, queue);
+    await playMusic(track, queue, undefined, false, false, false, undefined, singleSong);
     return { track, queue };
   }
   // Start as soon as the source is ready; searching other connectors must not gate playback.
   if (startsFromPreferredSource(track, preferredMusicSource())) {
-    await playMusic(track, queue);
+    await playMusic(track, queue, undefined, false, false, false, undefined, singleSong);
     return { track, queue };
   }
   const preferred = preferredMusicSource();
@@ -51,7 +52,7 @@ export async function resolveAndPlayMusicTrack(
     const selectedQueue = queue.map((item) =>
       item.id === track.id && item.connectorId === track.connectorId ? selected : item,
     );
-    await playMusic(selected, selectedQueue);
+    await playMusic(selected, selectedQueue, undefined, false, false, false, undefined, singleSong);
     return { track: selected, queue: selectedQueue };
   }
   // No match on the preferred source: fall back to the full fan-out and pick the best source.
@@ -69,6 +70,6 @@ export async function resolveAndPlayMusicTrack(
   const selectedQueue = queue.map((item) =>
     item.id === track.id && item.connectorId === track.connectorId ? selected : item,
   );
-  await playMusic(selected, selectedQueue);
+  await playMusic(selected, selectedQueue, undefined, false, false, false, undefined, singleSong);
   return { track: selected, queue: selectedQueue };
 }

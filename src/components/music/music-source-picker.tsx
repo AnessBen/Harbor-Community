@@ -45,7 +45,12 @@ type PickerRequest = {
 };
 
 type MusicSourcePickerContextValue = {
-  openSourcePicker: (track: MusicTrack, queue?: MusicTrack[], onReady?: PlaybackReady) => void;
+  openSourcePicker: (
+    track: MusicTrack,
+    queue?: MusicTrack[],
+    onReady?: PlaybackReady,
+    options?: { singleSong?: boolean },
+  ) => void;
 };
 
 const MusicSourcePickerContext = createContext<MusicSourcePickerContextValue | null>(null);
@@ -95,7 +100,13 @@ function MusicSourcePickerRoot({ children, active }: { children: ReactNode; acti
     return () => window.clearTimeout(timer);
   }, [resolving, dismiss]);
   const openSourcePicker = useCallback(
-    (track: MusicTrack, queue = [track], onReady?: PlaybackReady, forceChoice = false) => {
+    (
+      track: MusicTrack,
+      queue = [track],
+      onReady?: PlaybackReady,
+      options?: { singleSong?: boolean; forceChoice?: boolean },
+    ) => {
+      const forceChoice = options?.forceChoice ?? false;
       if (!active) return;
       cancelMusicQueueAutomation();
       const current = ++generation.current;
@@ -113,7 +124,7 @@ function MusicSourcePickerRoot({ children, active }: { children: ReactNode; acti
       };
       if (!forceChoice) {
         setResolving(track);
-        void resolveAndPlayMusicTrack(track, queue)
+        void resolveAndPlayMusicTrack(track, queue, options?.singleSong)
           .then((result) => {
             if (generation.current !== current) return;
             if (!result) {

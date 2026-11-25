@@ -10,6 +10,7 @@ import "./music-collection-controls.css";
 export function MusicCollectionControls({
   tracks,
   playbackQueue,
+  singleSong = false,
   onPlay,
   disabled = false,
   loading = false,
@@ -17,6 +18,7 @@ export function MusicCollectionControls({
 }: {
   tracks: MusicTrack[];
   playbackQueue?: MusicTrack[];
+  singleSong?: boolean;
   onPlay: (track: MusicTrack, queue: MusicTrack[]) => void;
   disabled?: boolean;
   loading?: boolean;
@@ -24,7 +26,7 @@ export function MusicCollectionControls({
 }) {
   const t = useT();
   const transport = useMusicTransport();
-  const { playing, busy, play } = useCollectionPlayback(tracks, onPlay, playbackQueue);
+  const { playing, busy, play } = useCollectionPlayback(tracks, onPlay, playbackQueue, singleSong);
 
   return (
     <div className="music-collection-controls">

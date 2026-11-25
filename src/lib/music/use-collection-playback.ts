@@ -10,6 +10,7 @@ export function useCollectionPlayback(
   tracks: MusicTrack[],
   onPlay: (track: MusicTrack, queue: MusicTrack[]) => void,
   playbackQueue = tracks,
+  singleSong = false,
 ): { playing: boolean; busy: boolean; play: () => void } {
   const player = useMusicPlayer();
   const sourceRequest = useMusicSourceRequest();
@@ -19,7 +20,7 @@ export function useCollectionPlayback(
     playbackQueue.length === player.queue.length &&
     playbackQueue.every((track, index) => identity(track) === identity(player.queue[index]));
   const selected = Boolean(
-    sameQueue &&
+    (sameQueue || singleSong) &&
     player.current &&
     tracks.some((track) => identity(track) === identity(player.current!)),
   );

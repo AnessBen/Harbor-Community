@@ -319,6 +319,8 @@ export function MusicDetail({
         title={title}
         tracks={filtered}
         playbackQueue={detail.searchQueue}
+        singleSong={item.kind === "track" && item.mediaKind !== "video"}
+        singleSong={item.kind === "track" && item.mediaKind !== "video"}
         onPlay={onPlay}
         revealAfter={hero}
       />

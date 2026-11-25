@@ -1454,17 +1454,18 @@ function MusicViewContent({ active }: { active: boolean }) {
                 detail={detail}
                 onBack={closeDetail}
                 onPlay={(track, queue) => {
-                  const playbackQueue =
+                  if (
                     detail.item.kind === "track" &&
-                    detail.searchQueue &&
-                    queue.length === 1 &&
-                    queue[0].id === detail.item.id &&
-                    track.id === detail.item.id
-                      ? detail.searchQueue
-                      : queue;
-                  if (track.mediaKind !== "video")
-                    registerMusicCatalogOrigin(detail.item, playbackQueue);
-                  playTrack(track, playbackQueue);
+                    track.mediaKind !== "video" &&
+                    queueTrackKey(track) === queueTrackKey(detail.item)
+                  ) {
+                    const seedQueue = [track];
+                    registerMusicCatalogOrigin(detail.item, seedQueue);
+                    openSourcePicker(track, seedQueue, undefined, { singleSong: true });
+                    return;
+                  }
+                  if (track.mediaKind !== "video") registerMusicCatalogOrigin(detail.item, queue);
+                  playTrack(track, queue);
                 }}
                 onOpen={openItem}
                 onRetry={() => openItem(detail.item, [], false)}
@@ -1485,7 +1486,11 @@ function MusicViewContent({ active }: { active: boolean }) {
                 }}
                 onPlayTrack={(track, queue) => {
                   rememberMusicSearchItem({ ...track, kind: "track" });
-                  playTrack(track, queue);
+                  if ((!search.mode || search.mode === "search") && track.mediaKind !== "video") {
+                    const seedQueue = [track];
+                    registerMusicCatalogOrigin({ ...track, kind: "track" }, seedQueue);
+                    openSourcePicker(track, seedQueue, undefined, { singleSong: true });
+                  } else playTrack(track, queue);
                 }}
               />
             ) : discoveryPage === "tastes" ? (
