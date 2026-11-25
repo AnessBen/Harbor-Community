@@ -770,9 +770,8 @@ fn gather<T>(response: &Value, key: &str, build: fn(&Value) -> Option<T>, limit:
 }
 
 fn adopt(mut track: MusicTrack, album: &MusicAlbumRef) -> MusicTrack {
-    if track.album.is_none() {
-        track.album = Some(album.title.clone());
-    }
+    // The browsed album, rather than a row's subtitle, owns the album identity.
+    track.album = Some(album.title.clone());
     // The album's cover is the canonical artwork for a track listed on that album.
     if !album.artwork.is_empty() {
         track.artwork = album.artwork.clone();

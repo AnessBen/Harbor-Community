@@ -3,7 +3,7 @@ use super::super::super::{
     MusicStationRef, MusicTrack,
 };
 use super::fields::{
-    clean_title, count_from, details_from, primary, seconds_from_label, year_from, CONNECTOR,
+    clean_title, count_from, details_from_byline, primary, seconds_from_label, year_from, CONNECTOR,
 };
 use super::parse::{
     artwork_of, browse_id_of, fixed_duration, flex_columns, kind_of, nav, runs, text, video_id_of,
@@ -35,7 +35,7 @@ pub fn catalog_item(value: &Value) -> Option<MusicCatalogItem> {
                 subtitle,
             }));
         }
-        let song = details_from(parts);
+        let song = details_from_byline(byline);
         let mut built = track(
             video_id,
             title,
@@ -99,11 +99,7 @@ pub fn track_from_list_item(value: &Value) -> Option<MusicTrack> {
     let video_id = video_id_of(value)?;
     let columns = flex_columns(value);
     let title = columns.first().and_then(|column| text(column))?;
-    let parts = columns
-        .get(1)
-        .map(|column| runs(column))
-        .unwrap_or_default();
-    let details = details_from(parts);
+    let details = details_from_byline(columns.get(1).copied());
     let seconds = if details.duration > 0 {
         details.duration
     } else {
@@ -133,13 +129,12 @@ pub fn track_from_panel(value: &Value) -> Option<MusicTrack> {
                 .map(str::to_string)
         })?;
     let title = value.get("title").and_then(text)?;
-    let parts = value.get("longBylineText").map(runs).unwrap_or_default();
     let seconds = value
         .get("lengthText")
         .and_then(text)
         .and_then(|label| seconds_from_label(&label))
         .unwrap_or_default();
-    let details = details_from(parts);
+    let details = details_from_byline(value.get("longBylineText"));
     let mut built = track(
         &video_id,
         title,

@@ -22,6 +22,70 @@ pub fn details_from(mut parts: Vec<String>) -> Details {
     }
 }
 
+pub fn details_from_byline(value: Option<&serde_json::Value>) -> Details {
+    use serde_json::Value;
+    let Some(value) = value else {
+        return details_from(Vec::new());
+    };
+    let parts = super::parse::runs(value);
+    let mut fallback = details_from(parts);
+    let Some(runs) = value.get("runs").and_then(Value::as_array) else {
+        return fallback;
+    };
+    let mut artists = Vec::new();
+    let mut album = None;
+    let mut structured = false;
+    for run in runs {
+        let Some(name) = run
+            .get("text")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        else {
+            continue;
+        };
+        let Some(endpoint) = run.pointer("/navigationEndpoint/browseEndpoint") else {
+            continue;
+        };
+        let id = endpoint
+            .get("browseId")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let kind = endpoint
+            .pointer(
+                "/browseEndpointContextSupportedConfigs/browseEndpointContextMusicConfig/pageType",
+            )
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        if kind == "MUSIC_PAGE_TYPE_ALBUM" || id.starts_with("MPRE") {
+            structured = true;
+            if album.is_none() {
+                album = Some(name.to_owned());
+            }
+        } else if matches!(
+            kind,
+            "MUSIC_PAGE_TYPE_ARTIST" | "MUSIC_PAGE_TYPE_USER_CHANNEL"
+        ) || id.starts_with("UC")
+        {
+            structured = true;
+            if !artists.iter().any(|a: &String| a == name) {
+                artists.push(name.to_owned());
+            }
+        }
+    }
+    if structured {
+        // Preserve unlinked primary credit when only an album is linked.
+        if !artists.is_empty() {
+            fallback.artist = Some(artists.join(", "));
+        } else if fallback.artist == album {
+            fallback.artist = None;
+        }
+        // Do not mistake an additional artist for an album when no album link exists.
+        fallback.album = album;
+    }
+    fallback
+}
+
 pub fn primary(parts: &[String]) -> Option<String> {
     parts
         .iter()
@@ -124,6 +188,33 @@ fn looks_like_stat(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn structured_byline_keeps_collaborators_out_of_album() {
+        use serde_json::json;
+        let artist = |name: &str, id: &str| json!({"text":name,"navigationEndpoint":{"browseEndpoint":{"browseId":id,"browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_ARTIST"}}}}});
+        let album = json!({"text":"FINAL FANTASY XVI Original Soundtrack - Prelude","navigationEndpoint":{"browseEndpoint":{"browseId":"MPREb_album","browseEndpointContextSupportedConfigs":{"browseEndpointContextMusicConfig":{"pageType":"MUSIC_PAGE_TYPE_ALBUM"}}}}});
+        let a = artist("Masayoshi Soken", "UCa");
+        let b = artist("Nobuo Uematsu", "UCb");
+        let row = json!({"runs":[{"text":"Song"},{"text":" \u{2022} "},a.clone(),{"text":" & "},b.clone(),{"text":" \u{2022} "},album,{"text":"2:28"}]});
+        let details = details_from_byline(Some(&row));
+        assert_eq!(
+            details.artist.as_deref(),
+            Some("Masayoshi Soken, Nobuo Uematsu")
+        );
+        assert_eq!(
+            details.album.as_deref(),
+            Some("FINAL FANTASY XVI Original Soundtrack - Prelude")
+        );
+        assert_eq!(details.duration, 148);
+        let album_row = json!({"runs":[a,{"text":" & "},b]});
+        let details = details_from_byline(Some(&album_row));
+        assert_eq!(
+            details.artist.as_deref(),
+            Some("Masayoshi Soken, Nobuo Uematsu")
+        );
+        assert!(details.album.is_none());
+    }
 
     #[test]
     fn details_split_artist_album_and_duration() {
