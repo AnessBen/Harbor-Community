@@ -23,6 +23,50 @@ const DEVICE_NAME: &str = "Harbor Soloist";
 
 static CHILD: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
 static SINGLE_TRACK: AtomicBool = AtomicBool::new(false);
+
+// Pair mode exits successfully once it has persisted the Spotify session.
+// A stopped process is not necessarily an unpaired process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PairingState {
+    Unknown,
+    Pairing,
+    Paired,
+    Failed(i32),
+}
+impl PairingState {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::Pairing => "pairing",
+            Self::Paired => "paired",
+            Self::Failed(_) => "failed",
+        }
+    }
+    fn completed(code: i32) -> Self {
+        if code == 0 { Self::Paired } else { Self::Failed(code) }
+    }
+}
+static PAIRING: Mutex<PairingState> = Mutex::new(PairingState::Unknown);
+fn pairing_state() -> PairingState {
+    PAIRING.lock().map(|state| *state).unwrap_or(PairingState::Unknown)
+}
+fn set_pairing_state(state: PairingState) {
+    if let Ok(mut current) = PAIRING.lock() { *current = state; }
+}
+fn launch_gate() -> &'static tokio::sync::Mutex<()> {
+    static GATE: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    GATE.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+fn startup_exit_message(code: i32, pairing: PairingState) -> String {
+    match code {
+        10 => "The Spotify Soloist build has expired. Download a current official build.".into(),
+        _ if pairing != PairingState::Paired => format!(
+            "Soloist could not start single-track playback (exit {code}). If not already paired, open Music Connections > Spotify > Configure Spotify Soloist, start pairing mode, then select Harbor Soloist in the official Spotify app. Spotify account authorization alone does not pair Soloist."
+        ),
+        _ => format!("Soloist playback exited early (code {code}). Check the installed build and pair Soloist again if necessary."),
+    }
+}
+
 static SINGLE_EXIT_CODE: OnceLock<Mutex<Option<i32>>> = OnceLock::new();
 fn single_exit_code() -> &'static Mutex<Option<i32>> {
     SINGLE_EXIT_CODE.get_or_init(|| Mutex::new(None))
@@ -102,6 +146,7 @@ pub struct SoloistStatus {
     pub preferred_engine: &'static str,
     pub executable_path: Option<String>,
     pub key_configured: bool,
+    pub pairing_state: &'static str,
     pub active_in_harbor: bool,
     pub active_playback_engine: Option<&'static str>,
     pub active_playback_live: bool,
@@ -239,13 +284,16 @@ fn running() -> bool {
         Some(process) => match process.try_wait() {
             Ok(None) => true,
             other => {
-                crate::music::trace::log(format!("soloist process exit code={}",
-                    match &other { Ok(Some(status)) => status.code().unwrap_or(-1), _ => -1 }));
+                let exit_code = match other {
+                    Ok(Some(status)) => status.code().unwrap_or(-1),
+                    _ => -1,
+                };
+                crate::music::trace::log(format!("soloist process exit code={exit_code}"));
+                if pairing_state() == PairingState::Pairing {
+                    set_pairing_state(PairingState::completed(exit_code));
+                    crate::music::trace::log(format!("soloist pairing result={}", pairing_state().label()));
+                }
                 if SINGLE_TRACK.load(Ordering::SeqCst) {
-                    let exit_code = match other {
-                        Ok(Some(status)) => status.code().unwrap_or(-1),
-                        _ => -1,
-                    };
                     if let Ok(mut exit) = single_exit_code().lock() {
                         *exit = Some(exit_code);
                     }
@@ -308,6 +356,7 @@ pub async fn music_soloist_status(app: AppHandle) -> Result<SoloistStatus, Strin
         preferred_engine: engine(&app),
         executable_path: executable(&app).map(|path| path.to_string_lossy().into_owned()),
         key_configured: keystore::read(&app, KEY).is_some(),
+        pairing_state: pairing_state().label(),
         active_in_harbor: playback::snapshot().is_some_and(|p| p.live),
         active_playback_engine,
         active_playback_live,
@@ -318,7 +367,7 @@ pub async fn music_soloist_status(app: AppHandle) -> Result<SoloistStatus, Strin
         error: None,
         visualizer_error: capture::error(),
     };
-    if active {
+    if active && pairing_state() != PairingState::Pairing {
         match data_dir(&app).ok().and_then(|folder| endpoint(&folder)) {
             Some(url) => match auth_state(&url).await {
                 Ok((logged_in, device_name)) => {
@@ -330,6 +379,20 @@ pub async fn music_soloist_status(app: AppHandle) -> Result<SoloistStatus, Strin
             },
             None => status.error = Some("Soloist's local API is starting or unavailable.".into()),
         }
+    }
+    // Pair mode may finish while the short WebSocket probe is in flight.
+    status.running = running();
+    let pairing = pairing_state();
+    status.pairing_state = pairing.label();
+    if !status.running {
+        status.api_ready = false;
+        status.logged_in = false;
+        status.error = match pairing {
+            PairingState::Paired => None,
+            PairingState::Failed(10) => Some(startup_exit_message(10, PairingState::Unknown)),
+            PairingState::Failed(code) => Some(format!("Soloist pairing exited (code {code}). Check the API key and installed build, then start pairing again.")),
+            _ => status.error,
+        };
     }
     Ok(status)
 }
@@ -345,14 +408,22 @@ pub fn music_soloist_configure(
     }
     if let Some(path) = executable_path {
         let verified = validate_executable(Path::new(path.trim()))?;
-        keystore::write(&app, PATH, Some(&verified.to_string_lossy()))?;
+        let verified = verified.to_string_lossy();
+        if keystore::read(&app, PATH).as_deref() != Some(verified.as_ref()) {
+            keystore::write(&app, PATH, Some(&verified))?;
+            set_pairing_state(PairingState::Unknown);
+        }
     }
     if let Some(key) = api_key {
         let key = key.trim();
         if key.len() > 4096 || key.chars().any(char::is_control) {
             return Err("Invalid Soloist API key.".into());
         }
-        keystore::write(&app, KEY, if key.is_empty() { None } else { Some(key) })?;
+        let next = if key.is_empty() { None } else { Some(key) };
+        if keystore::read(&app, KEY).as_deref() != next {
+            keystore::write(&app, KEY, next)?;
+            set_pairing_state(PairingState::Unknown);
+        }
     }
     Ok(())
 }
@@ -399,6 +470,7 @@ pub async fn music_soloist_set_engine(
 
 #[tauri::command]
 pub async fn music_soloist_start(app: AppHandle) -> Result<SoloistStatus, String> {
+    let _launch = launch_gate().lock().await;
     if running() {
         return music_soloist_status(app).await;
     }
@@ -424,8 +496,7 @@ pub async fn music_soloist_start(app: AppHandle) -> Result<SoloistStatus, String
         DEVICE_NAME,
         "--api-key",
         &key,
-        "--ws",
-        "127.0.0.1:0",
+        "--pair",
     ]);
     command.arg("--data-dir").arg(&data);
     command.arg("--cache-dir").arg(&cache);
@@ -449,24 +520,15 @@ pub async fn music_soloist_start(app: AppHandle) -> Result<SoloistStatus, String
                 spawn_logged(&mut command, "soloist-pairing")
                     .map_err(|e| format!("Failed to start the Soloist executable: {e}"))?,
             );
+            set_pairing_state(PairingState::Pairing);
         }
     }
     // A restarted daemon has a new port; never reuse the old control socket.
     playback::reset_control().await;
-    // Don't wait for Spotify Connect pairing; users must complete that in
-    // the Spotify app. Just give Soloist a short window to initialize its API.
-    for _ in 0..16 {
-        if !running() {
-            return Err(
-                "Soloist exited during startup. Check your API key and install a current build."
-                    .into(),
-            );
-        }
-        if endpoint(&data).is_some() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(150)).await;
-    }
+    // Pair mode does not need a WebSocket. Give the child a moment to reject
+    // invalid startup arguments, then let the user finish pairing in Spotify.
+    // A successful exit is the authoritative signal that the session was saved.
+    tokio::time::sleep(Duration::from_millis(250)).await;
     music_soloist_status(app).await
 }
 
@@ -479,6 +541,11 @@ pub(super) async fn start_harbor_track(
     uri: &str,
     initial_volume: u8,
 ) -> Result<(), String> {
+    let _launch = launch_gate().lock().await;
+    // Don't kill the pairing process while it is saving the session.
+    if running() && pairing_state() == PairingState::Pairing {
+        return Err("Finish Soloist pairing in the official Spotify app before starting playback.".into());
+    }
     // Stop only the process Harbor launched; never touch unrelated Connect
     // devices. Do this before creating the new URI's playback observer.
     terminate_managed()?;
@@ -535,7 +602,7 @@ pub(super) async fn start_harbor_track(
     for _ in 0..30 {
         if !running() {
             let code = single_track_exit().unwrap_or(-1);
-            return Err(format!("Soloist single-track playback exited early (code {code}). Check pairing and the installed build."));
+            return Err(startup_exit_message(code, pairing_state()));
         }
         if let Some(url) = endpoint(&data) {
             // The restored session must really be authenticated before
@@ -544,6 +611,7 @@ pub(super) async fn start_harbor_track(
             saw_endpoint = true;
             match auth_state(&url).await {
                 Ok((true, _)) => {
+                    set_pairing_state(PairingState::Paired);
                     crate::music::trace::log("soloist authenticated API ready");
                     return Ok(());
                 }
@@ -558,7 +626,11 @@ pub(super) async fn start_harbor_track(
         auth_error.as_deref().unwrap_or("-")
     ));
     let _ = terminate_managed();
-    Err("Soloist single-track playback did not become ready. Pair Soloist first.".into())
+    if saw_logged_out {
+        set_pairing_state(PairingState::Unknown);
+        return Err("Soloist has not restored an authenticated session. Start pairing mode in Music Connections and complete pairing in the official Spotify app.".into());
+    }
+    Err("Soloist single-track playback did not become ready. Check the local API and installed build.".into())
 }
 
 /// Forcefully release Soloist's audio output when its WebSocket cannot stop it.
@@ -580,6 +652,10 @@ pub fn terminate_managed() -> Result<(), String> {
         }
         let _ = process.wait();
     }
+    if pairing_state() == PairingState::Pairing {
+        // A user-cancelled pairing is not a successful pairing exit.
+        set_pairing_state(PairingState::Unknown);
+    }
     Ok(())
 }
 
@@ -598,6 +674,22 @@ pub fn music_soloist_stop() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn pairing_exit_distinguishes_saved_session_from_failure() {
+        assert_eq!(PairingState::completed(0), PairingState::Paired);
+        assert_eq!(PairingState::completed(1), PairingState::Failed(1));
+        assert_eq!(PairingState::completed(10), PairingState::Failed(10));
+        assert_eq!(PairingState::Pairing.label(), "pairing");
+        assert_eq!(PairingState::Paired.label(), "paired");
+    }
+
+    #[test]
+    fn soloist_startup_errors_distinguish_pairing_and_expired_build() {
+        assert!(startup_exit_message(1, PairingState::Unknown).contains("Spotify account authorization alone"));
+        assert!(startup_exit_message(10, PairingState::Unknown).contains("expired"));
+        assert!(startup_exit_message(1, PairingState::Paired).contains("exited early"));
+    }
+
     #[test]
     fn soloist_is_default_but_explicit_librespot_selection_is_retained() {
         assert_eq!(selected_engine(None), "soloist");
