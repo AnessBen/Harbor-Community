@@ -192,7 +192,7 @@ export function SpotifySoloistSetup({
           </summary>
           <p className="mt-3 max-w-3xl text-[12px] leading-5 text-ink-muted">
             Spotify requires every listener to download Soloist and generate their own API key. Harbor does not ship its executable.
-            Initial pairing requires a Premium account. After starting, select <strong>Harbor Soloist</strong> from Spotify Connect in the official Spotify app on the same network.
+            Soloist pairing is separate from Spotify account authorization and requires a Premium account. Start pairing mode, then select <strong>Harbor Soloist</strong> from Spotify Connect in the official Spotify app on the same network. Soloist exits automatically once its session has been saved.
           </p>
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-[12px]">
             <button type="button" className="font-medium text-ink-muted underline decoration-edge underline-offset-4 transition-colors hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent" onClick={() => void openUrl(DOWNLOAD_URL)}>Official Soloist downloads</button>
@@ -223,12 +223,12 @@ export function SpotifySoloistSetup({
               </button>
               {status?.running ? (
                 <button type="button" disabled={busy} className={BUTTON} onClick={() => void act(stopSoloist)}>
-                  Stop Soloist
+                  {status.pairingState === "pairing" ? "Cancel pairing" : "Stop Soloist"}
                 </button>
               ) : (
                 <button type="button" disabled={busy || !status?.keyConfigured || !status.executablePath} className={BUTTON}
                   onClick={() => void act(startSoloist)}>
-                  Start pairing mode
+                  {status?.pairingState === "paired" ? "Pair again" : "Start pairing mode"}
                 </button>
               )}
               <button type="button" disabled={busy} className={BUTTON} onClick={() => void act(refresh)}>
@@ -236,14 +236,17 @@ export function SpotifySoloistSetup({
               </button>
             </div>
             <p role="status" aria-live="polite" className="mt-1 flex items-center gap-2 text-[12px] leading-5 text-ink-muted">
-              <span aria-hidden="true" className={status?.running && status.loggedIn ? "size-1.5 shrink-0 rounded-full bg-accent" : "size-1.5 shrink-0 rounded-full bg-ink-subtle"} />
+              <span aria-hidden="true" className={status?.loggedIn || status?.pairingState === "paired" ? "size-1.5 shrink-0 rounded-full bg-accent" : "size-1.5 shrink-0 rounded-full bg-ink-subtle"} />
               {status?.activeInHarbor ? "Harbor is using Soloist" : !status ? "Checking Soloist..." :
-                !status.running && status.preferredEngine === "soloist" && status.keyConfigured && status.executablePath
-                  ? "Idle — starts automatically when Harbor plays a song" :
+                status.pairingState === "pairing" ? "Pairing - select Harbor Soloist in the official Spotify app" :
+                status.pairingState === "failed" ? "Pairing failed - check the error below" :
+                !status.running && status.pairingState === "paired" ? "Paired - ready for single-track playback" :
+                !status.running && status.keyConfigured && status.executablePath
+                  ? "Session not verified this launch - play if already paired, or start pairing mode" :
                 !status.running ? "Not running" :
                 !status.apiReady ? "Starting / local API unavailable" :
-                status.loggedIn ? `Paired - ${status.deviceName || "Harbor Soloist"}` :
-                  "Running - open Spotify Connect to finish pairing"}
+                status.loggedIn ? `Authenticated - ${status.deviceName || "Harbor Soloist"}` :
+                  "Running - waiting for authentication"}
             </p>
             {status?.error && <p className="text-[12px] text-ink-muted">{status.error}</p>}
             {status?.visualizerError && (

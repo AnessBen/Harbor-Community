@@ -4,6 +4,7 @@ export type SoloistStatus = {
   preferredEngine: "librespot" | "soloist";
   executablePath: string | null;
   keyConfigured: boolean;
+  pairingState: "unknown" | "pairing" | "paired" | "failed";
   activeInHarbor: boolean;
   activePlaybackEngine: "soloist" | "librespot" | null;
   activePlaybackLive: boolean;
