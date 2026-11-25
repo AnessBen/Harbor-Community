@@ -1,6 +1,7 @@
 import { safeFetch } from "@/lib/safe-fetch";
 import { parse as parseYaml } from "yaml";
 import type { MusicTrack } from "./types";
+import { backingTrackVersion } from "./source-version";
 
 export type LyricWord = { at: number; end?: number; text: string };
 export type LyricLine = { at: number; text: string; unsynced?: true; words?: LyricWord[] };
@@ -263,6 +264,68 @@ function bilingualAliases(value: string): string[] {
     ((nativeOnly(a) && latinOnly(b)) || (latinOnly(a) && nativeOnly(b)))
     ? [a, b]
     : [];
+}
+
+/** Soundtrack release labels are not recording versions. Only remove an
+ * explicit, delimited soundtrack descriptor, never an arbitrary subtitle. */
+function soundtrackTitle(value: string): { base: string; role: string } | null {
+  const raw = value.normalize("NFKC").trim();
+  const pair =
+    /^(.+?)\s*(?:\s+[-\u2013\u2014]\s+|\|)\s*(.+)$/u.exec(raw) ??
+    /^(.+?)\s*[\(\[]([^\)\]]+)[\)\]]$/u.exec(raw);
+  if (!pair) return null;
+  const base = pair[1].trim();
+  const descriptor = normalizeMatch(pair[2]);
+  // Keep explicit alternative recordings out of the soundtrack alias path.
+  if (!base || VERSION_LABEL.test(base) || VERSION_LABEL.test(descriptor)) return null;
+  const release =
+    /^(?:(?:music|song|theme) from (?:the )?(?:original )?(?:(?:tv|television) (?:series|show)|(?:motion picture|film|movie))|(?:original )?(?:(?:tv|television) (?:series|show)|motion picture|film|movie) soundtrack|original soundtrack)$/i;
+  if (release.test(descriptor)) return { base, role: "" };
+  if (/^opening (?:theme|credits)$/i.test(descriptor)) return { base, role: "opening" };
+  if (/^(?:ending|closing) (?:theme|credits)$/i.test(descriptor)) return { base, role: "ending" };
+  // Arabic opening/closing credits may include the name of the TV series.
+  const arabic =
+    /^\u062a\u062a\u0631 (\u0627\u0644\u0628\u062f\u0627\u064a\u0629|\u0627\u0644\u0646\u0647\u0627\u064a\u0629)(?: \u0645\u0633\u0644\u0633\u0644 .+)?$/u.exec(
+      descriptor,
+    );
+  if (arabic)
+    return {
+      base,
+      role: arabic[1] === "\u0627\u0644\u0628\u062f\u0627\u064a\u0629" ? "opening" : "ending",
+    };
+  return null;
+}
+
+function soundtrackBase(value: string): string {
+  return normalizeMatch(soundtrackTitle(value)?.base ?? value);
+}
+
+function soundtrackAliasMatch(
+  row: LrcRow,
+  originals: string[],
+  artists: string[],
+  duration: number,
+  album: string,
+): boolean {
+  const name = text(row.trackName ?? row.name);
+  const artist = text(row.artistName);
+  const time = seconds(row.duration);
+  if (!name || !artist || !time || !duration || Math.abs(time - duration) > 3) return false;
+  if (!compatible(artist, artists)) return false;
+  const candidateAlbum = text(row.albumName);
+  // If both providers identify the release, require the same release after
+  // removing explicit soundtrack labels, not merely similar album names.
+  if (album && candidateAlbum && soundtrackBase(album) !== soundtrackBase(candidateAlbum))
+    return false;
+  const candidate = soundtrackTitle(name);
+  return originals.some((original) => {
+    const source = soundtrackTitle(original);
+    if (!source && !candidate) return false;
+    if (source?.role && candidate?.role && source.role !== candidate.role) return false;
+    const left = soundtrackBase(original);
+    const right = soundtrackBase(name);
+    return !!left && left === right;
+  });
 }
 
 function aliases(value: string): string[] {
@@ -735,6 +798,129 @@ export function lyricTitle(title: string, artist: string): string {
   return cleaned || text(title).trim();
 }
 
+/** Only catalog-proven recording credits, never guessed transliterations. */
+function creditScript(value: string): "latin" | "native" | null {
+  const letters = value.match(/\p{L}/gu) ?? [];
+  if (!letters.length) return null;
+  const latin = letters.filter((letter) => LATIN_SCRIPT.test(letter)).length;
+  return latin === letters.length ? "latin" : latin === 0 ? "native" : null;
+}
+
+const LYRICS_CATALOG_SOURCES = ["spotify", "youtube"] as const;
+const CATALOG_LOOKUP_MS = 5_000;
+
+function lyricsCatalogSource(value?: string): string | undefined {
+  if (value && ["youtube_music", "youtubemusic", "youtube-music"].includes(value)) return "youtube";
+  return value;
+}
+
+async function verifiedCatalogArtist(
+  track: MusicTrack,
+  signal: AbortSignal,
+): Promise<string | null> {
+  const origin = track.collectionOrigin;
+  const from = lyricsCatalogSource(origin?.connectorId ?? track.connectorId);
+  const to = LYRICS_CATALOG_SOURCES.find((id) => id !== from);
+  const title = origin?.title || track.title;
+  const artist = origin?.artist || track.artist;
+  const album = text(track.album).trim();
+  const duration = seconds(track.durationSeconds);
+  const script = creditScript(artist);
+  // A private/local file or a single-title release does not provide sufficiently
+  // independent catalog corroboration. Do not send it to another service.
+  if (
+    !from ||
+    !LYRICS_CATALOG_SOURCES.some((id) => id === from) ||
+    !to ||
+    !script ||
+    !duration ||
+    !normalizeMatch(title) ||
+    !normalizeMatch(album) ||
+    normalizeMatch(title) === normalizeMatch(album) ||
+    track.mediaKind === "video" ||
+    signal.aborted
+  )
+    return null;
+  const { musicSourceAllowed } = await import("./source-consent");
+  if (!musicSourceAllowed(from) || !musicSourceAllowed(to) || signal.aborted) return null;
+  const { getMusicSourceCandidates } = await import("./sources");
+  const target: MusicTrack = {
+    ...track,
+    id: origin?.id ?? track.id,
+    connectorId: from,
+    title,
+    artist,
+    collectionOrigin: undefined,
+  };
+  const deadline = AbortSignal.any([signal, AbortSignal.timeout(CATALOG_LOOKUP_MS)]);
+  if (deadline.aborted) return null;
+  let cancel: (() => void) | undefined;
+  try {
+    const candidates = await Promise.race([
+      getMusicSourceCandidates(target, to),
+      new Promise<never>((_, reject) => {
+        cancel = () => reject(new Error("Lyrics catalog lookup cancelled"));
+        deadline.addEventListener("abort", cancel, { once: true });
+        if (deadline.aborted) cancel();
+      }),
+    ]);
+    if (deadline.aborted || !musicSourceAllowed(from) || !musicSourceAllowed(to)) return null;
+    const selectedSource = lyricsCatalogSource(track.connectorId);
+    const matches = candidates.filter((candidate) => {
+      const item = candidate.track;
+      const otherScript = creditScript(text(item.artist));
+      // The native matcher supplies candidates, not proof of artist identity.
+      // Require an exact independent album, full title and a two-second window.
+      // If playback already selected this other source, verify that exact item.
+      return (
+        candidate.connectorId === to &&
+        lyricsCatalogSource(item.connectorId) === to &&
+        candidate.health !== "offline" &&
+        !!item.id &&
+        item.mediaKind !== "video" &&
+        !item.collectionOrigin &&
+        (!origin || selectedSource !== to || item.id === track.id) &&
+        normalizeMatch(item.title) === normalizeMatch(title) &&
+        normalizeMatch(text(item.album)) === normalizeMatch(album) &&
+        seconds(item.durationSeconds) > 0 &&
+        Math.abs(item.durationSeconds - duration) <= 2 &&
+        normalizeMatch(text(item.version)) === normalizeMatch(text(track.version)) &&
+        otherScript !== null &&
+        otherScript !== script &&
+        creditParts(item.artist).length === creditParts(artist).length
+      );
+    });
+    // Do not promote conflicting catalog credits or learn a global artist alias.
+    const names = unique(matches.map(({ track: item }) => item.artist));
+    if (new Set(names.map(normalizeMatch)).size !== 1) return null;
+    return names[0] ?? null;
+  } finally {
+    if (cancel) deadline.removeEventListener("abort", cancel);
+  }
+}
+
+function verifiedCatalogLyrics(
+  rows: LrcRow[],
+  title: string,
+  artist: string,
+  album: string,
+  duration: number,
+): LyricLine[] | null {
+  const ranked = rows
+    .filter(
+      (row) =>
+        normalizeMatch(text(row.trackName ?? row.name)) === normalizeMatch(title) &&
+        normalizeMatch(text(row.artistName)) === normalizeMatch(artist) &&
+        normalizeMatch(text(row.albumName)) === normalizeMatch(album) &&
+        seconds(row.duration) > 0 &&
+        Math.abs(seconds(row.duration) - duration) <= 2,
+    )
+    .sort(
+      (a, b) => Math.abs(seconds(a.duration) - duration) - Math.abs(seconds(b.duration) - duration),
+    );
+  return readRankedLyrics(ranked, duration);
+}
+
 async function fetchLyrics(track: MusicTrack, signal?: AbortSignal): Promise<LyricLine[] | null> {
   const artist = text(track.artist).trim();
   const title = lyricTitle(track.title, artist);
@@ -760,6 +946,33 @@ async function fetchLyrics(track: MusicTrack, signal?: AbortSignal): Promise<Lyr
   const queryFor = (t: string, a: string) =>
     "artist_name=" + encodeURIComponent(a) + "&track_name=" + encodeURIComponent(t);
   const query = queryFor(title, artist);
+  const originals = unique([track.title, origin?.title ?? ""]);
+  const soundtrackSearch = originals
+    .map((original) => soundtrackTitle(original)?.base)
+    .find((base) => base && normalizeMatch(base) !== normalizeMatch(title));
+  // Keep soundtrack variants out of the permissive general alias path.
+  // Exact original titles still use the existing matcher; shortened labels
+  // require explicit artist metadata and a tightly matching duration.
+  const isSoundtrackAlias = (row: LrcRow) => {
+    const name = text(row.trackName ?? row.name);
+    return (
+      !originals.some((original) => normalizeMatch(original) === normalizeMatch(name)) &&
+      (originals.some((original) => soundtrackTitle(original) !== null) ||
+        soundtrackTitle(name) !== null)
+    );
+  };
+  const splitRows = (rows: LrcRow[]) => ({
+    ordinary: rows.filter((row) => !isSoundtrackAlias(row)),
+    soundtrack: rows
+      .filter(
+        (row) =>
+          isSoundtrackAlias(row) && soundtrackAliasMatch(row, originals, artists, duration, album),
+      )
+      .sort(
+        (a, b) =>
+          Math.abs(seconds(a.duration) - duration) - Math.abs(seconds(b.duration) - duration),
+      ),
+  });
   const bilingualTitle = unique([
     ...bilingualAliases(track.title),
     ...bilingualAliases(origin?.title ?? ""),
@@ -813,6 +1026,7 @@ async function fetchLyrics(track: MusicTrack, signal?: AbortSignal): Promise<Lyr
       .filter((candidate) => candidate !== title)
       .slice(0, 3)
       .map((candidate) => API + "/search?" + queryFor(candidate, artist)),
+    soundtrackSearch ? API + "/search?" + queryFor(soundtrackSearch, artist) : "",
     ...artists
       .filter((candidate) => candidate !== artist)
       .slice(0, 2)
@@ -823,7 +1037,7 @@ async function fetchLyrics(track: MusicTrack, signal?: AbortSignal): Promise<Lyr
   const lookup = signal ? AbortSignal.any([signal, budget]) : budget;
   for (const url of attempts) {
     try {
-      const rows = rowsOf(await json(url, lookup));
+      const { ordinary: rows, soundtrack } = splitRows(rowsOf(await json(url, lookup)));
       const found = chooseLyrics(rows, duration, titles, artists, requestedCredits, album);
       if (hasTimedLyrics(found)) return found;
       if (found && !plain) plain = found;
@@ -841,6 +1055,11 @@ async function fetchLyrics(track: MusicTrack, signal?: AbortSignal): Promise<Lyr
         )
       )
         return null;
+      if (soundtrack[0]?.instrumental !== true) {
+        const matched = readRankedLyrics(soundtrack, duration);
+        if (hasTimedLyrics(matched)) return matched;
+        if (matched && !plain) plain = matched;
+      }
     } catch (error) {
       if (signal?.aborted) throw error;
       if (plain) return plain;
@@ -868,7 +1087,7 @@ async function fetchLyrics(track: MusicTrack, signal?: AbortSignal): Promise<Lyr
     ]);
     for (const url of broadAttempts) {
       try {
-        const rows = rowsOf(await json(url, lookup));
+        const { ordinary: rows, soundtrack } = splitRows(rowsOf(await json(url, lookup)));
         const found = chooseFallbackLyrics(
           rows,
           duration,
@@ -879,11 +1098,44 @@ async function fetchLyrics(track: MusicTrack, signal?: AbortSignal): Promise<Lyr
         );
         if (hasTimedLyrics(found)) return found;
         if (found && !plain) plain = found;
+        if (soundtrack[0]?.instrumental !== true) {
+          const matched = readRankedLyrics(soundtrack, duration);
+          if (hasTimedLyrics(matched)) return matched;
+          if (matched && !plain) plain = matched;
+        }
       } catch (error) {
         if (signal?.aborted) throw error;
         if (plain) return plain;
         throw error;
       }
+    }
+  }
+  // Only after existing exact, bilingual, soundtrack and broad lookups miss.
+  // The alias is scoped to this recording and never alters the displayed track.
+  if (!lookup.aborted) {
+    try {
+      const alias = await verifiedCatalogArtist(track, lookup);
+      if (alias && !lookup.aborted) {
+        const originalTitle = origin?.title || track.title;
+        const aliasQuery = queryFor(originalTitle, alias);
+        for (const url of [
+          API +
+            "/get?" +
+            aliasQuery +
+            "&album_name=" +
+            encodeURIComponent(album) +
+            "&duration=" +
+            Math.round(duration),
+          API + "/search?" + aliasQuery,
+        ]) {
+          const rows = rowsOf(await json(url, lookup));
+          const matched = verifiedCatalogLyrics(rows, originalTitle, alias, album, duration);
+          if (hasTimedLyrics(matched)) return matched;
+          if (matched && !plain) plain = matched;
+        }
+      }
+    } catch (error) {
+      if (!plain) throw error;
     }
   }
   return plain;
@@ -894,6 +1146,11 @@ export function loadTrackLyrics(
   signal?: AbortSignal,
 ): Promise<LyricLine[] | null> {
   if (!track || typeof track !== "object" || signal?.aborted) return Promise.resolve(null);
+  if (
+    backingTrackVersion(track) ||
+    (track.collectionOrigin?.title && backingTrackVersion({ title: track.collectionOrigin.title }))
+  )
+    return Promise.resolve(null);
   const key = identity(track);
   let request = cache.get(key);
   if (request && request.expiresAt <= Date.now()) {

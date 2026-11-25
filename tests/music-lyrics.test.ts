@@ -17,7 +17,16 @@ const KING_VON = [
   "[00:18] Evil twins",
 ].join("\n");
 
-function build(safeFetch: (url: string, init?: { signal?: AbortSignal }) => Promise<unknown>) {
+function build(
+  safeFetch: (url: string, init?: { signal?: AbortSignal }) => Promise<unknown>,
+  catalog?: {
+    allowed?: (id: string) => boolean;
+    candidates: (
+      track: import("../src/lib/music/types").MusicTrack,
+      connector: string,
+    ) => Promise<unknown[]>;
+  },
+) {
   const calls: string[] = [];
   const input = readFileSync(new URL("../src/lib/music/lyrics.ts", import.meta.url), "utf8");
   const output = ts.transpileModule(input, {
@@ -27,6 +36,19 @@ function build(safeFetch: (url: string, init?: { signal?: AbortSignal }) => Prom
   new Function("require", "module", "exports", output)(
     (name: string) => {
       if (name === "yaml") return yaml;
+      if (name === "./source-version")
+        return {
+          backingTrackVersion: (track: { title: string; version?: string }) =>
+            /\b(?:instrumental|karaoke|backing[ -]?track|no[ -]?vocals|without vocals|vocal[ -]?removed|sing[ -]?along)\b/i.test(
+              track.title + " " + (track.version ?? ""),
+            )
+              ? "instrumental"
+              : null,
+        };
+      if (name === "./source-consent")
+        return { musicSourceAllowed: (id: string) => catalog?.allowed?.(id) ?? !!catalog };
+      if (name === "./sources")
+        return { getMusicSourceCandidates: catalog?.candidates ?? (async () => []) };
       assert.equal(name, "@/lib/safe-fetch");
       return {
         safeFetch: async (url: string, init?: { signal?: AbortSignal }) => {
@@ -1116,4 +1138,325 @@ test("paired original catalog credits can discover the recording in a different 
     ),
     [{ at: 1, text: "Matched" }],
   );
+});
+
+test("soundtrack descriptors recover the matching TV recording with tight duration", async () => {
+  const title =
+    "Forsa Tanya | \u062a\u062a\u0631 \u0627\u0644\u0628\u062f\u0627\u064a\u0629 (\u0645\u0633\u0644\u0633\u0644 \u0641\u0631\u0635\u0629 \u062a\u0627\u0646\u064a\u0629)";
+  const candidate = {
+    trackName: "Forsa Tanya - Music from the Original TV Series",
+    artistName: "Ramy Sabry",
+    albumName: "Forsa Tanya (Music from the Original TV Series)",
+    duration: 246,
+    syncedLyrics: "[00:02]Matched",
+  };
+  const { lyrics, calls } = build(async (url) =>
+    ok(
+      new URL(url).searchParams.get("track_name") === "Forsa Tanya"
+        ? [{ ...candidate, duration: 258, syncedLyrics: "[00:01]Different recording" }, candidate]
+        : [],
+    ),
+  );
+  assert.deepEqual(
+    await lyrics.loadTrackLyrics(
+      track({ title, artist: "Ramy Sabry", album: "Forsa Tanya", durationSeconds: 247 }),
+    ),
+    [{ at: 2, text: "Matched" }],
+  );
+  assert.ok(calls.some((url) => new URL(url).searchParams.get("track_name") === "Forsa Tanya"));
+});
+
+test("soundtrack matching works in either direction for explicitly labeled film and television releases", async () => {
+  for (const [title, candidateTitle] of [
+    ["Example Song (Original Motion Picture Soundtrack)", "Example Song"],
+    ["Example Song", "Example Song (Music from the Original TV Series)"],
+    ["Example Song - Opening Theme", "Example Song - Music from the Original TV Series"],
+  ]) {
+    const { lyrics } = build(async () =>
+      ok([
+        {
+          trackName: candidateTitle,
+          artistName: "Example Artist",
+          albumName: "Example Album (Original Soundtrack)",
+          duration: 200,
+          syncedLyrics: "[00:03]Matched",
+        },
+      ]),
+    );
+    assert.deepEqual(
+      await lyrics.loadTrackLyrics(
+        track({ title, artist: "Example Artist", album: "Example Album", durationSeconds: 201 }),
+      ),
+      [{ at: 3, text: "Matched" }],
+    );
+  }
+});
+
+test("soundtrack fallback rejects wrong artist, release, duration, role and alternate recording", async () => {
+  const row = {
+    trackName: "Example Song - Music from the Original TV Series",
+    artistName: "Example Artist",
+    albumName: "Example Album (Original Soundtrack)",
+    duration: 200,
+    syncedLyrics: "[00:01]Wrong",
+  };
+  for (const candidate of [
+    { ...row, artistName: "Different Artist" },
+    { ...row, artistName: undefined },
+    { ...row, albumName: "Unrelated Album" },
+    { ...row, duration: 205 },
+    { ...row, duration: undefined },
+    { ...row, trackName: "Example Song - Ending Theme" },
+    { ...row, trackName: "Example Song (Live)" },
+    { ...row, trackName: "Example Song - Music from the Original TV Series (Remix)" },
+    { ...row, trackName: "Example Song - Unrelated Subtitle" },
+    { ...row, trackName: "Other Song - Music from the Original TV Series" },
+  ]) {
+    const { lyrics } = build(async () => ok([candidate]));
+    assert.equal(
+      await lyrics.loadTrackLyrics(
+        track({
+          title: "Example Song - Opening Theme",
+          artist: "Example Artist",
+          album: "Example Album",
+          durationSeconds: 200,
+        }),
+      ),
+      null,
+      JSON.stringify(candidate),
+    );
+  }
+});
+
+test("parenthesized soundtrack aliases cannot bypass the tight duration and release checks", async () => {
+  for (const extra of [
+    { duration: 205 },
+    { albumName: "Other Album" },
+    { artistName: undefined },
+  ]) {
+    const { lyrics } = build(async () =>
+      ok([
+        {
+          trackName: "Example Song (Music from the Original TV Series)",
+          artistName: "Example Artist",
+          albumName: "Example Album",
+          duration: 200,
+          syncedLyrics: "[00:01]Wrong",
+          ...extra,
+        },
+      ]),
+    );
+    assert.equal(
+      await lyrics.loadTrackLyrics(
+        track({
+          title: "Example Song",
+          artist: "Example Artist",
+          album: "Example Album",
+          durationSeconds: 200,
+        }),
+      ),
+      null,
+    );
+  }
+});
+
+test("verified catalog recording credits enable cross-script lyrics without changing track metadata", async () => {
+  const original = track({
+    connectorId: "spotify",
+    title: "My Star",
+    artist: "\u7956\u5805 \u6b63\u6176",
+    album: "FINAL FANTASY XVI Original Soundtrack",
+    durationSeconds: 289,
+  });
+  const other = {
+    ...original,
+    connectorId: "youtube",
+    id: "yt",
+    artist: "Masayoshi Soken",
+    durationSeconds: 290,
+  };
+  const row = {
+    trackName: "My Star",
+    artistName: other.artist,
+    albumName: original.album,
+    duration: 289,
+    syncedLyrics: "[00:02]Matched",
+  };
+  let lookups = 0;
+  const { lyrics, calls } = build(
+    async (url) => ok(new URL(url).searchParams.get("artist_name") === other.artist ? [row] : []),
+    {
+      candidates: async (target, connector) => {
+        lookups++;
+        assert.equal(connector, "youtube");
+        assert.equal(target.artist, original.artist);
+        return [{ connectorId: "youtube", health: "healthy", track: other }];
+      },
+    },
+  );
+  assert.deepEqual(await lyrics.loadTrackLyrics(original), [{ at: 2, text: "Matched" }]);
+  assert.equal(lookups, 1);
+  assert.equal(original.artist, "\u7956\u5805 \u6b63\u6176");
+  assert.ok(calls.some((url) => new URL(url).searchParams.get("artist_name") === other.artist));
+});
+
+test("verified cross-script credit discovery works in reverse and uses original collection provenance", async () => {
+  const original = track({
+    connectorId: "spotify",
+    title: "Example",
+    artist: "Example Artist",
+    album: "Album release",
+    durationSeconds: 200,
+  });
+  const native = "\u4f8b\u306e\u4f5c\u66f2\u5bb6";
+  const current = {
+    ...original,
+    connectorId: "youtube",
+    id: "selected",
+    collectionOrigin: {
+      id: "original",
+      connectorId: "spotify",
+      title: original.title,
+      artist: original.artist,
+    },
+  };
+  const row = {
+    trackName: original.title,
+    artistName: native,
+    albumName: original.album,
+    duration: 200,
+    syncedLyrics: "[00:04]Matched",
+  };
+  const { lyrics } = build(
+    async (url) => ok(new URL(url).searchParams.get("artist_name") === native ? [row] : []),
+    {
+      candidates: async (target, connector) => {
+        assert.equal(target.id, "original");
+        assert.equal(target.connectorId, "spotify");
+        assert.equal(connector, "youtube");
+        return [
+          {
+            connectorId: "youtube",
+            health: "healthy",
+            track: { ...original, connectorId: "youtube", id: "selected", artist: native },
+          },
+        ];
+      },
+    },
+  );
+  assert.deepEqual(await lyrics.loadTrackLyrics(current), [{ at: 4, text: "Matched" }]);
+});
+
+test("catalog artist fallback rejects conflicting, unverified and different recordings", async () => {
+  const original = track({
+    connectorId: "spotify",
+    title: "Example",
+    artist: "\u4f8b\u306e\u4f5c\u66f2\u5bb6",
+    album: "Album release",
+    durationSeconds: 200,
+  });
+  const other = { ...original, connectorId: "youtube", id: "yt", artist: "Example Artist" };
+  const candidate = (extra = {}) => ({
+    connectorId: "youtube",
+    health: "healthy",
+    track: { ...other, ...extra },
+  });
+  for (const candidates of [
+    [candidate({ title: "Other Song" })],
+    [candidate({ album: "Other Album" })],
+    [candidate({ durationSeconds: 203 })],
+    [candidate({ mediaKind: "video" })],
+    [candidate({ connectorId: "soundcloud" })],
+    [candidate({ version: "Live" })],
+    [candidate({ artist: "Example Artist, Other Artist" })],
+    [candidate(), candidate({ artist: "Different Artist" })],
+    [{ ...candidate(), health: "offline" }],
+  ]) {
+    const { lyrics, calls } = build(async () => ok([]), { candidates: async () => candidates });
+    assert.equal(await lyrics.loadTrackLyrics(original), null);
+    assert.ok(!calls.some((url) => new URL(url).searchParams.get("artist_name") === other.artist));
+  }
+});
+
+test("verified catalog artist still requires exact LRCLIB recording metadata", async () => {
+  const original = track({
+    connectorId: "spotify",
+    title: "Example",
+    artist: "\u4f8b\u306e\u4f5c\u66f2\u5bb6",
+    album: "Album release",
+    durationSeconds: 200,
+  });
+  const other = { ...original, connectorId: "youtube", id: "yt", artist: "Example Artist" };
+  const row = {
+    trackName: original.title,
+    artistName: other.artist,
+    albumName: original.album,
+    duration: 200,
+    syncedLyrics: "[00:01]Wrong",
+  };
+  for (const invalid of [
+    { ...row, trackName: "Example (Live)" },
+    { ...row, artistName: "Other Artist" },
+    { ...row, albumName: "Other Album" },
+    { ...row, duration: 203 },
+    { ...row, artistName: undefined },
+    { ...row, albumName: undefined },
+    { ...row, instrumental: true },
+  ]) {
+    const { lyrics } = build(
+      async (url) =>
+        ok(new URL(url).searchParams.get("artist_name") === other.artist ? [invalid] : []),
+      {
+        candidates: async () => [{ connectorId: "youtube", health: "healthy", track: other }],
+      },
+    );
+    assert.equal(await lyrics.loadTrackLyrics(original), null);
+  }
+});
+
+test("catalog alias discovery respects source consent, local privacy and the exact-match fast path", async () => {
+  const original = track({
+    connectorId: "spotify",
+    title: "Example",
+    artist: "\u4f8b\u306e\u4f5c\u66f2\u5bb6",
+    album: "Album release",
+    durationSeconds: 200,
+  });
+  let calls = 0;
+  const candidates = async () => {
+    calls++;
+    return [];
+  };
+  for (const t of [
+    original,
+    { ...original, connectorId: "local" },
+    { ...original, album: original.title },
+  ]) {
+    const { lyrics } = build(async () => ok([]), { candidates, allowed: (id) => id !== "youtube" });
+    assert.equal(await lyrics.loadTrackLyrics(t), null);
+  }
+  const { lyrics } = build(
+    async () =>
+      ok({
+        trackName: original.title,
+        artistName: original.artist,
+        duration: 200,
+        syncedLyrics: "[00:01]Exact",
+      }),
+    { candidates },
+  );
+  assert.deepEqual(await lyrics.loadTrackLyrics(original), [{ at: 1, text: "Exact" }]);
+  assert.equal(calls, 0);
+});
+
+test("explicit instrumental tracks do not query LRCLIB", async () => {
+  const { lyrics, calls } = build(async () => ok([]));
+  for (const t of [
+    track({ title: "To the Wilder (Instrumental)" }),
+    track({ version: "Karaoke" }),
+    track({ collectionOrigin: { id: "original", title: "Song (Instrumental)" } }),
+  ]) {
+    assert.equal(await lyrics.loadTrackLyrics(t), null);
+  }
+  assert.equal(calls.length, 0);
 });
