@@ -35,22 +35,27 @@ export async function fillSingleSongQueue(
     initial.phase === "idle"
   )
     return;
-  const stillCurrent = () => {
+  const initialKeys = initial.queue.map(queueTrackKey);
+  const currentQueue = (): MusicTrack[] | null => {
     const latest = api.snapshot();
-    return (
+    // Audio-quality events rebuild the queue with updated track objects.
+    // Only changes to playback or the ordered track identities invalidate this request.
+    const matches =
       latest.revision === initial.revision &&
-      latest.queue === initial.queue &&
+      latest.queue.length === initialKeys.length &&
+      latest.queue.every((track, index) => queueTrackKey(track) === initialKeys[index]) &&
       latest.current !== null &&
       queueTrackKey(latest.current) === key &&
       latest.phase !== "error" &&
-      latest.phase !== "idle"
-    );
+      latest.phase !== "idle";
+    return matches ? latest.queue : null;
   };
   try {
     const found = await api.recommendations(seed);
-    if (!stillCurrent()) return;
-    const following = freshContinuationTracks(api.filter(found), initial.queue).slice(0, 40);
-    if (following.length) api.apply([...initial.queue, ...following]);
+    const queue = currentQueue();
+    if (!queue) return;
+    const following = freshContinuationTracks(api.filter(found), queue).slice(0, 40);
+    if (following.length) api.apply([...queue, ...following]);
   } catch {
     // Recommendations are optional. A failed lookup never interrupts the requested song.
   }

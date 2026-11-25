@@ -95,3 +95,36 @@ test("a failed recommendation lookup leaves the selected song intact", async () 
   });
   assert.deepEqual(f.state().queue, [f.seed]);
 });
+
+test("audio-quality metadata updates do not invalidate pending recommendations", async () => {
+  const f = fixture();
+  const work = fillSingleSongQueue(f.seed, f.api);
+  const measured = { ...f.seed, quality: { codec: "opus", bitrateKbps: 128 } };
+  f.update({ current: measured, queue: [measured], phase: "paused" });
+  f.finish([f.a, f.b]);
+  await work;
+  assert.deepEqual(f.state().queue, [measured, f.a, f.b]);
+  assert.equal(f.state().queue[0], measured);
+});
+test("a different singleton queue is still rejected even if the playback revision is unchanged", async () => {
+  const f = fixture();
+  const work = fillSingleSongQueue(f.seed, f.api);
+  f.update({ queue: [f.b] });
+  f.finish([f.a]);
+  await work;
+  assert.deepEqual(f.state().queue, [f.b]);
+});
+test("a source-resolved metadata update retains the original queue identity", async () => {
+  const f = fixture();
+  const work = fillSingleSongQueue(f.seed, f.api);
+  const resolved = {
+    ...f.seed,
+    id: "resolved",
+    connectorId: "soundcloud",
+    collectionOrigin: { id: f.seed.id, connectorId: f.seed.connectorId },
+  };
+  f.update({ current: resolved, queue: [resolved] });
+  f.finish([f.a]);
+  await work;
+  assert.deepEqual(f.state().queue, [resolved, f.a]);
+});
