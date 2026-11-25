@@ -49,8 +49,16 @@ test("seek buttons handle pointer, keyboard and accessibility activation exactly
     await React.act(async () => {
       root.render(
         <>
-          <output.SeekStepBtn direction="back" seconds={10} onSeekStep={(d: number) => deltas.push(d)} />
-          <output.SeekStepBtn direction="forward" seconds={10} onSeekStep={(d: number) => deltas.push(d)} />
+          <output.SeekStepBtn
+            direction="back"
+            seconds={10}
+            onSeekStep={(d: number) => deltas.push(d)}
+          />
+          <output.SeekStepBtn
+            direction="forward"
+            seconds={10}
+            onSeekStep={(d: number) => deltas.push(d)}
+          />
         </>,
       );
     });

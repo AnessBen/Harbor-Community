@@ -92,6 +92,7 @@ verification and production packaging remain experimental or pending.
 validate the actual renderer. The prototype has no new production dependencies.
 
 References:
+
 - https://github.com/mpv-player/mpv/blob/master/DOCS/client-api-changes.rst
 - https://github.com/mpv-player/mpv/blob/master/include/mpv/render.h
 - https://wayland.app/protocols/color-management-v1

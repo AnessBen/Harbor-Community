@@ -72,7 +72,8 @@ export function usePlayerBridge(params: {
   const [engine, setEngine] = useState<"html5" | "mpv">("html5");
   const [autoFallbackTried, setAutoFallbackTried] = useState(false);
 
-  const linuxHdrRequested = isLinuxDesktop() && !settings.playerHdrToSdr && settings.playerLinuxEmbeddedHdr;
+  const linuxHdrRequested =
+    isLinuxDesktop() && !settings.playerHdrToSdr && settings.playerLinuxEmbeddedHdr;
   const [linuxHdrAvailable, setLinuxHdrAvailable] = useState<boolean | null>(null);
   useEffect(() => {
     if (!linuxHdrRequested || linuxHdrAvailable !== null) return;
@@ -80,12 +81,16 @@ export function usePlayerBridge(params: {
     void probeMpv().then((p) => {
       if (active) setLinuxHdrAvailable(p.linux_embedded_hdr_experimental === true);
     });
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [linuxHdrRequested, linuxHdrAvailable]);
   const linuxHdrPending = linuxHdrRequested && linuxHdrAvailable === null;
-  const { embed: embedActive, linuxHdrWindow, linuxHdrEmbedded } = mpvWindowPolicy(
-    settings, isLinuxDesktop(), isWindowsDesktop(), linuxHdrAvailable === true,
-  );
+  const {
+    embed: embedActive,
+    linuxHdrWindow,
+    linuxHdrEmbedded,
+  } = mpvWindowPolicy(settings, isLinuxDesktop(), isWindowsDesktop(), linuxHdrAvailable === true);
   const anime4kWanted = anime4kWantedFor(settings, src);
   // mpv only compiles a shader chain whose files it can open, and it drops the
   // rest without a word. Presets that name a kernel the installed pack predates

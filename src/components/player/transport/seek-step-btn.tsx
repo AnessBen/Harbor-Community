@@ -80,9 +80,12 @@ export function SeekStepBtn({
     }
   };
 
-  useEffect(() => () => {
-    if (holdTimerRef.current != null) window.clearTimeout(holdTimerRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (holdTimerRef.current != null) window.clearTimeout(holdTimerRef.current);
+    },
+    [],
+  );
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;

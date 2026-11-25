@@ -1625,7 +1625,11 @@ export function createMpvBridge(mpvOptions?: MpvOptions): PlayerBridge {
       // Native Linux HDR is a session-level output decision. The Rust
       // startup path negotiates Wayland colorspace or chooses explicit SDR
       // fallback on X11. Do not overwrite that fallback from this live pass.
-      if (isLinuxDesktop() && (mpvOptions?.linuxEmbeddedHdr || (mpvOptions?.embed === false && !on))) return;
+      if (
+        isLinuxDesktop() &&
+        (mpvOptions?.linuxEmbeddedHdr || (mpvOptions?.embed === false && !on))
+      )
+        return;
       const properties: Array<[string, string]> = on
         ? [
             ["tone-mapping", "spline"],

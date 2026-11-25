@@ -21,7 +21,10 @@ export function PlayerEnginePanel() {
   const [mpvProbe, setMpvProbe] = useState<MpvProbe | null>(null);
   const linuxEmbeddedHdrAvailable = mpvProbe?.linux_embedded_hdr_experimental === true;
   const { hdrWindow, linuxHdrWindow, linuxHdrEmbedded } = mpvWindowPolicy(
-    settings, isLinuxDesktop(), isWindowsDesktop(), linuxEmbeddedHdrAvailable,
+    settings,
+    isLinuxDesktop(),
+    isWindowsDesktop(),
+    linuxEmbeddedHdrAvailable,
   );
 
   useEffect(() => {
@@ -119,7 +122,9 @@ export function PlayerEnginePanel() {
                   ? t(
                       "True HDR, separate window is selected. That mode always plays in its own window, so mpv cannot be embedded. Choose a different HDR mode to change this.",
                     )
-                  : linuxHdrEmbedded ? t("True HDR, embedded") : undefined
+                  : linuxHdrEmbedded
+                    ? t("True HDR, embedded")
+                    : undefined
               }
             />
             {(!settings.playerMpvEmbed || hdrWindow) && !linuxHdrWindow && !linuxHdrEmbedded && (
@@ -172,7 +177,10 @@ export function PlayerEnginePanel() {
                 selected={linuxHdrEmbedded}
                 onClick={() => update({ playerHdrToSdr: false, playerLinuxEmbeddedHdr: true })}
                 label={t("True HDR, embedded")}
-                sub={t("Experimental") + ". Native Wayland 10-bit video surface. Restart playback to apply."}
+                sub={
+                  t("Experimental") +
+                  ". Native Wayland 10-bit video surface. Restart playback to apply."
+                }
                 tags={<Tag text={t("Experimental")} />}
               />
             )}
