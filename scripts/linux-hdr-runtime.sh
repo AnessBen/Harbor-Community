@@ -13,6 +13,8 @@ placebo_rev=275f7dea27924cdd34ab2e6c20e448b6bc4fab65
 ffmpeg_rev=1041abdc962f4cc4f394aa8de9dc5236c0c3b9e7
 wayland_rev=87cc8a8728a923fc57938faa81ba0e74f34ecdc7
 protocols_rev=ee78491a237eaff9389a0ccf8680521d074407d3
+vulkan_headers_rev=952f776f6573aafbb62ea717d871cd1d6816c387
+vulkan_loader_rev=809941a4ca137df69dc9c6e8eb456bd70309197c
 
 checkout() {
   local name="$1" url="$2" rev="$3"
@@ -45,6 +47,23 @@ checkout wayland https://github.com/wayland-mirror/wayland.git "$wayland_rev"
 build_meson wayland -Ddocumentation=false -Dtests=false
 checkout protocols https://github.com/wayland-mirror/wayland-protocols.git "$protocols_rev"
 build_meson protocols -Dtests=false
+# MPV's Vulkan backend requires 1.4.309. Older Ubuntu SDKs ship 1.3.
+# Build the matched Khronos headers and loader only when needed; retain
+# the host Vulkan ICDs and the full Vulkan renderer rather than disabling it.
+if ! pkg-config --atleast-version=1.4.309 vulkan; then
+  checkout Vulkan-Headers https://github.com/KhronosGroup/Vulkan-Headers.git "$vulkan_headers_rev"
+  cmake -S "$work/Vulkan-Headers" -B "$work/Vulkan-Headers-build" -G Ninja \
+    -DCMAKE_INSTALL_PREFIX="$prefix" -DCMAKE_INSTALL_LIBDIR=lib
+  cmake --build "$work/Vulkan-Headers-build" --parallel "$jobs"
+  cmake --install "$work/Vulkan-Headers-build"
+  checkout Vulkan-Loader https://github.com/KhronosGroup/Vulkan-Loader.git "$vulkan_loader_rev"
+  cmake -S "$work/Vulkan-Loader" -B "$work/Vulkan-Loader-build" -G Ninja \
+    -DCMAKE_INSTALL_PREFIX="$prefix" -DCMAKE_INSTALL_LIBDIR=lib \
+    -DCMAKE_PREFIX_PATH="$prefix" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
+  cmake --build "$work/Vulkan-Loader-build" --parallel "$jobs"
+  cmake --install "$work/Vulkan-Loader-build"
+fi
+pkg-config --atleast-version=1.4.309 vulkan
 checkout ffmpeg https://github.com/FFmpeg/FFmpeg.git "$ffmpeg_rev"
 mkdir -p "$work/ffmpeg-build"
 (
@@ -73,7 +92,9 @@ make -C "$root/tools/linux-hdr-probe" -B check embedded \
 # Copy actual SONAME files, not absolute symlinks or development headers.
 # Explicit allowlist: system GTK, Mesa/GL/EGL, audio, and hardware drivers stay
 # system-provided. The FFmpeg and Wayland ABI families travel together.
-for stem in libmpv libplacebo libavcodec libavfilter libavformat libavutil libswresample libswscale libavdevice libwayland-client libwayland-egl libwayland-cursor libwayland-server; do
+stems=(libmpv libplacebo libavcodec libavfilter libavformat libavutil libswresample libswscale libavdevice libwayland-client libwayland-egl libwayland-cursor libwayland-server)
+if [[ -f "$prefix/lib/libvulkan.so.1" ]]; then stems+=(libvulkan); fi
+for stem in "${stems[@]}"; do
   shopt -s nullglob
   candidates=("$prefix/lib/$stem.so."*)
   found=false
@@ -104,7 +125,8 @@ for file in "$stage"/libav*.so.* "$stage"/libsw*.so.* "$stage"/libplacebo.so.*; 
   mv "$file" "$stage/$new"
 done
 mkdir -p "$stage/licenses"
-for name in wayland protocols ffmpeg placebo mpv; do
+for name in wayland protocols ffmpeg placebo mpv Vulkan-Headers Vulkan-Loader; do
+  [[ -d "$work/$name" ]] || continue
   mkdir -p "$stage/licenses/$name"
   for file in "$work/$name"/{LICENSE*,COPYING*,Copyright}; do
     [[ -f "$file" ]] && cp "$file" "$stage/licenses/$name/" || true
@@ -117,6 +139,11 @@ FFmpeg https://github.com/FFmpeg/FFmpeg/tree/$ffmpeg_rev
 libplacebo https://github.com/haasn/libplacebo/tree/$placebo_rev
 mpv https://github.com/mpv-player/mpv/tree/$mpv_rev
 EOF
+if [[ -d "$work/Vulkan-Loader" ]]; then
+  printf '%s\n' \
+    "Vulkan-Headers https://github.com/KhronosGroup/Vulkan-Headers/tree/$vulkan_headers_rev" \
+    "Vulkan-Loader https://github.com/KhronosGroup/Vulkan-Loader/tree/$vulkan_loader_rev" >> "$stage/sources.txt"
+fi
 # Build and execute the same ABI check shipped in the source tree. Verify
 # resolution from the staged directory, not from the development prefix.
 cc -o "$work/check-api" "$root/tools/linux-hdr-probe/check_api.c" \
