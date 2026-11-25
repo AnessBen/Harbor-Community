@@ -11,10 +11,34 @@
 //! the media actually needs the account.
 
 use super::super::super::{MusicStream, MusicVideoStream};
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, LazyLock, Mutex, Weak};
+use tauri::Manager;
+use tokio::sync::{OnceCell, Semaphore};
 use std::time::Duration;
 
 const TIMEOUT: Duration = Duration::from_secs(45);
+// Two slots let a foreground request proceed while the single next-track warmup
+// is running. Requests for the same upload share the result, not another extractor.
+type AudioResult = Result<MusicStream, String>;
+type AudioFlight = OnceCell<AudioResult>;
+type AudioKey = (u64, usize, String);
+static AUDIO_FLIGHTS: LazyLock<Mutex<HashMap<AudioKey, Weak<AudioFlight>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+static AUDIO_SLOTS: Semaphore = Semaphore::const_new(2);
+
+fn audio_flight(key: AudioKey) -> Result<Arc<AudioFlight>, String> {
+    let mut flights = AUDIO_FLIGHTS.lock().map_err(|_| "Music extraction lock unavailable".to_string())?;
+    flights.retain(|_, entry| entry.strong_count() > 0);
+    if let Some(flight) = flights.get(&key).and_then(Weak::upgrade) {
+        return Ok(flight);
+    }
+    let flight = Arc::new(OnceCell::new());
+    flights.insert(key, Arc::downgrade(&flight));
+    Ok(flight)
+}
+
 const FORMAT: &str = "bestaudio[acodec=opus]/bestaudio/best";
 // Muxed YouTube formats stop at 720p, so the video track is fetched on its own and mpv is
 // handed the audio alongside it. `best` is the fallback for anything with no split rendition.
@@ -31,7 +55,11 @@ impl Drop for CookieFile {
 }
 
 fn cookie_file() -> Option<CookieFile> {
-    let session = super::auth::current()?;
+    cookie_file_for(super::auth::current().as_deref())
+}
+
+fn cookie_file_for(session: Option<&super::auth::Session>) -> Option<CookieFile> {
+    let session = session?;
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|elapsed| elapsed.as_nanos())
@@ -86,8 +114,10 @@ fn stream_args(video_id: &str, cookies: &Option<CookieFile>) -> Vec<String> {
     let mut args = vec![
         "--js-runtimes".to_string(),
         "node".to_string(),
-        "--extractor-args".to_string(),
-        "youtube:player_client=tv_embedded".to_string(),
+        // Use yt-dlp's supported default clients and validate the selected format
+        // inside the extractor before handing its URL to Harbor. A successful
+        // metadata extraction alone can still yield a CDN URL that returns 403.
+        "--check-formats".to_string(),
         "--no-playlist".to_string(),
         "-f".to_string(),
         FORMAT.to_string(),
@@ -121,7 +151,23 @@ async fn extract_audio(
 }
 
 pub async fn stream(app: &tauri::AppHandle, video_id: &str) -> Result<MusicStream, String> {
-    let cookies = cookie_file();
+    let generation = app.state::<super::super::super::MusicState>().db.generation()?;
+    // Retain the session snapshot for the lifetime of its identity key. A sign-in
+    // change cannot join an extraction started under the previous account.
+    let session = super::auth::current();
+    let session_key = session.as_ref().map_or(0, |value| Arc::as_ptr(value) as usize);
+    let flight = audio_flight((generation, session_key, video_id.to_string()))?;
+    if Arc::strong_count(&flight) > 1 {
+        crate::music::trace::log("youtube audio extraction joined in-flight request");
+    }
+    flight.get_or_init(|| async {
+        let _permit = AUDIO_SLOTS.acquire().await.map_err(|_| "Music extraction unavailable".to_string())?;
+        extract_stream(app, video_id, session.as_deref()).await
+    }).await.clone()
+}
+
+async fn extract_stream(app: &tauri::AppHandle, video_id: &str, session: Option<&super::auth::Session>) -> AudioResult {
+    let cookies = cookie_file_for(session);
     // Public audio extracts faster anonymously; only restricted media needs the account. Try
     // anonymously first and fall back to the session, rather than paying that cost on every song.
     match extract_audio(app, video_id, &None).await {
@@ -315,6 +361,36 @@ fn mime_of(extension: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn concurrent_audio_requests_share_a_result_and_release_the_flight() {
+        let key = (u64::MAX, 0, "shared-test-upload".to_string());
+        let first = audio_flight(key.clone()).unwrap();
+        let second = audio_flight(key.clone()).unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let resolve = || async {
+            calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            tokio::task::yield_now().await;
+            Err("test failure".to_string())
+        };
+        let (a, b) = tokio::join!(first.get_or_init(resolve), second.get_or_init(resolve));
+        assert_eq!(a.as_ref().unwrap_err(), b.as_ref().unwrap_err());
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        drop(first);
+        drop(second);
+        assert!(audio_flight(key).unwrap().get().is_none());
+    }
+
+    #[test]
+    fn audio_extraction_checks_formats_and_uses_supported_default_clients() {
+        let args = stream_args("dQw4w9WgXcQ", &None);
+        assert!(args.iter().any(|arg| arg == "--check-formats"));
+        assert!(!args.iter().any(|arg| arg == "--extractor-args"));
+        assert!(!args.iter().any(|arg| arg == "--no-check-formats"));
+        let at = args.iter().position(|arg| arg == "-f").unwrap();
+        assert_eq!(args[at + 1], FORMAT);
+    }
 
     #[test]
     fn anonymous_extraction_never_passes_a_cookie_file() {
