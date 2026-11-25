@@ -109,7 +109,7 @@ test("the overlay is keyed per line so the opacity transition restarts, and is h
     /lyricsState === "on" \? musicVideoLyricLine\(lyrics, currentTime\) : null/,
   );
   assert.match(controlsSource, /\{line &&\s*\(?\s*<div className="music-video-subtitle"/);
-  assert.match(controlsSource, /<span key=\{line\.index\}>/);
+  assert.match(controlsSource, /<span key=\{line\.index\} dir="auto">/);
 });
 
 test("the subtitle never eats a click meant for the picture and never shifts layout", () => {

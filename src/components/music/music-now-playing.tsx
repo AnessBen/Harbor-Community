@@ -189,9 +189,15 @@ function NowPlayingLyricList({
   const clock = useMusicClock();
   const listRef = useRef<HTMLOListElement>(null);
   const active = lyricIndexAt(lines, shiftedLyricTime(clock, lyricOffset));
+  const plain = lines[0]?.unsynced === true;
+  const wordClock = shiftedLyricTime(clock, lyricOffset);
   useEffect(() => {
     const list = listRef.current;
     if (!list) return;
+    if (plain) {
+      list.scrollTo({ top: 0, behavior: "auto" });
+      return;
+    }
     const line = active >= 0 ? list.children.item(active) : null;
     if (!(line instanceof HTMLElement)) {
       list.scrollTo({ top: 0, behavior: "auto" });
@@ -206,16 +212,31 @@ function NowPlayingLyricList({
       anchor: 0.5,
     });
     list.scrollTo({ top, behavior: calm ? "auto" : "smooth" });
-  }, [active, lines.length]);
+  }, [active, lines.length, plain]);
   return (
-    <ol ref={listRef} className="music-now-lyrics">
+    <ol ref={listRef} className="music-now-lyrics" data-plain={plain ? "1" : undefined}>
       {lines.map((line, index) => {
         const translated = translation?.[index] ?? null;
         const showTranslation = !!translated && translated.trim() !== line.text.trim();
         const point = syncPoints.findIndex((held) => Math.abs(held.t - line.at) < 0.001);
         return (
           <li key={`${line.at}:${index}`} data-active={index === active ? "1" : undefined}>
-            {line.text ? (
+            {plain ? (
+              line.text ? (
+                <div className="music-now-lyric-plain">
+                  <span className="music-now-lyric-text" dir="auto">
+                    {line.text}
+                  </span>
+                  {showTranslation && (
+                    <span className="music-now-lyric-translation" dir="auto" lang={target}>
+                      {translated}
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <span className="music-now-lyric-rest" aria-hidden="true" />
+              )
+            ) : line.text ? (
               <>
                 <button
                   type="button"
@@ -223,8 +244,18 @@ function NowPlayingLyricList({
                   data-picked={syncPick === index ? "1" : undefined}
                   onClick={() => (liveSync ? onPick(index) : onSeek(index))}
                 >
-                  <span className="music-now-lyric-text">
-                    {line.text}
+                  <span className="music-now-lyric-text" dir="auto">
+                    {index === active && line.words?.length
+                      ? line.words.map((word, i) => (
+                          <span
+                            key={i}
+                            className="music-lyric-word"
+                            data-sung={wordClock >= word.at ? "1" : "0"}
+                          >
+                            {word.text}
+                          </span>
+                        ))
+                      : line.text}
                     {point >= 0 && (
                       <span
                         className="music-now-lyric-sync-badge"
@@ -512,10 +543,11 @@ export const MusicNowPlaying = memo(function MusicNowPlaying({
     }
   }, [lyricTarget, lyricTranslation, lyricTranslationOn, lyricTranslating, lyrics, settings]);
   const timedLyrics = applyLyricSync(lyrics, syncPoints);
+  const plainLyrics = lyrics[0]?.unsynced === true;
   const seekLyric = useCallback(
     (index: number) => {
       const line = timedLyrics[index];
-      if (line) seekMusic(line.at + lyricOffset);
+      if (line && !line.unsynced) seekMusic(line.at + lyricOffset);
     },
     [lyricOffset, timedLyrics],
   );
@@ -524,7 +556,7 @@ export const MusicNowPlaying = memo(function MusicNowPlaying({
       const line = lyrics[index];
       // Read the clock on demand: subscribing to it here would redraw the queue every tick.
       const at = getMusicState().currentTime;
-      if (!line || !Number.isFinite(at)) return;
+      if (!line || line.unsynced || !Number.isFinite(at)) return;
       setSyncPoints(addLyricSyncPoint(syncPoints, { t: line.at, at: at - lyricOffset }));
       setSyncPick(null);
     },
@@ -550,7 +582,7 @@ export const MusicNowPlaying = memo(function MusicNowPlaying({
   useEffect(() => {
     if (hasLyrics !== false) return;
     setKaraoke(false);
-    setPanel((value) => (value === "lyrics" ? "queue" : value));
+    // Keep the lyrics tab available even when a lookup misses or is rate limited.
   }, [hasLyrics]);
   useEffect(() => {
     if (panel !== "lyrics" || !current) return;
@@ -560,7 +592,7 @@ export const MusicNowPlaying = memo(function MusicNowPlaying({
     setLyricsState("loading");
     const giveUp = window.setTimeout(() => {
       if (alive) setLyricsState((state) => (state === "loading" ? "empty" : state));
-    }, 9000);
+    }, 20_000);
     void loadTrackLyrics(current, controller.signal).then((lines) => {
       if (!alive) return;
       window.clearTimeout(giveUp);
@@ -585,7 +617,6 @@ export const MusicNowPlaying = memo(function MusicNowPlaying({
   );
 
   const lyricsOff = hasLyrics === false;
-  const tabOpen = (id: string) => id !== "lyrics" || !lyricsOff;
 
   if (!current || !display) return null;
   const liked = isMusicLiked(player.likedIds, current);
@@ -833,8 +864,6 @@ export const MusicNowPlaying = memo(function MusicNowPlaying({
                     role="tab"
                     aria-selected={panel === id}
                     aria-controls={searching ? undefined : `music-now-panel-${id}`}
-                    disabled={!tabOpen(id)}
-                    title={tabOpen(id) ? undefined : t("No lyrics for this track")}
                     tabIndex={panel === id ? 0 : -1}
                     onClick={() => {
                       closeSearch();
@@ -852,17 +881,12 @@ export const MusicNowPlaying = memo(function MusicNowPlaying({
                               ? 1
                               : -1
                             : 0;
-                      let hop = index;
-                      if (step)
-                        for (let turn = 0; turn < ids.length; turn += 1) {
-                          hop = (hop + step + ids.length) % ids.length;
-                          if (tabOpen(ids[hop])) break;
-                        }
+                      const hop = (index + step + ids.length) % ids.length;
                       const target =
                         event.key === "Home"
-                          ? ids.find(tabOpen)
+                          ? ids[0]
                           : event.key === "End"
-                            ? [...ids].reverse().find(tabOpen)
+                            ? ids[ids.length - 1]
                             : step
                               ? ids[hop]
                               : null;
@@ -987,8 +1011,9 @@ export const MusicNowPlaying = memo(function MusicNowPlaying({
                           <button
                             type="button"
                             className="music-now-lyric-live"
-                            data-on={liveSync ? "1" : undefined}
-                            aria-pressed={liveSync}
+                            disabled={plainLyrics}
+                            data-on={liveSync && !plainLyrics ? "1" : undefined}
+                            aria-pressed={liveSync && !plainLyrics}
                             onClick={() => {
                               setLiveSync((open) => !open);
                               setSyncPick(null);
@@ -999,7 +1024,7 @@ export const MusicNowPlaying = memo(function MusicNowPlaying({
                             <span>{t("Live sync")}</span>
                           </button>
                         </div>
-                        {liveSync && (
+                        {liveSync && !plainLyrics && (
                           <div className="music-now-lyric-live-hint" role="status">
                             <span>
                               {syncPoints.length === 0
@@ -1035,30 +1060,37 @@ export const MusicNowPlaying = memo(function MusicNowPlaying({
                             </button>
                           </div>
                         )}
-                        <div className="music-now-lyric-sync">
-                          <span>{t("Lyric sync")}</span>
-                          <button
-                            type="button"
-                            onClick={() => nudgeLyrics(-LYRIC_OFFSET_STEP)}
-                            aria-label={t("Lyrics earlier")}
-                            title={t("Lyrics earlier")}
-                          >
-                            -
-                          </button>
-                          <em>
-                            {lyricOffset === 0
-                              ? "0.00s"
-                              : `${lyricOffset > 0 ? "+" : ""}${lyricOffset.toFixed(2)}s`}
-                          </em>
-                          <button
-                            type="button"
-                            onClick={() => nudgeLyrics(LYRIC_OFFSET_STEP)}
-                            aria-label={t("Lyrics later")}
-                            title={t("Lyrics later")}
-                          >
-                            +
-                          </button>
-                        </div>
+                        {!plainLyrics && (
+                          <div className="music-now-lyric-sync">
+                            <span>{t("Lyric sync")}</span>
+                            <button
+                              type="button"
+                              onClick={() => nudgeLyrics(-LYRIC_OFFSET_STEP)}
+                              aria-label={t("Lyrics earlier")}
+                              title={t("Lyrics earlier")}
+                            >
+                              -
+                            </button>
+                            <em>
+                              {lyricOffset === 0
+                                ? "0.00s"
+                                : `${lyricOffset > 0 ? "+" : ""}${lyricOffset.toFixed(2)}s`}
+                            </em>
+                            <button
+                              type="button"
+                              onClick={() => nudgeLyrics(LYRIC_OFFSET_STEP)}
+                              aria-label={t("Lyrics later")}
+                              title={t("Lyrics later")}
+                            >
+                              +
+                            </button>
+                          </div>
+                        )}
+                        {plainLyrics && (
+                          <div className="music-now-lyric-sync" role="status">
+                            {t("Unsynced lyrics")} · LRCLIB
+                          </div>
+                        )}
                         <NowPlayingLyricList
                           lines={timedLyrics}
                           lyricOffset={lyricOffset}
@@ -1069,7 +1101,7 @@ export const MusicNowPlaying = memo(function MusicNowPlaying({
                           }
                           target={lyricTarget}
                           syncPoints={syncPoints}
-                          liveSync={liveSync}
+                          liveSync={liveSync && !plainLyrics}
                           syncPick={syncPick}
                           onPick={(index) => setSyncPick((pick) => (pick === index ? null : index))}
                           onSeek={seekLyric}

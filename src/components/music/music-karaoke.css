@@ -163,3 +163,15 @@
     scroll-behavior: auto;
   }
 }
+
+.music-karaoke-lines[data-plain="1"] .music-karaoke-line {
+  opacity: 1;
+  cursor: default;
+}
+.music-karaoke-line {
+  white-space: pre-wrap;
+  unicode-bidi: plaintext;
+}
+.music-karaoke .music-lyric-word[data-sung="0"] {
+  opacity: 0.4;
+}

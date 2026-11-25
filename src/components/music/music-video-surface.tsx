@@ -303,8 +303,9 @@ export function MusicVideoSurface({
     void loadTrackLyrics(track, controller.signal)
       .then((lines) => {
         if (!live) return;
-        setLyrics(lines && lines.length > 0 ? lines : null);
-        setLyricsMissing(!lines || lines.length === 0);
+        const timed = lines && lines.length > 0 && !lines[0].unsynced;
+        setLyrics(timed ? lines : null);
+        setLyricsMissing(!timed);
       })
       .catch(() => {
         if (live) setLyricsMissing(true);

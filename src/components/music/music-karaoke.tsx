@@ -14,7 +14,7 @@ import {
 } from "@/lib/music/karaoke-scroll";
 import "./music-karaoke.css";
 
-const WAIT_MS = 14_000;
+const WAIT_MS = 20_000;
 const REST = "· · ·";
 
 type KaraokeStatus = "idle" | "loading" | "ready" | "missing";
@@ -55,6 +55,8 @@ export function MusicKaraoke({
   const offset = getLyricOffset(player.current);
   const [syncPoints] = useLyricSync(track);
   const timed = applyLyricSync(lines ?? [], syncPoints);
+  const plain = lines?.[0]?.unsynced === true;
+  const wordClock = shiftedLyricTime(player.currentTime, offset);
   const active =
     status === "ready" && lines
       ? lyricIndexAt(timed, shiftedLyricTime(player.currentTime, offset))
@@ -129,7 +131,7 @@ export function MusicKaraoke({
         })
       : 0;
     view.scrollTo({ top, behavior });
-  }, [open, status, active, key, reduced]);
+  }, [open, status, active, key, reduced, plain]);
 
   useEffect(() => {
     if (!open) return;
@@ -213,22 +215,42 @@ export function MusicKaraoke({
         </button>
       </div>
       <div className="music-karaoke-scroll" ref={scroller}>
+        {status === "ready" && plain && (
+          <p className="music-karaoke-note">{t("Unsynced lyrics")} · LRCLIB</p>
+        )}
         {status === "ready" && lines ? (
-          <ol className="music-karaoke-lines" ref={column}>
+          <ol className="music-karaoke-lines" ref={column} data-plain={plain ? "1" : undefined}>
             {lines.map((line, index) => (
               <li key={`${line.at}-${index}`}>
-                <button
-                  type="button"
-                  className="music-karaoke-line"
-                  data-line={karaokeLineState(index, active)}
-                  aria-current={index === active ? "true" : undefined}
-                  onClick={() => {
-                    const line = timed[index];
-                    if (line) seekMusic(line.at + offset);
-                  }}
-                >
-                  {line.text.trim() || REST}
-                </button>
+                {plain ? (
+                  <div className="music-karaoke-line" dir="auto">
+                    {line.text || "\u00a0"}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    dir="auto"
+                    className="music-karaoke-line"
+                    data-line={karaokeLineState(index, active)}
+                    aria-current={index === active ? "true" : undefined}
+                    onClick={() => {
+                      const line = timed[index];
+                      if (line && !line.unsynced) seekMusic(line.at + offset);
+                    }}
+                  >
+                    {index === active && timed[index]?.words?.length
+                      ? timed[index].words!.map((word, i) => (
+                          <span
+                            key={i}
+                            className="music-lyric-word"
+                            data-sung={wordClock >= word.at ? "1" : "0"}
+                          >
+                            {word.text}
+                          </span>
+                        ))
+                      : line.text.trim() || REST}
+                  </button>
+                )}
               </li>
             ))}
           </ol>

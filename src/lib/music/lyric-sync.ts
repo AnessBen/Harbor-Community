@@ -89,10 +89,21 @@ export function addLyricSyncPoint(points: SyncPoint[], point: SyncPoint): SyncPo
 
 /** Corrected timestamps, so every section uses the same map rather than the clock's guess. */
 export function applyLyricSync(lines: LyricLine[], points: SyncPoint[]): LyricLine[] {
-  if (points.length === 0) return lines;
+  if (points.length === 0 || lines[0]?.unsynced) return lines;
   const delta = deltaFn(points, 0);
   return lines.map((line) => ({
     ...line,
     at: Math.max(0, round3(line.at + delta(line.at))),
+    ...(line.words
+      ? {
+          words: line.words.map((word) => ({
+            ...word,
+            at: Math.max(0, round3(word.at + delta(word.at))),
+            ...(word.end === undefined
+              ? {}
+              : { end: Math.max(0, round3(word.end + delta(word.end))) }),
+          })),
+        }
+      : {}),
   }));
 }

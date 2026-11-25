@@ -81,7 +81,9 @@ export function MusicVideoControls({
     <>
       {line && (
         <div className="music-video-subtitle" aria-hidden="true">
-          <span key={line.index}>{line.text}</span>
+          <span key={line.index} dir="auto">
+            {line.text}
+          </span>
         </div>
       )}
       <div className="music-video-controls">
