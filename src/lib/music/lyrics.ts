@@ -580,27 +580,61 @@ function chooseFallbackLyrics(
   );
 }
 
-/** At most two broad searches. Native-script title-only discovery still
- * requires independently validated artist and recording metadata. */
-function broadQueries(title: string, artist: string): string[] {
-  const normalized = normalizeMatch(title);
+/** At most two broad searches, using distinctive title tokens and a full artist
+ * credit (or a distinctive last name). Search results still have to pass the
+ * recording checks above; this only widens discovery, never acceptance. */
+function expandJoinedTitle(title: string): string {
+  const camel = title.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z])([A-Z][a-z])/g, "$1 $2");
+  if (camel !== title) return camel;
+  // Without case information, try just one plausible boundary in a long Latin
+  // token. This only widens discovery: full title, artist and duration still agree.
+  if (!/^[a-z]{8,40}$/i.test(title)) return title;
+  const lower = title.toLowerCase();
+  const vowel = /[aeiouy]/;
+  const boundaries: number[] = [];
+  for (let i = 3; i <= lower.length - 3; i++) {
+    if (
+      !vowel.test(lower[i - 1]) &&
+      !vowel.test(lower[i]) &&
+      vowel.test(lower[i + 1]) &&
+      vowel.test(lower.slice(0, i)) &&
+      vowel.test(lower.slice(i))
+    )
+      boundaries.push(i);
+  }
+  boundaries.sort((a, b) => Math.abs(a - lower.length / 2) - Math.abs(b - lower.length / 2));
+  const at = boundaries[0];
+  return at === undefined ? title : title.slice(0, at) + " " + title.slice(at);
+}
+
+function broadQueries(title: string, artist: string, album: string): string[] {
+  const expanded = expandJoinedTitle(title);
+  const normalized = normalizeMatch(expanded);
   const words = unique(normalized.split(" ").filter((word) => word.length >= 3));
   const name = normalizeMatch(artist);
   if (!normalized || !name) return [];
-  if (NATIVE_SCRIPT.test(title) || NATIVE_SCRIPT.test(artist))
-    return unique([normalized + " " + name, normalized]).slice(0, 2);
+  const original = normalizeMatch(title);
+  const native = NATIVE_SCRIPT.test(title) || NATIVE_SCRIPT.test(artist);
+  // A title-only query can discover a native title paired with a romanized
+  // artist. Acceptance still requires independently validated artist metadata.
+  if (native) return unique([normalized + " " + name, normalized]).slice(0, 2);
   if (!words.length || name.length < 3) return [];
-  const last = words.at(-1)!;
-  const first = words[0];
+  const first = words[0],
+    last = words.at(-1)!;
   const artistWords = name.split(" ");
   const lastName = artistWords.at(-1)!;
+  const albumName = normalizeMatch(album);
+  // Prefer the expanded title, then one bounded alternate discovery path.
   return unique([
+    original !== normalized ? normalized + " " + name : "",
     last + " " + name,
     first !== last
       ? first + " " + name
-      : artistWords.length > 1 && lastName.length >= 5
-        ? last + " " + lastName
-        : "",
+      : albumName && albumName !== original
+        ? albumName + " " + name
+        : artistWords.length > 1 && lastName.length >= 5
+          ? last + " " + lastName
+          : "",
   ]).slice(0, 2);
 }
 
@@ -816,9 +850,25 @@ async function fetchLyrics(track: MusicTrack, signal?: AbortSignal): Promise<Lyr
   // Keep exact/alias lookups on the fast path. Only widen a genuine miss or
   // unsynced result, with the same timeout, cancellation and throttling budget.
   if (duration > 0) {
-    for (const query of broadQueries(title, artist)) {
+    const expanded = expandJoinedTitle(title);
+    const joinedQuery =
+      normalizeMatch(expanded) !== normalizeMatch(title)
+        ? API +
+          "/get?" +
+          queryFor(expanded, artist) +
+          (album ? "&album_name=" + encodeURIComponent(album) : "") +
+          "&duration=" +
+          Math.round(duration)
+        : "";
+    const broadAttempts = unique([
+      joinedQuery,
+      ...broadQueries(title, artist, album).map(
+        (query) => API + "/search?q=" + encodeURIComponent(query),
+      ),
+    ]);
+    for (const url of broadAttempts) {
       try {
-        const rows = rowsOf(await json(API + "/search?q=" + encodeURIComponent(query), lookup));
+        const rows = rowsOf(await json(url, lookup));
         const found = chooseFallbackLyrics(
           rows,
           duration,

@@ -871,6 +871,37 @@ test("a stronger broad match is preferred over a weaker spelling and artist matc
   );
 });
 
+test("camel-case joined titles restore word boundaries before broad search", async () => {
+  const { lyrics, calls } = build(async (url) =>
+    ok(
+      new URL(url).searchParams.get("q") === "spring day bts"
+        ? [
+            {
+              trackName: "Spring Day",
+              artistName: "BTS",
+              albumName: "YOU NEVER WALK ALONE",
+              duration: 274,
+              syncedLyrics: "[00:01]Matched",
+            },
+          ]
+        : [],
+    ),
+  );
+  assert.deepEqual(
+    await lyrics.loadTrackLyrics(
+      track({
+        title: "SpringDay",
+        artist: "BTS",
+        album: "YOU NEVER WALK ALONE",
+        durationSeconds: 275,
+      }),
+    ),
+    [{ at: 1, text: "Matched" }],
+  );
+  assert.ok(calls.some((url) => new URL(url).searchParams.get("q") === "spring day bts"));
+  assert.ok(calls.filter((url) => new URL(url).searchParams.has("q")).length <= 2);
+});
+
 test("Arabic title-only discovery requires a complete matching romanized credit and close duration", async () => {
   const title = "\u0628\u0634\u0631\u0629 \u062e\u064a\u0631";
   const artist = "\u062d\u0633\u064a\u0646 \u0627\u0644\u062c\u0633\u0645\u064a";
@@ -998,6 +1029,36 @@ test("Arabic romanized title and artist require independently matching album", a
   );
 });
 
+test("lowercase joined titles discover the exact album recording without relying on a prior cached match", async () => {
+  const { lyrics, calls } = build(async (url) => {
+    const q = new URL(url).searchParams;
+    return ok(
+      q.get("track_name") === "spring day" && q.get("album_name") === "YOU NEVER WALK ALONE"
+        ? [
+            {
+              trackName: "Spring Day",
+              artistName: "BTS",
+              albumName: "YOU NEVER WALK ALONE",
+              duration: 275,
+              syncedLyrics: "[00:02]Matched",
+            },
+          ]
+        : [],
+    );
+  });
+  assert.deepEqual(
+    await lyrics.loadTrackLyrics(
+      track({
+        title: "springday",
+        artist: "BTS",
+        album: "YOU NEVER WALK ALONE",
+        durationSeconds: 275,
+      }),
+    ),
+    [{ at: 2, text: "Matched" }],
+  );
+  assert.ok(calls.some((url) => new URL(url).searchParams.get("track_name") === "spring day"));
+});
 test("short native titles are eligible for title-only discovery with an explicit bilingual credit", async () => {
   const title = "\ubd04\ub0a0";
   const { lyrics, calls } = build(async (url) =>
