@@ -71,7 +71,15 @@ pub async fn run(
     timeout: Duration,
     label: &str,
 ) -> Result<YtDlpOutput, String> {
-    run_validated(app, args, timeout, label, |output| async { Ok(output) }).await
+    run_with_deadline(
+        app,
+        args,
+        timeout,
+        label,
+        RefreshPolicy::BeforeUse,
+        |output| async { Ok(output) },
+    )
+    .await
 }
 
 /// An extractor exit code does not prove that its signed stream URL is usable.
@@ -87,16 +95,59 @@ where
     Validate: Fn(YtDlpOutput) -> Validated,
     Validated: std::future::Future<Output = Result<T, String>>,
 {
+    run_with_deadline(
+        app,
+        args,
+        timeout,
+        label,
+        RefreshPolicy::Background,
+        validate,
+    )
+    .await
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RefreshPolicy {
+    BeforeUse,
+    Background,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RefreshPlan {
+    Current,
+    BeforeUse,
+    Background,
+}
+
+fn refresh_plan(policy: RefreshPolicy, cached: Option<&CachedRelease>, now: u64) -> RefreshPlan {
+    if !needs_refresh(cached, now) {
+        RefreshPlan::Current
+    } else if cached.is_some() && policy == RefreshPolicy::BeforeUse {
+        RefreshPlan::BeforeUse
+    } else {
+        RefreshPlan::Background
+    }
+}
+
+async fn run_with_deadline<T, Validate, Validated>(
+    app: &tauri::AppHandle,
+    args: Vec<String>,
+    timeout: Duration,
+    label: &str,
+    policy: RefreshPolicy,
+    validate: Validate,
+) -> Result<T, String>
+where
+    Validate: Fn(YtDlpOutput) -> Validated,
+    Validated: std::future::Future<Output = Result<T, String>>,
+{
     tokio::time::timeout(
         timeout,
-        run_with_fallback(app, args, timeout, label, validate),
+        run_with_fallback(app, args, timeout, label, policy, validate),
     )
     .await
     .map_err(|_| {
-        crate::music::trace::log(format!(
-            "{label}: timed out after {} s",
-            timeout.as_secs()
-        ));
+        crate::music::trace::log(format!("{label}: timed out after {} s", timeout.as_secs()));
         "YouTube Music timed out while resolving this track.".to_string()
     })?
 }
@@ -120,6 +171,7 @@ async fn run_with_fallback<T, Validate, Validated>(
     args: Vec<String>,
     timeout: Duration,
     label: &str,
+    policy: RefreshPolicy,
     validate: Validate,
 ) -> Result<T, String>
 where
@@ -132,24 +184,30 @@ where
         .app_cache_dir()
         .ok()
         .map(|path| path.join("music/yt-dlp"));
-    let (remote, update) = match directory {
+    let (remote, mut update) = match directory {
         Some(directory) => {
             let cached = read_verified(&directory).await;
             let path = cached
                 .as_ref()
                 .and_then(CachedRelease::filename)
                 .map(|name| directory.join(name));
-            // A stale verify is old enough that YouTube may already reject the URLs it returns,
-            // which only shows up after playback starts. Refresh it before the first play; a
-            // fresh one is used immediately while the update check runs in the background.
-            let stale = needs_refresh(cached.as_ref(), now_seconds());
-            if stale && path.is_some() {
-                (cached_executable(&directory).await, None)
-            } else {
-                // With no verified extractor there is nothing to refresh: start the update and
-                // let the bundled helper serve this play instead of waiting for the download.
-                let update = tokio::spawn(async move { cached_executable(&directory).await });
-                (path, Some(update))
+            let plan = refresh_plan(policy, cached.as_ref(), now_seconds());
+            crate::music::trace::log(format!(
+                "{label}: extractor verification cached={} refresh={plan:?} {} ms",
+                path.is_some(),
+                started.elapsed().as_millis()
+            ));
+            match plan {
+                RefreshPlan::Current => (path, None),
+                // Callers without a stream validator keep the blocking refresh policy.
+                RefreshPlan::BeforeUse => (cached_executable(&directory).await, None),
+                // Audio validates the actual URL with the full opening range.
+                // Keep the verified executable usable while a stale/missing
+                // release is refreshed, without waiting on a valid play.
+                RefreshPlan::Background => {
+                    let update = tokio::spawn(async move { cached_executable(&directory).await });
+                    (path, Some(update))
+                }
             }
         }
         None => (None, None),
@@ -157,7 +215,13 @@ where
     if let Some(executable) = remote.as_ref() {
         // Reserve time for the bundled helper when the current release cannot run.
         let budget = timeout.saturating_sub(started.elapsed()).mul_f32(0.65);
-        if let Ok(output) = execute(executable, &args, budget).await {
+        let extraction_started = Instant::now();
+        let output = execute(executable, &args, budget).await;
+        crate::music::trace::log(format!(
+            "{label}: extractor process {} ms",
+            extraction_started.elapsed().as_millis()
+        ));
+        if let Ok(output) = output {
             if !output.success && !retry_after_update(&output.stderr) {
                 return Err(extraction_error(&output.stderr));
             }
@@ -165,12 +229,44 @@ where
                 Ok(validated) => {
                     crate::music::trace::log(format!(
                         "{label}: verified extractor {} ok",
-                        executable.file_name().and_then(|name| name.to_str()).unwrap_or("?")
+                        executable
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .unwrap_or("?")
                     ));
                     return Ok(validated);
                 }
                 Err(error) if extraction_restricted(&error) => return Err(error),
                 Err(_) => {}
+            }
+        }
+    }
+    // Prefer a completed verified refresh over the older bundled helper if
+    // the cached executable failed. Access restrictions already returned above.
+    if policy == RefreshPolicy::Background
+        && remote.is_some()
+        && update.as_ref().is_some_and(|job| job.is_finished())
+    {
+        if let Some(job) = update.take() {
+            if let Ok(Some(path)) = job.await {
+                if remote.as_ref() != Some(&path) {
+                    let budget = timeout.saturating_sub(started.elapsed()).mul_f32(0.65);
+                    if let Ok(output) = execute(&path, &args, budget).await {
+                        if !output.success && !retry_after_update(&output.stderr) {
+                            return Err(extraction_error(&output.stderr));
+                        }
+                        match validate_output(output, &validate).await {
+                            Ok(validated) => {
+                                crate::music::trace::log(format!(
+                                    "{label}: refreshed extractor ok"
+                                ));
+                                return Ok(validated);
+                            }
+                            Err(error) if extraction_restricted(&error) => return Err(error),
+                            Err(_) => {}
+                        }
+                    }
+                }
             }
         }
     }
@@ -257,7 +353,8 @@ fn extraction_error(stderr: &[u8]) -> String {
         return "YouTube requires browser verification. Wait before retrying, or open this track on YouTube.".to_string();
     }
     if extraction_restricted(&message) {
-        return "YouTube rate limit. Wait before retrying, or open this track on YouTube.".to_string();
+        return "YouTube rate limit. Wait before retrying, or open this track on YouTube."
+            .to_string();
     }
     if message.contains("javascript runtime") || message.contains("challenge solving failed") {
         return "YouTube extraction needs a supported JavaScript runtime. Install Deno or Node.js 22 or newer, restart Harbor, and retry.".to_string();
@@ -610,8 +707,12 @@ mod tests {
         assert!(extraction_error(b"Sign in to confirm you're not a bot").contains("verification"));
         assert!(extraction_error(b"HTTP Error 429").contains("Wait"));
         assert!(extraction_error(b"YouTube is rate limiting requests").contains("rate limit"));
-        assert!(extraction_restricted("YouTube rejected the audio stream (HTTP 429)"));
-        assert!(!extraction_restricted("YouTube rejected the audio stream (HTTP 403)"));
+        assert!(extraction_restricted(
+            "YouTube rejected the audio stream (HTTP 429)"
+        ));
+        assert!(!extraction_restricted(
+            "YouTube rejected the audio stream (HTTP 403)"
+        ));
         assert!(extraction_error(b"No supported JavaScript runtime").contains("Node.js 22"));
         assert!(
             extraction_error(b"Private video https://private.example/?token=secret")
@@ -629,7 +730,7 @@ mod tests {
     }
 
     #[test]
-    fn a_stale_or_missing_extractor_is_updated_before_first_play() {
+    fn stale_or_missing_extractor_refresh_is_due() {
         assert!(needs_refresh(None, 1000));
         let entry = CachedRelease {
             version: "2026.08.19".into(),
@@ -642,6 +743,41 @@ mod tests {
             1000 + CHECK_INTERVAL.as_secs() - 1
         ));
         assert!(needs_refresh(Some(&entry), 1000 + CHECK_INTERVAL.as_secs()));
+    }
+
+    #[test]
+    fn validated_audio_refreshes_stale_releases_without_waiting_but_keeps_verified_selection() {
+        let entry = CachedRelease {
+            version: "2026.08.19".into(),
+            asset: platform_asset().expect("desktop fixture").into(),
+            sha256: "0".repeat(64),
+            checked_at: 1000,
+        };
+        let stale = 1000 + CHECK_INTERVAL.as_secs();
+        assert_eq!(
+            refresh_plan(RefreshPolicy::Background, Some(&entry), 1000),
+            RefreshPlan::Current
+        );
+        assert_eq!(
+            refresh_plan(RefreshPolicy::BeforeUse, Some(&entry), 1000),
+            RefreshPlan::Current
+        );
+        assert_eq!(
+            refresh_plan(RefreshPolicy::Background, Some(&entry), stale),
+            RefreshPlan::Background
+        );
+        assert_eq!(
+            refresh_plan(RefreshPolicy::BeforeUse, Some(&entry), stale),
+            RefreshPlan::BeforeUse
+        );
+        assert_eq!(
+            refresh_plan(RefreshPolicy::Background, None, stale),
+            RefreshPlan::Background
+        );
+        assert_eq!(
+            refresh_plan(RefreshPolicy::BeforeUse, None, stale),
+            RefreshPlan::Background
+        );
     }
 
     #[test]
