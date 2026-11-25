@@ -1,7 +1,7 @@
 use super::connector::{ConnectorHealth, ConnectorHealthInfo, MusicConnector};
 use super::matching::{
-    candidate_score, connector_priority, requested_candidate, settle_search_results, source_key,
-    source_name,
+    candidate_score, connector_priority, discovery_queries, requested_candidate,
+    settle_search_results, source_key, source_name, video_audio_score,
 };
 use super::rows::merge_typed_results;
 use super::{
@@ -178,22 +178,103 @@ impl ConnectorRegistry {
         app: &tauri::AppHandle,
         track: &MusicTrack,
         connector_id: &str,
-    ) -> Vec<MusicSourceCandidate> {
+    ) -> Result<Vec<MusicSourceCandidate>, String> {
         let original_id = track.connector_id.as_deref().unwrap_or("youtube");
         if connector_id == original_id {
-            return Vec::new();
+            return Ok(Vec::new());
         }
         let Some(connector) = self
             .get(connector_id)
             .filter(|connector| connector.searchable() && connector.playable())
-            .filter(|connector| connector.health() != ConnectorHealth::Offline)
         else {
-            return Vec::new();
+            return Err("Preferred music source is unavailable".to_string());
         };
-        let query = format!("{} {}", track.artist.trim(), track.title.trim());
-        let mut seen = HashSet::from([source_key(track)]);
-        self.matched_sources(app, track, &query, vec![connector], &mut seen)
-            .await
+        let started = std::time::Instant::now();
+        let result = tokio::time::timeout(
+            Duration::from_secs(18),
+            Self::discover(app, track, &connector),
+        )
+        .await
+        .map_err(|_| "Preferred music source lookup timed out".to_string())
+        .and_then(|result| result);
+        super::trace::log(format!(
+            "source={} stage=preferred-discovery result={} {} ms",
+            super::trace::source_label(Some(connector_id)),
+            match &result {
+                Ok(rows) if rows.is_empty() => "no-match",
+                Ok(_) => "matched",
+                Err(_) => "error",
+            },
+            started.elapsed().as_millis()
+        ));
+        result.map(|rows| {
+            rows.into_iter()
+                .map(|(_, track)| MusicSourceCandidate {
+                    connector_id: connector.id().to_string(),
+                    connector_name: connector.name().to_string(),
+                    health: connector.health(),
+                    track,
+                })
+                .collect()
+        })
+    }
+
+    async fn discover(
+        app: &tauri::AppHandle,
+        target: &MusicTrack,
+        connector: &Arc<dyn MusicConnector>,
+    ) -> Result<Vec<(i32, MusicTrack)>, String> {
+        let queries = discovery_queries(target);
+        for (index, query) in queries.iter().enumerate() {
+            let tracks =
+                tokio::time::timeout(Duration::from_secs(5), connector.search(app, query, 16))
+                    .await
+                    .map_err(|_| "Preferred music source search timed out".to_string())??;
+            let mut scored = tracks
+                .into_iter()
+                .filter_map(|candidate| {
+                    candidate_score(target, &candidate).map(|score| (score, candidate))
+                })
+                .collect::<Vec<_>>();
+            scored.sort_by(|a, b| b.0.cmp(&a.0));
+            if !scored.is_empty() {
+                super::trace::log(format!(
+                    "source={} stage=discovery-song query={} matches={}",
+                    connector.id(),
+                    index + 1,
+                    scored.len()
+                ));
+                scored.truncate(UPLOADS_PER_SOURCE);
+                return Ok(scored);
+            }
+        }
+        if connector.id() == "youtube" {
+            if let Some(query) = queries.first() {
+                let page = tokio::time::timeout(
+                    Duration::from_secs(10),
+                    connector.search_video_page(app, query, true, None),
+                )
+                .await
+                .map_err(|_| "Preferred music source video lookup timed out".to_string())??;
+                let mut scored = page
+                    .tracks
+                    .into_iter()
+                    .filter_map(|mut candidate| {
+                        let score = video_audio_score(target, &candidate)?;
+                        candidate.media_kind = None;
+                        Some((score, candidate))
+                    })
+                    .collect::<Vec<_>>();
+                scored.sort_by(|a, b| b.0.cmp(&a.0));
+                scored.truncate(UPLOADS_PER_SOURCE);
+                super::trace::log(format!(
+                    "source=youtube stage=discovery-video matches={}",
+                    scored.len()
+                ));
+                return Ok(scored);
+            }
+        }
+        Ok(Vec::new())
     }
 
     async fn matched_sources(

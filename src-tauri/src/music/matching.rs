@@ -180,6 +180,191 @@ fn backing_version(track: &MusicTrack) -> Option<&'static str> {
     }
 }
 
+// Only remove known promotional suffixes, not labels identifying another mix.
+fn discovery_title(title: &str) -> &str {
+    let lower = title.to_ascii_lowercase();
+    for marker in [" - as featured in ", " - as heard in ", " - featured in "] {
+        if let Some(index) = lower.find(marker) {
+            if index > 0 && title.is_char_boundary(index) {
+                return title[..index].trim();
+            }
+        }
+    }
+    title.trim()
+}
+
+fn song_identity_title(title: &str) -> String {
+    // Promotional parentheticals can precede the actual featured-artist credit.
+    // Remove only the promotional group, preserving the rest of the title.
+    let mut title = discovery_title(title).to_owned();
+    loop {
+        let lower = title.to_ascii_lowercase();
+        let Some(start) = ["(as featured in ", "(as heard in ", "(featured in "]
+            .iter()
+            .filter_map(|marker| lower.find(marker))
+            .min()
+        else {
+            break;
+        };
+        let Some(end) = title[start..].find(')') else {
+            break;
+        };
+        title.replace_range(start..start + end + 1, "");
+    }
+    title.trim().to_owned()
+}
+
+fn has_native_script(value: &str) -> bool {
+    value.chars().any(|ch| matches!(ch as u32, 0x3040..=0x30ff | 0x3400..=0x9fff | 0xac00..=0xd7af | 0x0600..=0x06ff | 0x0900..=0x097f))
+}
+
+fn title_aliases(title: &str) -> Vec<String> {
+    let title = song_identity_title(title);
+    let mut aliases = vec![normalized(&title)];
+    // The provider's bilingual metadata explicitly supplies both forms.
+    for separator in [" - ", " \u{2013} ", " \u{2014} "] {
+        if let Some((a, b)) = title.split_once(separator) {
+            if has_native_script(a) != has_native_script(b) {
+                aliases.push(normalized(a));
+                aliases.push(normalized(b));
+            }
+        }
+    }
+    aliases.retain(|alias| !alias.is_empty());
+    aliases
+}
+
+fn exact_title(target: &MusicTrack, candidate: &MusicTrack) -> bool {
+    let left = title_aliases(&target.title);
+    let right = title_aliases(&candidate.title);
+    left.iter().any(|alias| right.contains(alias))
+}
+
+fn exact_album(target: &MusicTrack, candidate: &MusicTrack) -> bool {
+    match (&target.album, &candidate.album) {
+        (Some(a), Some(b)) => {
+            let a = normalized(a);
+            a.len() >= 8
+                && a == normalized(b)
+                && !title_aliases(&target.title).contains(&a)
+                && !title_aliases(&candidate.title).contains(&a)
+        }
+        _ => false,
+    }
+}
+
+fn tight_duration(target: &MusicTrack, candidate: &MusicTrack, tolerance: u64) -> bool {
+    target.duration_seconds > 0
+        && candidate.duration_seconds > 0
+        && target.duration_seconds.abs_diff(candidate.duration_seconds) <= tolerance
+}
+
+fn publisher_credit(artist: &str) -> bool {
+    let name = normalized(artist);
+    name.ends_with(" sound team")
+        || name.ends_with(" sound staff")
+        || name == "square enix music"
+        || name.ends_with(" sound studio")
+}
+
+fn alternate_edition(track: &MusicTrack) -> Vec<&'static str> {
+    let label = normalized(&format!(
+        "{} {}",
+        track.title,
+        track.version.as_deref().unwrap_or("")
+    ));
+    let words = label.split_whitespace().collect::<Vec<_>>();
+    [
+        "cover",
+        "remix",
+        "live",
+        "acoustic",
+        "tribute",
+        "karaoke",
+        "instrumental",
+        "reaction",
+        "tutorial",
+    ]
+    .into_iter()
+    .filter(|marker| words.contains(marker))
+    .collect()
+}
+
+fn dubious_credit(candidate: &MusicTrack) -> bool {
+    let credit = normalized(&candidate.artist);
+    let title = normalized(&candidate.title);
+    ["karaoke", "tribute", "cover"]
+        .iter()
+        .any(|marker| credit.split_whitespace().any(|w| w == *marker))
+        || [
+            "originally performed by",
+            "originally perfomed by",
+            "made popular by",
+            "vocal melody version",
+        ]
+        .iter()
+        .any(|marker| title.contains(marker))
+}
+
+/// A small, deterministic sequence. The original artist-first query stays the fast path.
+pub(super) fn discovery_queries(track: &MusicTrack) -> Vec<String> {
+    let artist = track.artist.trim();
+    let title = song_identity_title(&track.title);
+    let primary = artist.split(',').next().unwrap_or(artist).trim();
+    let mut queries = vec![
+        format!("{} {}", artist, track.title.trim()),
+        format!("{title} {primary}"),
+    ];
+    if let Some(album) = track
+        .album
+        .as_deref()
+        .filter(|album| normalized(album) != normalized(&title))
+    {
+        queries.push(format!("{title} {}", album.trim()));
+    }
+    let mut seen = HashSet::new();
+    queries.retain(|q| !q.trim().is_empty() && q.len() <= 200 && seen.insert(normalized(q)));
+    queries
+}
+
+/// Regular video search is less curated. Only trust the credited artist's channel,
+/// exact song title (with descriptive upload suffix), and near-identical duration.
+pub(super) fn video_audio_score(target: &MusicTrack, candidate: &MusicTrack) -> Option<i32> {
+    if !tight_duration(target, candidate, 3)
+        || alternate_edition(target) != alternate_edition(candidate)
+        || backing_version(target) != backing_version(candidate)
+        || tempo_version(target) != tempo_version(candidate)
+        || dubious_credit(candidate)
+    {
+        return None;
+    }
+    let artist = normalized(target.artist.split(',').next().unwrap_or(&target.artist));
+    let channel = normalized(candidate.artist.trim_end_matches(" - Topic"));
+    if artist.is_empty() || artist != channel {
+        return None;
+    }
+    let title = normalized(discovery_title(&target.title));
+    let actual = normalized(&candidate.title);
+    let title_with_artist = format!("{artist} {title}");
+    if title.is_empty() {
+        return None;
+    }
+    let exact = actual == title || actual == title_with_artist;
+    let descriptive = [&title, &title_with_artist].iter().any(|prefix| {
+        actual.strip_prefix(prefix.as_str()).is_some_and(|suffix| {
+            let suffix = suffix.trim();
+            suffix.starts_with("battle theme from ")
+                || suffix.contains(" battle theme from ")
+                || suffix == "full version"
+                || suffix == "lyric"
+        })
+    });
+    if !exact && !descriptive {
+        return None;
+    }
+    Some(if exact { 220 } else { 210 })
+}
+
 pub(super) fn candidate_score(target: &MusicTrack, candidate: &MusicTrack) -> Option<i32> {
     if backing_version(target) != backing_version(candidate) {
         return None;
@@ -188,15 +373,39 @@ pub(super) fn candidate_score(target: &MusicTrack, candidate: &MusicTrack) -> Op
     if tempo_version(target) != tempo_version(candidate) {
         return None;
     }
-    let title = similarity(&target.title, &candidate.title);
+    if alternate_edition(target) != alternate_edition(candidate)
+        || dubious_credit(candidate) && !dubious_credit(target)
+    {
+        return None;
+    }
+    let title = if exact_title(target, candidate) {
+        100
+    } else {
+        similarity(
+            &song_identity_title(&target.title),
+            &song_identity_title(&candidate.title),
+        )
+    };
     // An upload credits the artist in its title and carries the uploader as the artist.
-    let artist = similarity(&target.artist, &candidate.artist).max(
+    let mut artist = similarity(&target.artist, &candidate.artist).max(
         if credits_artist(&target.artist, &candidate.title) {
             70
         } else {
             0
         },
     );
+    // Different script/publisher credits are not equivalent by themselves. Only
+    // accept the exact track on the same album with a very close duration.
+    if artist < 35
+        && exact_title(target, candidate)
+        && exact_album(target, candidate)
+        && tight_duration(target, candidate, 2)
+        && (has_native_script(&target.artist) != has_native_script(&candidate.artist)
+            || publisher_credit(&target.artist)
+            || publisher_credit(&candidate.artist))
+    {
+        artist = 60;
+    }
     if title < 55 || artist < 35 {
         return None;
     }
@@ -299,6 +508,89 @@ mod tests {
             duration_seconds: 1,
             duration_label: "0:01".to_string(),
         }
+    }
+
+    #[test]
+    fn soundtrack_credit_changes_need_album_title_and_duration_evidence() {
+        let mut requested = song("City Ruins - Rays of Light", 382, None);
+        requested.artist = "\u{5ca1}\u{90e8}\u{5553}\u{4e00}".into();
+        requested.album = Some("NieR:Automata Original Soundtrack".into());
+        let mut match_track = song("\u{907a}\u{30b5}\u{30ec}\u{30bf}\u{5834}\u{6240}/\u{659c}\u{5149} - City Ruins - Rays of Light", 383, None);
+        match_track.artist = "Keiichi Okabe".into();
+        match_track.album = requested.album.clone();
+        assert!(candidate_score(&requested, &match_track).is_some());
+        let mut wrong = match_track.clone();
+        wrong.album = Some("Unrelated soundtrack".into());
+        assert!(candidate_score(&requested, &wrong).is_none());
+        wrong = match_track.clone();
+        wrong.duration_seconds = 386;
+        assert!(candidate_score(&requested, &wrong).is_none());
+        wrong = match_track.clone();
+        wrong.title = "City Ruins - Shade".into();
+        assert!(candidate_score(&requested, &wrong).is_none());
+        requested.artist = "SQUARE ENIX MUSIC".into();
+        assert!(candidate_score(&requested, &match_track).is_some());
+    }
+
+    #[test]
+    fn video_audio_fallback_requires_artist_and_exact_recording() {
+        let mut requested = song("Bury the Light", 582, None);
+        requested.artist = "Casey Edwards".into();
+        let mut video = song(
+            "Bury the Light - Vergil's battle theme from Devil May Cry 5 [OFFICIAL AUDIO]",
+            581,
+            None,
+        );
+        video.artist = "Casey Edwards".into();
+        assert!(video_audio_score(&requested, &video).is_some());
+        video.artist = "Vincent Moretto".into();
+        assert!(video_audio_score(&requested, &video).is_none());
+        video.artist = "Casey Edwards".into();
+        video.title = "Bury the Light (Cover)".into();
+        assert!(video_audio_score(&requested, &video).is_none());
+        video.title = "Bury the Light".into();
+        video.duration_seconds = 480;
+        assert!(video_audio_score(&requested, &video).is_none());
+    }
+
+    #[test]
+    fn discovery_queries_keep_artist_first_and_try_title_first_and_album() {
+        let mut requested = song("Punkrocker - As featured in Superman", 246, None);
+        requested.artist = "Teddybears, Iggy Pop".into();
+        requested.album = Some("Soft Machine".into());
+        assert_eq!(
+            discovery_queries(&requested),
+            vec![
+                "Teddybears, Iggy Pop Punkrocker - As featured in Superman",
+                "Punkrocker Teddybears",
+                "Punkrocker Soft Machine",
+            ]
+        );
+        let original = song("Bury the Light", 582, None);
+        let mut cover = original.clone();
+        cover.title = "Bury the Light (Remix)".into();
+        assert!(candidate_score(&original, &cover).is_none());
+    }
+
+    #[test]
+    fn promotional_parentheticals_preserve_featured_credits() {
+        let mut target = song(
+            "Punkrocker (feat. Iggy Pop) - As featured in Superman",
+            246,
+            None,
+        );
+        target.artist = "Teddybears, Iggy Pop".into();
+        target.album = Some("Soft Machine".into());
+        let mut other = song(
+            "Punkrocker (As featured in Superman) (feat. Iggy Pop)",
+            247,
+            None,
+        );
+        other.artist = "Teddybears".into();
+        other.album = target.album.clone();
+        assert!(candidate_score(&target, &other).is_some());
+        other.title = "Punkrocker (feat. Iggy Pop) (Cover)".into();
+        assert!(candidate_score(&target, &other).is_none());
     }
 
     #[test]

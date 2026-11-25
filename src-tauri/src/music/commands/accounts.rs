@@ -26,7 +26,7 @@ pub async fn music_source_candidates(
             state
                 .registry
                 .candidates_for(&app, &track, connector_id)
-                .await
+                .await?
         }
         None => state.registry.candidates(&app, &track).await,
     };
