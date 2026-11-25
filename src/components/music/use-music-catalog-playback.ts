@@ -40,7 +40,10 @@ export function useMusicCatalogPlayback() {
           : item.kind === "album"
             ? await albumTracks(item)
             : item.kind === "playlist"
-              ? await catalogPlaylistTracks(item)
+              ? await catalogPlaylistTracks(
+                  item,
+                  () => request.current === current && latestRequest === current,
+                )
               : item.kind === "artist"
                 ? await artistTop(item)
                 : await stationTracks(item);

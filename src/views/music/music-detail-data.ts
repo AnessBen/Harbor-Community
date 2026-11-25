@@ -7,7 +7,7 @@ import {
   albumTracks,
   artistCatalog,
   artistRows,
-  catalogPlaylistPage,
+  catalogPlaylistTracks,
   localCollection,
   searchTyped,
   stationTracks,
@@ -44,6 +44,7 @@ async function artistTracksElsewhere(artist: MusicArtistRef): Promise<MusicTrack
 
 export async function loadDetailTracks(
   item: MusicCatalogItem,
+  isCurrent?: () => boolean,
 ): Promise<Pick<MusicDetailState, "tracks" | "nextOffset" | "trackCursor" | "trackScope">> {
   if (item.kind === "artist") {
     if (item.connectorId === "local") {
@@ -68,12 +69,11 @@ export async function loadDetailTracks(
     return { tracks: [], trackScope: "top" };
   }
   if (item.kind === "playlist") {
-    // The playlist page pages its tracks; the first page is what the detail view opens with.
-    const page = await catalogPlaylistPage(item);
+    // Filtering, sorting and playback all require the complete playlist, not an excerpt.
     return {
-      tracks: tracksOf(page.items),
-      trackCursor: page.nextCursor,
-      trackScope: page.scope,
+      tracks: await catalogPlaylistTracks(item, isCurrent),
+      trackCursor: null,
+      trackScope: "catalog",
     };
   }
   return {

@@ -313,7 +313,7 @@ function MusicViewContent({ active }: { active: boolean }) {
   const [openingDetail, setOpeningDetail] = useState<number | null>(null);
   const loadPendingDetail = useCallback((snapshot: MusicDetailState, generation: number) => {
     if (snapshot.loading)
-      void loadDetailTracks(snapshot.item)
+      void loadDetailTracks(snapshot.item, () => generation === resolveGeneration.current)
         .then((result) => {
           if (generation === resolveGeneration.current)
             setDetail((current) =>

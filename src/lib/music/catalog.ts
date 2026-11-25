@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { withTimeout } from "@/lib/progressive-rows";
+import { readCatalogPlaylistTracks } from "./catalog-playlist";
 import {
   invalidateMusicHealth,
   lanePool,
@@ -58,8 +59,14 @@ export function artistCatalog(
   return invoke<MusicCatalogPage>("music_artist_catalog", { artist, kind, cursor: cursor ?? null });
 }
 
-export function catalogPlaylistTracks(playlist: MusicPlaylistRef): Promise<MusicTrack[]> {
-  return invoke<MusicTrack[]>("music_catalog_playlist_tracks", { playlist });
+export function catalogPlaylistTracks(
+  playlist: MusicPlaylistRef,
+  isCurrent?: () => boolean,
+): Promise<MusicTrack[]> {
+  return readCatalogPlaylistTracks(
+    (cursor) => withTimeout(catalogPlaylistPage(playlist, cursor), 25_000),
+    isCurrent,
+  );
 }
 
 /** One page of a catalog playlist; pass the last page's `nextCursor` to continue. */
