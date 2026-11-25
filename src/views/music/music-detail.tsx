@@ -320,7 +320,6 @@ export function MusicDetail({
         tracks={filtered}
         playbackQueue={detail.searchQueue}
         singleSong={item.kind === "track" && item.mediaKind !== "video"}
-        singleSong={item.kind === "track" && item.mediaKind !== "video"}
         onPlay={onPlay}
         revealAfter={hero}
       />
@@ -424,6 +423,7 @@ export function MusicDetail({
               <MusicCollectionControls
                 tracks={filtered}
                 playbackQueue={detail.searchQueue}
+                singleSong={item.kind === "track" && item.mediaKind !== "video"}
                 onPlay={onPlay}
                 disabled={loading}
                 loading={loading}
