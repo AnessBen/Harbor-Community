@@ -167,6 +167,17 @@ pub trait MusicConnector: Send + Sync {
         })
     }
 
+    /// Targeted album lookup for recording discovery. Connectors without an
+    /// album catalog can leave this empty without triggering broad search.
+    async fn search_discovery_albums(
+        &self,
+        _app: &tauri::AppHandle,
+        _query: &str,
+        _limit: usize,
+    ) -> Result<Vec<MusicAlbumRef>, String> {
+        Ok(Vec::new())
+    }
+
     async fn album_tracks(
         &self,
         _app: &tauri::AppHandle,

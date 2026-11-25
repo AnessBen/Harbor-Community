@@ -214,6 +214,24 @@ fn song_identity_title(title: &str) -> String {
     title.trim().to_owned()
 }
 
+pub(super) fn album_title_matches(left: &str, right: &str) -> bool {
+    let left = normalized(left);
+    !left.is_empty() && left == normalized(right)
+}
+
+/// Tracklist membership corroborates a recording, but does not replace its
+/// identity. Require an exact title/alias and a tight duration, then apply the
+/// same artist and version checks as ordinary song discovery.
+pub(super) fn album_candidate_score(target: &MusicTrack, candidate: &MusicTrack) -> Option<i32> {
+    if !exact_album(target, candidate)
+        || !exact_title(target, candidate)
+        || !tight_duration(target, candidate, 2)
+    {
+        return None;
+    }
+    candidate_score(target, candidate).map(|score| score + 30)
+}
+
 fn has_native_script(value: &str) -> bool {
     value.chars().any(|ch| matches!(ch as u32, 0x3040..=0x30ff | 0x3400..=0x9fff | 0xac00..=0xd7af | 0x0600..=0x06ff | 0x0900..=0x097f))
 }
@@ -588,9 +606,33 @@ mod tests {
         );
         other.artist = "Teddybears".into();
         other.album = target.album.clone();
-        assert!(candidate_score(&target, &other).is_some());
+        assert!(album_candidate_score(&target, &other).is_some());
         other.title = "Punkrocker (feat. Iggy Pop) (Cover)".into();
-        assert!(candidate_score(&target, &other).is_none());
+        assert!(album_candidate_score(&target, &other).is_none());
+    }
+
+    #[test]
+    fn album_discovery_requires_exact_release_and_recording() {
+        let mut target = song("Land of Eikons", 147, None);
+        target.artist = "\u{7956}\u{5805} \u{6b63}\u{6176}, Nobuo Uematsu".into();
+        target.album = Some("FINAL FANTASY XVI Original Soundtrack (Prelude)".into());
+        let mut found = song("Land of Eikons", 148, None);
+        found.artist = "Masayoshi Soken, Nobuo Uematsu".into();
+        found.album = Some("FINAL FANTASY XVI Original Soundtrack - Prelude".into());
+        assert!(album_title_matches(
+            target.album.as_deref().unwrap(),
+            found.album.as_deref().unwrap()
+        ));
+        assert!(album_candidate_score(&target, &found).is_some());
+        found.title = "Land of Eikons (Reprise)".into();
+        assert!(album_candidate_score(&target, &found).is_none());
+        found.title = target.title.clone();
+        found.album = Some("FINAL FANTASY XIV Original Soundtrack - Prelude".into());
+        assert!(album_candidate_score(&target, &found).is_none());
+        found.album = target.album.clone();
+        found.artist = "Unrelated performer".into();
+        found.title = "Land of Eikons (Piano Cover)".into();
+        assert!(album_candidate_score(&target, &found).is_none());
     }
 
     #[test]

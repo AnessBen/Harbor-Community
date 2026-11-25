@@ -1,7 +1,8 @@
 use super::connector::{ConnectorHealth, ConnectorHealthInfo, MusicConnector};
 use super::matching::{
-    candidate_score, connector_priority, discovery_queries, requested_candidate,
-    settle_search_results, source_key, source_name, video_audio_score,
+    album_candidate_score, album_title_matches, candidate_score, connector_priority,
+    discovery_queries, requested_candidate, settle_search_results, source_key, source_name,
+    video_audio_score,
 };
 use super::rows::merge_typed_results;
 use super::{
@@ -246,6 +247,48 @@ impl ConnectorRegistry {
                 ));
                 scored.truncate(UPLOADS_PER_SOURCE);
                 return Ok(scored);
+            }
+        }
+        if let Some(album) = target
+            .album
+            .as_deref()
+            .filter(|name| !name.trim().is_empty() && name.len() <= 200)
+        {
+            // Resolve actual album membership before looking at less curated videos.
+            // Search only the album endpoint, not four parallel catalog searches.
+            let albums = tokio::time::timeout(
+                Duration::from_secs(4),
+                connector.search_discovery_albums(app, album, 12),
+            )
+            .await
+            .map_err(|_| "Preferred music album lookup timed out".to_string())??;
+            for found in albums
+                .into_iter()
+                .filter(|found| album_title_matches(album, &found.title))
+                .take(2)
+            {
+                let tracks = tokio::time::timeout(
+                    Duration::from_secs(5),
+                    connector.album_tracks(app, &found),
+                )
+                .await
+                .map_err(|_| "Preferred music album tracks timed out".to_string())??;
+                let mut scored = tracks
+                    .into_iter()
+                    .filter_map(|candidate| {
+                        album_candidate_score(target, &candidate).map(|score| (score, candidate))
+                    })
+                    .collect::<Vec<_>>();
+                scored.sort_by(|a, b| b.0.cmp(&a.0));
+                if !scored.is_empty() {
+                    scored.truncate(UPLOADS_PER_SOURCE);
+                    super::trace::log(format!(
+                        "source={} stage=discovery-album matches={}",
+                        connector.id(),
+                        scored.len()
+                    ));
+                    return Ok(scored);
+                }
             }
         }
         if connector.id() == "youtube" {

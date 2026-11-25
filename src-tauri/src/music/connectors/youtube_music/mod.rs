@@ -157,6 +157,15 @@ impl MusicConnector for YouTubeMusicConnector {
         Ok(rows)
     }
 
+    async fn search_discovery_albums(
+        &self,
+        app: &tauri::AppHandle,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<MusicAlbumRef>, String> {
+        catalog::albums(&self.client, app, query, limit).await
+    }
+
     async fn album_tracks(
         &self,
         app: &tauri::AppHandle,
