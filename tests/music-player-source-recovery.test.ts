@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
+import { selectSourceCandidate } from "../src/lib/music/source-selection";
 import { shouldResolvePreferredSource } from "../src/lib/music/source-version";
 import { adoptRequestedIdentity } from "../src/lib/music/queue-source";
 import { queueTrackKey } from "../src/lib/music/queue-order";
@@ -20,7 +21,12 @@ const spotify: MusicTrack = {
 };
 const alternative: MusicTrack = { ...spotify, id: "soundcloud:one", connectorId: "soundcloud" };
 
-function fixture(failImmediately = false, youtubeFailure?: string) {
+function fixture(
+  failImmediately = false,
+  youtubeFailure?: string,
+  preferred = "spotify",
+  preferredLookup?: (track: MusicTrack) => Promise<MusicTrack[]>,
+) {
   const source = readFileSync(new URL("../src/lib/music/player.ts", import.meta.url), "utf8");
   const tree = ts.createSourceFile("player.ts", source, ts.ScriptTarget.Latest, true);
   const functions = tree.statements.filter(
@@ -52,6 +58,7 @@ function fixture(failImmediately = false, youtubeFailure?: string) {
   };
   const attempts: MusicTrack[] = [];
   let lookups = 0;
+  const lookupConnectors: (string | undefined)[] = [];
   const scope = {
     state,
     queueTrackKey,
@@ -61,6 +68,7 @@ function fixture(failImmediately = false, youtubeFailure?: string) {
       throw new Error("Must not skip a temporarily restricted track");
     },
     shouldResolvePreferredSource,
+    selectSourceCandidate,
     adoptRequestedIdentity,
     sameMusicTrack,
     initializeMusic: async () => {},
@@ -77,10 +85,17 @@ function fixture(failImmediately = false, youtubeFailure?: string) {
     rankByExplicitness: (candidates: unknown[]) => candidates,
     explicitnessOf: () => 0,
     musicPlaybackSourceAllowed: () => true,
-    readMusicPreference: () => null,
+    readMusicPreference: () => preferred,
     clampMusicVolume: (volume: number) => volume,
-    sourcesFor: async () => {
+    sourcesFor: async (track: MusicTrack, _ttl?: number, _fresh?: boolean, connector?: string) => {
       lookups++;
+      lookupConnectors.push(connector);
+      if (connector && preferredLookup)
+        return (await preferredLookup(track)).map((t) => ({
+          connectorId: t.connectorId,
+          health: "healthy",
+          track: t,
+        }));
       return [{ connectorId: "soundcloud", health: "healthy", track: alternative }];
     },
     invoke: async (command: string, args: { track: MusicTrack }) => {
@@ -110,6 +125,7 @@ function fixture(failImmediately = false, youtubeFailure?: string) {
     state,
     attempts,
     lookups: () => lookups,
+    lookupConnectors,
   };
 }
 
@@ -153,7 +169,7 @@ test("automatic playback still recovers and a new request clears the manual sour
 
 test("YouTube restrictions stop source fallback and automatic skipping, retaining the queue", async () => {
   const message = "YouTube rate limit. Wait 120 seconds before retrying.";
-  const h = fixture(false, message);
+  const h = fixture(false, message, "youtube");
   const song = { ...spotify, id: "yt:one", connectorId: "youtube" };
   await assert.rejects(
     h.play(song, [song, alternative], undefined, true, true),
@@ -175,4 +191,62 @@ test("a later browser verification error preserves the current song", async () =
   assert.equal(h.lookups(), 0);
   assert.equal(h.state.phase, "error");
   assert.deepEqual(h.state.queue, [song, alternative]);
+});
+
+test("each playlist track resolves the preferred provider without waiting for full fan-out", async () => {
+  const second = { ...spotify, id: "spotify:track:two", title: "Two" };
+  const h = fixture(false, undefined, "youtube", async (t) => [
+    { ...t, connectorId: "youtube", id: "yt:" + t.id },
+  ]);
+  await h.play(spotify, [spotify, second]);
+  await h.play(second, h.state.queue, undefined, true);
+  assert.deepEqual(h.lookupConnectors, ["youtube", "youtube"]);
+  assert.deepEqual(
+    h.attempts.map((t) => t.connectorId),
+    ["youtube", "youtube"],
+  );
+  assert.equal(h.state.queue.length, 2);
+  assert.equal(h.state.current?.collectionOrigin?.id, second.id);
+});
+
+test("a preferred lookup timeout does not silently switch or skip the song", async () => {
+  const h = fixture(false, undefined, "youtube", async () => {
+    throw new Error("Preferred music source lookup timed out");
+  });
+  await assert.rejects(
+    h.play(spotify, [spotify, alternative], undefined, true, true),
+    /lookup timed out/,
+  );
+  assert.deepEqual(h.lookupConnectors, ["youtube"]);
+  assert.equal(h.attempts.length, 0);
+  assert.equal(h.state.phase, "error");
+  assert.deepEqual(h.state.queue, [spotify, alternative]);
+});
+
+test("a genuine preferred no-match may fall back and the next song tries the preference again", async () => {
+  const second = { ...spotify, id: "spotify:track:two", title: "Two" };
+  const h = fixture(false, undefined, "youtube", async (t) =>
+    t.id === spotify.id ? [] : [{ ...t, connectorId: "youtube", id: "yt:two" }],
+  );
+  await h.play(spotify, [spotify, second]);
+  await h.play(second, h.state.queue, undefined, true);
+  assert.deepEqual(h.lookupConnectors, ["youtube", undefined, "youtube"]);
+  assert.deepEqual(
+    h.attempts.map((t) => t.connectorId),
+    ["soundcloud", "youtube"],
+  );
+});
+
+test("an explicit upload choice does not suppress preferred lookup on the next recording", async () => {
+  const second = { ...spotify, id: "spotify:track:two", title: "Two" };
+  const h = fixture(false, undefined, "youtube", async (t) => [
+    { ...t, connectorId: "youtube", id: "yt:two" },
+  ]);
+  await h.play(spotify, [spotify, second], undefined, false, false, true);
+  await h.play(second, h.state.queue, undefined, true);
+  assert.deepEqual(h.lookupConnectors, ["youtube"]);
+  assert.deepEqual(
+    h.attempts.map((t) => t.connectorId),
+    ["spotify", "youtube"],
+  );
 });

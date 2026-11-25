@@ -153,17 +153,24 @@ function sourcesFor(
   track: MusicTrack,
   ttlMs: number = SOURCE_TTL_MS,
   fresh = false,
+  connector?: string,
 ): Promise<MusicSourceCandidate[]> {
-  const key = `${activeProfile}:${track.connectorId}:${track.id}:${track.title}:${track.artist}`;
+  const key = `${activeProfile}:${connector ?? "all"}:${track.connectorId}:${track.id}:${track.title}:${track.artist}:${track.album ?? ""}:${track.durationSeconds}`;
   if (fresh) queuedSources.delete(key);
   const saved = queuedSources.get(key);
   if (saved && saved.until > Date.now()) return saved.promise;
   let timer: ReturnType<typeof setTimeout>;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error("music.source.none")), 12000);
+    timer = setTimeout(
+      () =>
+        reject(
+          new Error(connector ? "Preferred music source lookup timed out" : "music.source.none"),
+        ),
+      connector ? 20_000 : 12_000,
+    );
   });
   const promise = Promise.race([
-    invoke<MusicSourceCandidate[]>("music_source_candidates", { track }),
+    invoke<MusicSourceCandidate[]>("music_source_candidates", { track, connector }),
     timeout,
   ])
     .then((value) =>
@@ -173,6 +180,18 @@ function sourcesFor(
           : [],
       ),
     )
+    .then((candidates) => {
+      const entry = queuedSources.get(key);
+      // A speculative miss must never become a long-lived negative lookup.
+      if (
+        entry?.promise === promise &&
+        (!candidates.length ||
+          (connector &&
+            !candidates.some((c) => c.connectorId === connector && c.health !== "offline")))
+      )
+        queuedSources.delete(key);
+      return candidates;
+    })
     .catch((error) => {
       if (queuedSources.get(key)?.promise === promise) queuedSources.delete(key);
       throw error;
@@ -213,7 +232,7 @@ function warmNextTrack(): void {
     return;
   const target = nextWarmTarget();
   if (!target || target.mediaKind === "video") return;
-  const preferred = readMusicPreference("harbor.music.preferred-source.v1");
+  const preferred = readMusicPreference("harbor.music.preferred-source.v1") || "youtube";
   const resolve =
     (target.connectorId === "catalog" && !target.playbackUrl) ||
     !musicPlaybackSourceAllowed(target) ||
@@ -230,13 +249,13 @@ function warmNextTrack(): void {
       state.currentTime >= 3 &&
       !getMusicSpeakerState().active &&
       key ===
-        `${activeProfile}:${queueTrackKey(next)}:${next.connectorId}:${next.id}:${readMusicPreference("harbor.music.preferred-source.v1")}`
+        `${activeProfile}:${queueTrackKey(next)}:${next.connectorId}:${next.id}:${readMusicPreference("harbor.music.preferred-source.v1") || "youtube"}`
     );
   };
   void nextTrackWarmup.run(key, current, async (stillCurrent) => {
     let playable = target;
     if (resolve) {
-      const candidates = (await sourcesFor(target, PRELOAD_TTL_MS)).filter(
+      const candidates = (await sourcesFor(target, PRELOAD_TTL_MS, false, "youtube")).filter(
         (candidate) => candidate.health !== "offline" && candidate.track.connectorId !== "catalog",
       );
       if (!stillCurrent()) return false;
@@ -1086,7 +1105,10 @@ export async function playMusic(
   // Playing something reopens the player the listener closed last time.
   if (musicPlayerWasClosed()) setMusicPlayerClosed(false);
   if (automationOwner) markMusicQueueAutomationStarted(automationOwner);
-  if (!continuing) explicitSource = explicit ? (track.connectorId ?? null) : null;
+  // A hand-picked upload belongs to this recording, never the next queue entry.
+  if (explicit) explicitSource = track.connectorId ?? null;
+  else if (!continuing || !state.current || queueTrackKey(state.current) !== queueTrackKey(track))
+    explicitSource = null;
   if (explicit) pinSourceFor(track);
   const chosenByHand = explicitSource !== null && track.connectorId === explicitSource;
   const request = ++playRequest;
@@ -1108,7 +1130,7 @@ export async function playMusic(
   const catalog =
     (track.connectorId === "catalog" && !track.playbackUrl) ||
     (sourceBlocked && track.mediaKind !== "video");
-  const preferredSource = readMusicPreference("harbor.music.preferred-source.v1");
+  const preferredSource = readMusicPreference("harbor.music.preferred-source.v1") || "youtube";
   const resolvePreferred = shouldResolvePreferredSource(
     track,
     preferredSource,
@@ -1118,6 +1140,7 @@ export async function playMusic(
   const workingSource = state.current?.connectorId;
   let alternatives: MusicTrack[] = [];
   let searchedAlternatives = catalog || resolvePreferred;
+  let preferredLookupFailed = false;
   let finishAudio!: (ready: boolean) => void;
   audioReady = {
     request,
@@ -1142,17 +1165,37 @@ export async function playMusic(
   });
   try {
     if (catalog || resolvePreferred) {
-      const candidates = await sourcesFor(track).catch((error) => {
-        if (catalog) throw error;
-        return [
-          {
-            connectorId: track.connectorId ?? "",
-            connectorName: "",
-            health: "healthy" as const,
-            track,
-          },
-        ];
-      });
+      let candidates: MusicSourceCandidate[] = [];
+      const targeted =
+        !failedAttempts.size &&
+        !chosenByHand &&
+        preferredSource !== track.connectorId &&
+        musicPlaybackSourceAllowed({ ...track, connectorId: preferredSource });
+      if (targeted) {
+        try {
+          candidates = (await sourcesFor(track, undefined, false, preferredSource)).filter(
+            (c) => c.connectorId === preferredSource && c.health !== "offline",
+          );
+        } catch (error) {
+          preferredLookupFailed = true;
+          throw error;
+        }
+        if (!ownsRequest()) return;
+        if (candidates.length) searchedAlternatives = false;
+      }
+      if (!candidates.length) {
+        candidates = await sourcesFor(track).catch((error) => {
+          if (catalog) throw error;
+          return [
+            {
+              connectorId: track.connectorId ?? "",
+              connectorName: "",
+              health: "healthy" as const,
+              track,
+            },
+          ];
+        });
+      }
       if (!ownsRequest()) return;
       const playable = candidates.filter(
         (candidate) =>
@@ -1174,7 +1217,7 @@ export async function playMusic(
           track,
         });
       }
-      const preferred = readMusicPreference("harbor.music.preferred-source.v1");
+      const preferred = preferredSource;
       const ranked = rankByExplicitness(playable, explicitnessOf(track));
       const match = selectSourceCandidate(
         ranked,
@@ -1188,6 +1231,11 @@ export async function playMusic(
         .filter((candidate) => candidate !== match)
         .slice(0, 2)
         .map((candidate) => adoptRequestedIdentity(candidate.track, original));
+      console.debug("[music] source selection", {
+        preferred,
+        selected: match.connectorId,
+        reason: match.connectorId === preferred ? "preferred-match" : "preferred-no-match",
+      });
       track = adoptRequestedIdentity(match.track, original);
       // A manual queue edit or stopping a station can happen during source lookup.
       // Resolve the current recording inside the live queue, preserving that edit.
@@ -1319,19 +1367,40 @@ export async function playMusic(
           const failedTrack = track;
           const candidates = await sourcesFor(track).catch(() => []);
           if (!ownsRequest()) return;
-          alternatives = candidates
-            .filter(
-              (candidate) =>
-                candidate.health !== "offline" &&
-                candidate.track.connectorId !== "catalog" &&
-                !failedAttempts.has(`${candidate.track.connectorId}:${candidate.track.id}`) &&
-                !(
-                  candidate.track.id === failedTrack.id &&
-                  candidate.track.connectorId === failedTrack.connectorId
-                ),
+          const preserved = alternatives.filter(
+            (candidate) => !failedAttempts.has(`${candidate.connectorId}:${candidate.id}`),
+          );
+          const known = new Set(
+            preserved.map((candidate) => `${candidate.connectorId}:${candidate.id}`),
+          );
+          alternatives = [
+            ...preserved,
+            ...rankByExplicitness(candidates, explicitnessOf(failedTrack))
+              .filter(
+                (candidate) =>
+                  candidate.health !== "offline" &&
+                  candidate.track.connectorId !== "catalog" &&
+                  !failedAttempts.has(`${candidate.track.connectorId}:${candidate.track.id}`) &&
+                  !(
+                    candidate.track.id === failedTrack.id &&
+                    candidate.track.connectorId === failedTrack.connectorId
+                  ),
+              )
+              .sort(
+                (a, b) =>
+                  Number(b.connectorId === preferredSource) -
+                  Number(a.connectorId === preferredSource),
+              )
+              .slice(0, 2)
+              .map((candidate) => adoptRequestedIdentity(candidate.track, failedTrack))
+              .filter((candidate) => !known.has(`${candidate.connectorId}:${candidate.id}`)),
+          ]
+            .sort(
+              (a, b) =>
+                Number(b.connectorId === preferredSource) -
+                Number(a.connectorId === preferredSource),
             )
-            .slice(0, 2)
-            .map((candidate) => adoptRequestedIdentity(candidate.track, failedTrack));
+            .slice(0, 2);
         }
         const alternative = alternatives[attempt];
         if (!alternative) throw error;
@@ -1394,6 +1463,11 @@ export async function playMusic(
         : error instanceof Error
           ? error.message
           : String(error);
+    if (preferredLookupFailed) {
+      recoverPlayback = null;
+      publish({ phase: "error", error: message });
+      throw error instanceof Error ? error : new Error(message);
+    }
     const delay = track.connectorId === "youtube" ? youtubeRestrictionDelay(message) : null;
     if (delay !== null) {
       nextTrackWarmup.suspendFor(delay);
