@@ -70,6 +70,7 @@ const DEFAULT_VIEW: MusicDetailViewState = { query: "", sort: "default", section
 export type MusicDetailState = {
   item: MusicCatalogItem;
   tracks: MusicTrack[];
+  searchQueue?: MusicTrack[];
   rows: CatalogRow[];
   loading: boolean;
   error: string;
@@ -314,7 +315,13 @@ export function MusicDetail({
         <ChevronLeft size={18} />
         {t("music.watch.back")}
       </button>
-      <MusicStickyTitle title={title} tracks={filtered} onPlay={onPlay} revealAfter={hero} />
+      <MusicStickyTitle
+        title={title}
+        tracks={filtered}
+        playbackQueue={detail.searchQueue}
+        onPlay={onPlay}
+        revealAfter={hero}
+      />
       <header
         ref={hero}
         className="music-detail-hero"
@@ -414,6 +421,7 @@ export function MusicDetail({
             <div className="music-detail-hero-actions">
               <MusicCollectionControls
                 tracks={filtered}
+                playbackQueue={detail.searchQueue}
                 onPlay={onPlay}
                 disabled={loading}
                 loading={loading}

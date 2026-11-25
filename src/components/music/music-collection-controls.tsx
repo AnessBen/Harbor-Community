@@ -9,12 +9,14 @@ import "./music-collection-controls.css";
 /** Collection controls retain the stored order; shuffle belongs to playback. */
 export function MusicCollectionControls({
   tracks,
+  playbackQueue,
   onPlay,
   disabled = false,
   loading = false,
   extra,
 }: {
   tracks: MusicTrack[];
+  playbackQueue?: MusicTrack[];
   onPlay: (track: MusicTrack, queue: MusicTrack[]) => void;
   disabled?: boolean;
   loading?: boolean;
@@ -22,7 +24,7 @@ export function MusicCollectionControls({
 }) {
   const t = useT();
   const transport = useMusicTransport();
-  const { playing, busy, play } = useCollectionPlayback(tracks, onPlay);
+  const { playing, busy, play } = useCollectionPlayback(tracks, onPlay, playbackQueue);
 
   return (
     <div className="music-collection-controls">

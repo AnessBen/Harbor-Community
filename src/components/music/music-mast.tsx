@@ -44,7 +44,7 @@ export function MusicMast({
 }: {
   onSubmit: (query: string, connector: string | null) => void;
   onClear?: () => void;
-  onPick?: (item: MusicCatalogItem) => void;
+  onPick?: (item: MusicCatalogItem, siblings: MusicCatalogItem[]) => void;
   initialQuery?: string;
   searching?: boolean;
   className?: string;
@@ -82,7 +82,12 @@ export function MusicMast({
     setDismissed(true);
     setActiveIndex(-1);
     inputRef.current?.blur();
-    onPick?.(item);
+    onPick?.(
+      item,
+      showingHistory
+        ? [item]
+        : (suggestGroups.find((group) => group.items.includes(item))?.items ?? [item]),
+    );
   };
 
   const recall = (entry: MusicSearchHistoryEntry) => {

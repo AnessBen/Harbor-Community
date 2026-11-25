@@ -9,12 +9,14 @@ import "./music-sticky-title.css";
 export function MusicStickyTitle({
   title,
   tracks,
+  playbackQueue,
   onPlay,
   children,
   revealAfter,
 }: {
   title: string;
   tracks: MusicTrack[];
+  playbackQueue?: MusicTrack[];
   onPlay: (track: MusicTrack, queue: MusicTrack[]) => void;
   children?: ReactNode;
   revealAfter?: RefObject<HTMLElement | null>;
@@ -23,7 +25,7 @@ export function MusicStickyTitle({
   const host = useRef<HTMLDivElement>(null);
   const [stuck, setStuck] = useState(false);
   const now = useRef(false);
-  const { playing, busy, play } = useCollectionPlayback(tracks, onPlay);
+  const { playing, busy, play } = useCollectionPlayback(tracks, onPlay, playbackQueue);
   useLayoutEffect(() => {
     const node = host.current;
     const scroller = node?.closest("main");

@@ -6,6 +6,7 @@ import { useT } from "@/lib/i18n";
 import { searchTyped } from "@/lib/music/catalog";
 import { enqueueMusic, playMusic } from "@/lib/music/player";
 import { rankMusicSearch } from "@/lib/music/search-ranking";
+import { searchPlaybackQueue } from "@/lib/music/search-playback-queue";
 import { searchMusicVideoPage } from "@/lib/music/video-pages";
 import {
   dedupeSearchTracks,
@@ -132,7 +133,7 @@ export function MusicNowSearch({ onClose }: { onClose: () => void }) {
 
   const play = (track: MusicTrack, index: number) => {
     setCursor(index);
-    void playMusic(track, results ?? [track]).catch(() => {});
+    void playMusic(track, searchPlaybackQueue(track, results ?? [])).catch(() => {});
   };
   const enqueue = (track: MusicTrack) => {
     enqueueMusic(track);
@@ -191,6 +192,7 @@ export function MusicNowSearch({ onClose }: { onClose: () => void }) {
           value={query}
           onChange={(event) => {
             setQuery(event.target.value);
+            setResults(null);
             restart();
           }}
           placeholder={t("music.searchPlaceholder")}

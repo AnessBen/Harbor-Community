@@ -9,14 +9,15 @@ const identity = (track: MusicTrack) =>
 export function useCollectionPlayback(
   tracks: MusicTrack[],
   onPlay: (track: MusicTrack, queue: MusicTrack[]) => void,
+  playbackQueue = tracks,
 ): { playing: boolean; busy: boolean; play: () => void } {
   const player = useMusicPlayer();
   const sourceRequest = useMusicSourceRequest();
   const transport = useMusicTransport();
   const sameQueue =
-    tracks.length > 0 &&
-    tracks.length === player.queue.length &&
-    tracks.every((track, index) => identity(track) === identity(player.queue[index]));
+    playbackQueue.length > 0 &&
+    playbackQueue.length === player.queue.length &&
+    playbackQueue.every((track, index) => identity(track) === identity(player.queue[index]));
   const selected = Boolean(
     sameQueue &&
     player.current &&
@@ -32,7 +33,7 @@ export function useCollectionPlayback(
       return;
     }
     const first = tracks[transport.shuffle ? Math.floor(Math.random() * tracks.length) : 0];
-    if (first) onPlay(first, tracks);
+    if (first) onPlay(first, playbackQueue);
   };
   return { playing, busy, play };
 }

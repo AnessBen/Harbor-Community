@@ -1,4 +1,5 @@
 import { musicSearchTop } from "@/lib/music/search-ranking";
+import { searchPlaybackQueue } from "@/lib/music/search-playback-queue";
 import {
   artistIdentityKey,
   primeArtistCandidates,
@@ -236,7 +237,15 @@ export function MusicSearchPanel({
           {top && category === "all" && (
             <MusicCatalogRow
               row={localRow("search:top", t("music.search.top"), "", "wide", [top])}
-              onOpen={(item) => onOpenItem(item, [item])}
+              onOpen={(item) => onOpenItem(item, item.kind === "track" ? tracks : [item])}
+              onPlay={
+                top.kind === "track"
+                  ? (item) => {
+                      if (item.kind === "track")
+                        onPlayTrack(item, searchPlaybackQueue(item, results?.tracks ?? []));
+                    }
+                  : undefined
+              }
             />
           )}
           {artists.length > 0 &&
@@ -255,7 +264,9 @@ export function MusicSearchPanel({
               count={tracks.length}
               numbered
               onPlay={(item) =>
-                item.kind === "track" ? onPlayTrack(item, results.tracks) : onOpenItem(item, tracks)
+                item.kind === "track"
+                  ? onPlayTrack(item, searchPlaybackQueue(item, results?.tracks ?? []))
+                  : onOpenItem(item, tracks)
               }
               onOpen={(item) => onOpenItem(item, tracks)}
             />

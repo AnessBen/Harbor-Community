@@ -122,6 +122,7 @@ import { useMusicData } from "./music/use-music-data";
 
 import { MusicDetail, type MusicDetailState } from "./music/music-detail";
 import { registerMusicCatalogOrigin } from "@/lib/music/playback-origin";
+import { searchPlaybackQueue } from "@/lib/music/search-playback-queue";
 import { queueTrackKey } from "@/lib/music/queue-order";
 import { loadDetailRows, loadDetailTracks } from "./music/music-detail-data";
 
@@ -605,7 +606,12 @@ function MusicViewContent({ active }: { active: boolean }) {
   );
 
   const openItem = useCallback(
-    (item: MusicCatalogItem, _siblings: MusicCatalogItem[], remember = true) => {
+    (
+      item: MusicCatalogItem,
+      _siblings: MusicCatalogItem[],
+      remember = true,
+      fromSearch = false,
+    ) => {
       similarRun.current += 1;
       searchGeneration.current += 1;
       const generation = ++resolveGeneration.current;
@@ -642,6 +648,18 @@ function MusicViewContent({ active }: { active: boolean }) {
         rowsLoading: item.kind === "artist" || item.kind === "track",
         rowsError: "",
         view,
+        searchQueue:
+          item.kind === "track" && fromSearch
+            ? searchPlaybackQueue(
+                item,
+                _siblings.filter(
+                  (entry): entry is Extract<MusicCatalogItem, { kind: "track" }> =>
+                    entry.kind === "track",
+                ),
+              )
+            : !remember
+              ? detailRef.current?.searchQueue
+              : undefined,
       };
       const commit = (resolved: MusicDetailState) => {
         if (generation !== resolveGeneration.current) return;
@@ -1351,7 +1369,7 @@ function MusicViewContent({ active }: { active: boolean }) {
                 videoSearch={watch !== null}
                 onSubmit={runSearch}
                 onClear={clearSearch}
-                onPick={(item) => openItem(item, [item])}
+                onPick={(item, siblings) => openItem(item, siblings, true, true)}
                 searching={searching}
               />
             </section>
@@ -1436,8 +1454,17 @@ function MusicViewContent({ active }: { active: boolean }) {
                 detail={detail}
                 onBack={closeDetail}
                 onPlay={(track, queue) => {
-                  if (track.mediaKind !== "video") registerMusicCatalogOrigin(detail.item, queue);
-                  playTrack(track, queue);
+                  const playbackQueue =
+                    detail.item.kind === "track" &&
+                    detail.searchQueue &&
+                    queue.length === 1 &&
+                    queue[0].id === detail.item.id &&
+                    track.id === detail.item.id
+                      ? detail.searchQueue
+                      : queue;
+                  if (track.mediaKind !== "video")
+                    registerMusicCatalogOrigin(detail.item, playbackQueue);
+                  playTrack(track, playbackQueue);
                 }}
                 onOpen={openItem}
                 onRetry={() => openItem(detail.item, [], false)}
@@ -1454,7 +1481,7 @@ function MusicViewContent({ active }: { active: boolean }) {
                 onClear={clearSearch}
                 onOpenItem={(item, siblings) => {
                   rememberMusicSearchItem(item);
-                  openItem(item, siblings);
+                  openItem(item, siblings, true, true);
                 }}
                 onPlayTrack={(track, queue) => {
                   rememberMusicSearchItem({ ...track, kind: "track" });
