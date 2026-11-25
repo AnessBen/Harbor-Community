@@ -258,6 +258,15 @@ function MusicViewContent({ active }: { active: boolean }) {
     if (!active) setQuickListen(null);
   }, [active]);
   const [tab, setTab] = useSessionState<MusicTabId>("music.tab", "forYou");
+  // Source-specific setup requests use the Sources tab, while retaining their
+  // origin for Back. Audio settings and speakers remain separate inner pages.
+  const sourceRequest =
+    connectionsPage &&
+    connectionsPage.focusId !== "__audio" &&
+    connectionsPage.focusId !== "__speakers"
+      ? connectionsPage
+      : null;
+  const visibleTab: MusicTabId = sourceRequest ? "sources" : tab;
   const [search, setSearch] = useState<SearchState | null>(null);
   const [searching, setSearching] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -373,7 +382,15 @@ function MusicViewContent({ active }: { active: boolean }) {
 
   const runSearch = useCallback(
     (query: string, connector: string | null) => {
-      if (watch) {
+      if (sourceRequest) {
+        connectionOrigin.current = null;
+        closeConnections();
+        setWatch(null);
+        setYtm(false);
+        setDiscoveryPage(null);
+        setCollectionPage(null);
+      }
+      if (watch && !sourceRequest) {
         setVideoQuery(query.trim() || "music videos");
         setWatch(null);
         setDiscoveryPage("videos");
@@ -401,7 +418,7 @@ function MusicViewContent({ active }: { active: boolean }) {
           if (searchGeneration.current === generation) setSearching(false);
         });
     },
-    [watch],
+    [watch, sourceRequest, closeConnections],
   );
 
   const openLabel = useCallback((id: string, name: string) => {
@@ -568,24 +585,56 @@ function MusicViewContent({ active }: { active: boolean }) {
       !watch &&
       !ytm,
   );
-  const layerKey = connectionsPage
-    ? `connections:${connectionsPage.focusId ?? "all"}`
-    : discoveryPage === "videos"
-      ? `videos:${videoQuery}`
-      : ytm
-        ? "ytm"
-        : watch
-          ? "watch"
-          : similar
-            ? `similar:${similar.seed.id}`
-            : detail
-              ? `detail:${detailTrail.current.length}|${detail.item.connectorId ?? ""}:${detail.item.kind}:${detail.item.id}`
-              : search
-                ? `search:${search.mode ?? "search"}:${search.query}`
-                : discoveryPage
-                  ? `discovery:${discoveryPage}`
-                  : `tab:${tab}`;
+  const layerKey = sourceRequest
+    ? `sources:${sourceRequest.focusId ?? "all"}`
+    : connectionsPage
+      ? `connections:${connectionsPage.focusId ?? "all"}`
+      : discoveryPage === "videos"
+        ? `videos:${videoQuery}`
+        : ytm
+          ? "ytm"
+          : watch
+            ? "watch"
+            : similar
+              ? `similar:${similar.seed.id}`
+              : detail
+                ? `detail:${detailTrail.current.length}|${detail.item.connectorId ?? ""}:${detail.item.kind}:${detail.item.id}`
+                : search
+                  ? `search:${search.mode ?? "search"}:${search.query}`
+                  : discoveryPage
+                    ? `discovery:${discoveryPage}`
+                    : `tab:${tab}`;
   useMusicScrollContinuity(scrollRef, layerKey);
+
+  const changeTab = (next: MusicTabId) => {
+    if (next === visibleTab) return;
+    if (sourceRequest) {
+      // Explicit tab selection leaves the setup shortcut instead of reopening
+      // the nested page that originally requested it.
+      connectionOrigin.current = null;
+      closeConnections();
+      searchGeneration.current += 1;
+      resolveGeneration.current += 1;
+      similarRun.current += 1;
+      searchOrigin.current = null;
+      detailTrail.current = [];
+      discoveryOrigin.current = null;
+      videoSelectionTarget.current = null;
+      watchFromVideos.current = false;
+      setOpeningDetail(null);
+      setNotice(null);
+      setSearching(false);
+      setSearch(null);
+      setDetail(null);
+      setSimilar(null);
+      setWatch(null);
+      setYtm(false);
+      setDiscoveryPage(null);
+      setCollectionPage(null);
+    }
+    setTab(next);
+    if (next === "sources") reloadConnections();
+  };
 
   const retry = useCallback(() => {
     reloadConnections();
@@ -1337,7 +1386,12 @@ function MusicViewContent({ active }: { active: boolean }) {
 
   // First run has nothing to play from, so the music home would be an empty shell.
   // Opening connections keeps the full page mounted while a source is being added.
-  if (connectionsStatus === "ready" && !connectionsPage && !hasUsableMusicSource(connections)) {
+  if (
+    connectionsStatus === "ready" &&
+    !connectionsPage &&
+    tab !== "sources" &&
+    !hasUsableMusicSource(connections)
+  ) {
     return (
       <main className="media-start-scroll pt-24">
         <MediaStartPage kind="music" onSetup={() => openConnections()} />
@@ -1366,10 +1420,16 @@ function MusicViewContent({ active }: { active: boolean }) {
             <section data-scroll-anchor="mast">
               <MusicMast
                 initialQuery={search && search.mode !== "genre" ? search.query : ""}
-                videoSearch={watch !== null}
+                videoSearch={watch !== null && !sourceRequest}
                 onSubmit={runSearch}
                 onClear={clearSearch}
-                onPick={(item, siblings) => openItem(item, siblings, true, true)}
+                onPick={(item, siblings) => {
+                  if (sourceRequest) {
+                    connectionOrigin.current = null;
+                    closeConnections();
+                  }
+                  openItem(item, siblings, true, true);
+                }}
                 searching={searching}
               />
             </section>
@@ -1387,13 +1447,7 @@ function MusicViewContent({ active }: { active: boolean }) {
                   onReturn={returnMusicToComputer}
                   onClose={closeConnections}
                 />
-              ) : (
-                <MusicConnections
-                  key={connectionsPage.focusId ?? "all"}
-                  focusId={connectionsPage.focusId}
-                  onClose={closeConnections}
-                />
-              )
+              ) : null
             ) : discoveryPage === "videos" ? (
               <section>
                 <button
@@ -1532,28 +1586,30 @@ function MusicViewContent({ active }: { active: boolean }) {
                 onBack={closeCollectionPage}
               />
             ) : null}
-            {(!(
-              connectionsPage ||
-              ytm ||
-              watch ||
-              similar ||
-              detail ||
-              search ||
-              discoveryPage ||
-              collectionPage
-            ) ||
+            {(sourceRequest ||
+              !(
+                connectionsPage ||
+                ytm ||
+                watch ||
+                similar ||
+                detail ||
+                search ||
+                discoveryPage ||
+                collectionPage
+              ) ||
               tab === "library") && (
               <div
                 style={{
                   display:
-                    connectionsPage ||
-                    ytm ||
-                    watch ||
-                    similar ||
-                    detail ||
-                    search ||
-                    discoveryPage ||
-                    collectionPage
+                    !sourceRequest &&
+                    (connectionsPage ||
+                      ytm ||
+                      watch ||
+                      similar ||
+                      detail ||
+                      search ||
+                      discoveryPage ||
+                      collectionPage)
                       ? "none"
                       : "contents",
                 }}
@@ -1562,8 +1618,8 @@ function MusicViewContent({ active }: { active: boolean }) {
                   data-scroll-anchor="tabs"
                   className="music-navigation flex flex-wrap items-center justify-between gap-3"
                 >
-                  <MusicTabs className="min-w-0 flex-1" value={tab} onChange={setTab} />
-                  {tab === "forYou" && (
+                  <MusicTabs className="min-w-0 flex-1" value={visibleTab} onChange={changeTab} />
+                  {visibleTab === "forYou" && (
                     <HoverTooltip label={t("music.quickListen.title")}>
                       <button
                         type="button"
@@ -1587,7 +1643,7 @@ function MusicViewContent({ active }: { active: boolean }) {
                       </button>
                     </HoverTooltip>
                   )}
-                  {tab === "forYou" && (
+                  {visibleTab === "forYou" && (
                     <MusicSurpriseButton
                       genres={tastes}
                       homeRows={data.homeRows}
@@ -1608,7 +1664,7 @@ function MusicViewContent({ active }: { active: boolean }) {
                       <MusicGlyph name="audio-settings" size={20} aria-hidden="true" />
                     </button>
                   </HoverTooltip>
-                  {tab === "forYou" && (
+                  {visibleTab === "forYou" && (
                     <CatalogCustomizeBar
                       editMode={pageRows.editMode}
                       hasChanges={hasPageRowChanges(pageRows.custom)}
@@ -1619,13 +1675,13 @@ function MusicViewContent({ active }: { active: boolean }) {
                 </section>
 
                 <div
-                  id={musicTabPanelId(tab)}
+                  id={musicTabPanelId(visibleTab)}
                   role="tabpanel"
-                  aria-labelledby={musicTabButtonId(tab)}
+                  aria-labelledby={musicTabButtonId(visibleTab)}
                   tabIndex={0}
                   className="flex flex-col gap-8 outline-none"
                 >
-                  {tab === "forYou" && (
+                  {visibleTab === "forYou" && (
                     <section data-scroll-anchor="hero">
                       <MusicHomeHero
                         rows={data.homeRows}
@@ -1633,15 +1689,13 @@ function MusicViewContent({ active }: { active: boolean }) {
                         loading={data.homeStatus === "loading"}
                         active={active}
                         onOpen={openItem}
-                        onLibrary={openLibrary}
                         onConnect={openConnections}
-                        onYouTube={() => setYtm(true)}
                         onPlaylists={() => openDiscovery("playlists")}
                         onTastes={() => openDiscovery("tastes")}
                       />
                     </section>
                   )}
-                  {tab === "explore" && (
+                  {visibleTab === "explore" && (
                     <>
                       <MusicGenres
                         genre={genre}
@@ -1663,34 +1717,43 @@ function MusicViewContent({ active }: { active: boolean }) {
                       />
                     </>
                   )}
-                  {tab === "library" ? (
-                    <MusicLibrary
-                      active={
-                        active &&
-                        !(
-                          connectionsPage ||
-                          ytm ||
-                          watch ||
-                          similar ||
-                          detail ||
-                          search ||
-                          discoveryPage ||
-                          collectionPage
-                        )
-                      }
-                      onOpen={openItem}
-                      onCollection={openCollection}
-                      onTastes={() => openDiscovery("tastes")}
-                      initialView={libraryTarget?.view}
-                      initialSpotifyKind={libraryTarget?.spotifyKind}
-                      initialSpotifyPlaylistId={libraryTarget?.playlistId}
-                      onSpotifyFocused={() =>
-                        setLibraryTarget((current) =>
-                          current?.playlistId ? { ...current, playlistId: undefined } : current,
-                        )
-                      }
+                  {visibleTab === "sources" ? (
+                    <MusicConnections
+                      key={sourceRequest?.focusId ?? "all"}
+                      focusId={sourceRequest?.focusId}
                     />
-                  ) : tab === "explore" ? null : stalled ? (
+                  ) : null}
+                  {tab === "library" && (
+                    <div style={{ display: visibleTab === "library" ? "contents" : "none" }}>
+                      <MusicLibrary
+                        active={
+                          active &&
+                          !(
+                            connectionsPage ||
+                            ytm ||
+                            watch ||
+                            similar ||
+                            detail ||
+                            search ||
+                            discoveryPage ||
+                            collectionPage
+                          )
+                        }
+                        onOpen={openItem}
+                        onCollection={openCollection}
+                        onTastes={() => openDiscovery("tastes")}
+                        initialView={libraryTarget?.view}
+                        initialSpotifyKind={libraryTarget?.spotifyKind}
+                        initialSpotifyPlaylistId={libraryTarget?.playlistId}
+                        onSpotifyFocused={() =>
+                          setLibraryTarget((current) =>
+                            current?.playlistId ? { ...current, playlistId: undefined } : current,
+                          )
+                        }
+                      />
+                    </div>
+                  )}
+                  {visibleTab !== "forYou" ? null : stalled ? (
                     <MusicStalled message={data.homeError} onRetry={retry} />
                   ) : (
                     <MusicBandStack

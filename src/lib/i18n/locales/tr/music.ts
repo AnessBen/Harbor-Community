@@ -294,6 +294,7 @@ const music: Record<string, string> = {
   "music.tab.forYou": "Senin için",
   "music.tab.explore": "Keşfet",
   "music.tab.library": "Kitaplık",
+  "music.tab.sources": "Kaynaklar",
   "music.search.scopeAll": "Tüm kaynaklar",
   "music.hero.startCta": "Kaynakları yönet",
   "music.footer.sourceCount": "{total} kaynaktan {connected} tanesi bağlı",

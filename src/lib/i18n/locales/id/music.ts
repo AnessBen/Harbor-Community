@@ -293,6 +293,7 @@ const music: Record<string, string> = {
   "music.tab.forYou": "Untuk Anda",
   "music.tab.explore": "Jelajahi",
   "music.tab.library": "Pustaka",
+  "music.tab.sources": "Sumber",
   "music.search.scopeAll": "Semua sumber",
   "music.hero.startCta": "Kelola sumber",
   "music.footer.sourceCount": "{connected} dari {total} terhubung",

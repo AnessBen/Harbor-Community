@@ -153,13 +153,13 @@ export function useMusicConnections(): MusicConnectionsContextValue {
   return value;
 }
 
-export function MusicConnections({ focusId, onClose }: { focusId?: string; onClose: () => void }) {
+export function MusicConnections({ focusId, onClose }: { focusId?: string; onClose?: () => void }) {
   const t = useT();
   const { connections, status, error, connected, reload, apply } = useMusicConnections();
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
-    heading.current?.focus({ preventScroll: true });
-  }, []);
+    if (onClose || focusId) heading.current?.focus({ preventScroll: true });
+  }, [focusId, onClose]);
 
   const groups = GROUPS.map((group) => ({
     ...group,
@@ -168,15 +168,17 @@ export function MusicConnections({ focusId, onClose }: { focusId?: string; onClo
 
   return (
     <section className="music-connections-page flex flex-col gap-6">
-      <button
-        type="button"
-        data-music-inner-back
-        onClick={onClose}
-        className="flex w-fit items-center gap-2 text-sm text-ink-muted hover:text-ink"
-      >
-        <ChevronLeft size={17} />
-        {t("music.watch.back")}
-      </button>
+      {onClose && (
+        <button
+          type="button"
+          data-music-inner-back
+          onClick={onClose}
+          className="flex w-fit items-center gap-2 text-sm text-ink-muted hover:text-ink"
+        >
+          <ChevronLeft size={17} />
+          {t("music.watch.back")}
+        </button>
+      )}
       <header className="flex flex-wrap items-end justify-between gap-6 border-b border-edge-soft pb-6">
         <div className="min-w-0 flex-1">
           <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-subtle">
@@ -187,7 +189,7 @@ export function MusicConnections({ focusId, onClose }: { focusId?: string; onClo
             tabIndex={-1}
             className="mt-1 text-3xl font-semibold text-ink outline-none"
           >
-            {t("music.hero.startCta")}
+            {t(onClose ? "music.hero.startCta" : "music.tab.sources")}
           </h2>
           {status === "ready" && connections.length > 0 && (
             <p className="mt-1 text-[13px] text-ink-muted">

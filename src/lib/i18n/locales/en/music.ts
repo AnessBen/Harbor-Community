@@ -457,6 +457,7 @@ const music: Record<string, string> = {
   "music.tab.forYou": "For you",
   "music.tab.explore": "Explore",
   "music.tab.library": "Library",
+  "music.tab.sources": "Sources",
   "music.hero.resumeKicker": "Pick up where you left off",
   "music.hero.resumeCta": "Resume",
   "music.hero.resumeAt": "{artist} on {source}, paused at {time}",

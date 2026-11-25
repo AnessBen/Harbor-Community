@@ -291,6 +291,7 @@ const music: Record<string, string> = {
   "music.tab.forYou": "추천",
   "music.tab.explore": "둘러보기",
   "music.tab.library": "라이브러리",
+  "music.tab.sources": "소스",
   "music.search.scopeAll": "모든 소스",
   "music.hero.startCta": "소스 관리",
   "music.footer.sourceCount": "{total}개 중 {connected}개 연결됨",

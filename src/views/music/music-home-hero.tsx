@@ -12,7 +12,6 @@ import {
   ChevronLeft,
   ChevronRight,
   FolderOpen,
-  Library,
   ListMusic,
   Pause,
   Play,
@@ -22,7 +21,6 @@ import { MusicNowPlayingMark } from "@/components/music/music-now-playing-mark";
 import { useMusicSourcePicker } from "@/components/music/music-source-picker";
 import { nowPlayingMatches } from "@/lib/music/now-playing-key";
 import { useMusicNowPlaying } from "@/lib/music/use-now-playing";
-import { MusicServiceLogo } from "@/components/music/music-service-logo";
 import { MusicHomeHeroSkeleton } from "@/components/music/music-skeletons";
 import { useT } from "@/lib/i18n";
 import type { MusicCatalogItem, MusicCatalogRow, MusicTrack } from "@/lib/music/types";
@@ -34,9 +32,7 @@ export function MusicHomeHero({
   loading,
   active = true,
   onOpen,
-  onLibrary,
   onConnect,
-  onYouTube,
   onPlaylists,
   onTastes,
 }: {
@@ -45,9 +41,7 @@ export function MusicHomeHero({
   loading: boolean;
   active?: boolean;
   onOpen: (item: MusicCatalogItem, siblings: MusicCatalogItem[]) => void;
-  onLibrary: () => void;
   onConnect: (id?: string) => void;
-  onYouTube: () => void;
   onPlaylists: () => void;
   onTastes: () => void;
 }) {
@@ -335,26 +329,6 @@ export function MusicHomeHero({
           {t(imported ? "music.home.manageFolders" : "music.home.addFolder")}
         </button>
       </section>
-      <nav className="music-home-services" aria-label={t("music.hero.startCta")}>
-        <button type="button" onClick={onLibrary}>
-          <Library size={17} />
-          {t("music.library")}
-        </button>
-        <button type="button" onClick={() => onConnect("spotify")}>
-          <MusicServiceLogo source="spotify" />
-          Spotify
-          <ArrowUpRight size={14} />
-        </button>
-        <button type="button" onClick={onYouTube}>
-          <MusicServiceLogo source="youtube_music" />
-          YouTube Music
-          <ArrowUpRight size={14} />
-        </button>
-        <button type="button" onClick={() => onConnect()}>
-          <Plus size={19} />
-          {t("music.hero.startCta")}
-        </button>
-      </nav>
       {itemMenu.menu}
     </div>
   );

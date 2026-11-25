@@ -296,6 +296,7 @@ const music: Record<string, string> = {
   "music.tab.forYou": "Para você",
   "music.tab.explore": "Explorar",
   "music.tab.library": "Biblioteca",
+  "music.tab.sources": "Fontes",
   "music.search.scopeAll": "Todas as fontes",
   "music.hero.startCta": "Gerenciar fontes",
   "music.footer.sourceCount": "{connected} de {total} conectadas",

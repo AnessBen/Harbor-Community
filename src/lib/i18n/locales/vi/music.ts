@@ -288,6 +288,7 @@ const music: Record<string, string> = {
   "music.tab.forYou": "Dành cho bạn",
   "music.tab.explore": "Khám phá",
   "music.tab.library": "Thư viện",
+  "music.tab.sources": "Nguồn",
   "music.search.scopeAll": "Tất cả nguồn",
   "music.hero.startCta": "Quản lý nguồn",
   "music.footer.sourceCount": "Đã kết nối {connected} trong {total}",

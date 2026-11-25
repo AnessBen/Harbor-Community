@@ -294,6 +294,7 @@ const music: Record<string, string> = {
   "music.tab.forYou": "Для вас",
   "music.tab.explore": "Обзор",
   "music.tab.library": "Библиотека",
+  "music.tab.sources": "Источники",
   "music.search.scopeAll": "Все источники",
   "music.hero.startCta": "Управление источниками",
   "music.footer.sourceCount": "Подключено {connected} из {total}",

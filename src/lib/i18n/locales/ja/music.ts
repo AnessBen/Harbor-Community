@@ -292,6 +292,7 @@ const music: Record<string, string> = {
   "music.tab.forYou": "おすすめ",
   "music.tab.explore": "見つける",
   "music.tab.library": "ライブラリ",
+  "music.tab.sources": "ソース",
   "music.search.scopeAll": "すべてのソース",
   "music.hero.startCta": "ソースを管理",
   "music.footer.sourceCount": "{total}件中{connected}件が接続済み",

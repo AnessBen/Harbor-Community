@@ -286,6 +286,7 @@ const music: Record<string, string> = {
   "music.tab.forYou": "为你推荐",
   "music.tab.explore": "探索",
   "music.tab.library": "音乐库",
+  "music.tab.sources": "来源",
   "music.search.scopeAll": "所有来源",
   "music.hero.startCta": "管理来源",
   "music.footer.sourceCount": "已连接 {connected}/{total}",
