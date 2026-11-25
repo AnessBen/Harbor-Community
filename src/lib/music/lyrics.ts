@@ -242,6 +242,29 @@ function unique(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
+const NATIVE_SCRIPT =
+  /\p{Script=Arabic}|\p{Script=Han}|\p{Script=Hangul}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Script=Devanagari}/u;
+const LATIN_SCRIPT = /\p{Script=Latin}/u;
+const VERSION_LABEL =
+  /\b(?:live|remix|acoustic|instrumental|karaoke|cover|edit|remaster|version|ver\.?|slowed|sped\s*up)\b/i;
+
+/** Only explicit bilingual labels are aliases, never two unrelated Latin words
+ * separated by a dash (or a recording/version qualifier). */
+function bilingualAliases(value: string): string[] {
+  const pair =
+    /^(.+?)\s*[\(\[\uFF08\u3010]([^\)\]\uFF09\u3011]+)[\)\]\uFF09\u3011]\s*$/u.exec(value) ??
+    /^(.+?)\s+[-\u2013\u2014]\s+(.+)$/u.exec(value);
+  if (!pair) return [];
+  const [a, b] = [pair[1].trim(), pair[2].trim()];
+  const nativeOnly = (s: string) => NATIVE_SCRIPT.test(s) && !LATIN_SCRIPT.test(s);
+  const latinOnly = (s: string) => LATIN_SCRIPT.test(s) && !NATIVE_SCRIPT.test(s);
+  return !VERSION_LABEL.test(a) &&
+    !VERSION_LABEL.test(b) &&
+    ((nativeOnly(a) && latinOnly(b)) || (latinOnly(a) && nativeOnly(b)))
+    ? [a, b]
+    : [];
+}
+
 function aliases(value: string): string[] {
   const raw = value.normalize("NFKC").trim();
   const unmarked = raw.replace(/[\u0640\u064B-\u065F\u0670\u06D6-\u06ED]/g, "");
@@ -254,6 +277,7 @@ function aliases(value: string): string[] {
     );
   return unique([
     raw,
+    ...bilingualAliases(raw),
     ...parts,
     unmarked,
     raw.replace(/[\(\[\uFF08\u3010][^\)\]\uFF09\u3011]+[\)\]\uFF09\u3011]/gu, "").trim(),
@@ -329,11 +353,109 @@ function withinEdits(left: string, right: string, limit: number): boolean {
   return previous[right.length] <= limit;
 }
 
+/** Compare a complete Arabic credit with a Latin romanization, not merely a
+ * shared surname. Long vowels and doubled consonants vary across romanizations.
+ * This is deliberately not a general-purpose translator. */
+const ARABIC_CONSONANTS: Record<string, string> = {
+  "\u0627": "",
+  "\u0623": "",
+  "\u0625": "",
+  "\u0622": "",
+  "\u0671": "",
+  "\u0628": "b",
+  "\u062a": "t",
+  "\u062b": "th",
+  "\u062c": "j",
+  "\u062d": "h",
+  "\u062e": "kh",
+  "\u062f": "d",
+  "\u0630": "dh",
+  "\u0631": "r",
+  "\u0632": "z",
+  "\u0633": "s",
+  "\u0634": "sh",
+  "\u0635": "s",
+  "\u0636": "d",
+  "\u0637": "t",
+  "\u0638": "z",
+  "\u0639": "",
+  "\u063a": "gh",
+  "\u0641": "f",
+  "\u0642": "q",
+  "\u0643": "k",
+  "\u0644": "l",
+  "\u0645": "m",
+  "\u0646": "n",
+  "\u0647": "h",
+  "\u0648": "",
+  "\u064a": "",
+  "\u0649": "",
+  "\u0629": "t",
+  "\u0621": "",
+  "\u0624": "",
+  "\u0626": "",
+  "\u067e": "p",
+  "\u0686": "ch",
+  "\u06a9": "k",
+  "\u06af": "g",
+  "\u06cc": "",
+};
+
+function arabicCreditKey(value: string): string {
+  const normalized = normalizeMatch(value);
+  if (!normalized) return "";
+  let key = "";
+  if (/\p{Script=Arabic}/u.test(normalized)) {
+    if (!/^[\p{Script=Arabic}\s]+$/u.test(normalized)) return "";
+    for (const ch of normalized) {
+      if (ch === " ") continue;
+      if (!(ch in ARABIC_CONSONANTS)) return "";
+      key += ARABIC_CONSONANTS[ch];
+    }
+  } else {
+    if (!/^[a-z ]+$/.test(normalized)) return "";
+    key = normalized.replace(/[aeiouyw ]/g, "");
+  }
+  return key.replace(/(.)\1+/g, "$1");
+}
+
+function sameArabicRomanization(a: string, b: string): boolean {
+  const nativeA = /\p{Script=Arabic}/u.test(a);
+  if (nativeA === /\p{Script=Arabic}/u.test(b)) return false;
+  const left = arabicCreditKey(a);
+  const right = arabicCreditKey(b);
+  if (left.length < 6 || left !== right) return false;
+  // A consonant skeleton alone confuses, for example, names with different
+  // long vowels. Require written ya/waw to have corresponding vowel evidence
+  // in the romanization, instead of treating them as completely interchangeable.
+  const native = normalizeMatch(nativeA ? a : b).replace(/\s+/g, "");
+  const latin = normalizeMatch(nativeA ? b : a)
+    .replace(/\s+/g, "")
+    .replace(/([b-df-hj-np-tv-z])\1+/g, "$1");
+  const vowel = "[aeiouyw]*";
+  let pattern = "^" + vowel;
+  let previous = "";
+  for (const ch of native) {
+    if (ch === "\u064a" || ch === "\u0649" || ch === "\u06cc") {
+      pattern += "[iey]" + vowel;
+      previous = "";
+    } else if (ch === "\u0648") {
+      pattern += "[ouw]" + vowel;
+      previous = "";
+    } else {
+      const consonant = ARABIC_CONSONANTS[ch];
+      if (consonant && consonant !== previous) pattern += consonant + vowel;
+      if (consonant) previous = consonant;
+    }
+  }
+  return new RegExp(pattern + "$").test(latin);
+}
+
 function albumCorroborates(left: string, right: string): boolean {
   const a = compact(left);
   const b = compact(right);
   if (!a || !b) return false;
-  if (a === b) return true;
+  if (a === b || sameArabicRomanization(left, right)) return true;
   const x = latinSkeleton(a);
   const y = latinSkeleton(b);
   // Longer album names can tolerate small transliteration differences (including
@@ -347,6 +469,14 @@ function albumCorroborates(left: string, right: string): boolean {
 
 function titleMatchRank(name: string, titles: string[], albumMatch: boolean): number {
   if (!name) return 0;
+  // Do not let the generic alias cleaner erase an explicit recording qualifier.
+  const suffix = /(?:[\(\[]([^\)\]]+)[\)\]]|\s+[-\u2013\u2014]\s+([^\n]+))\s*$/u.exec(name);
+  if (
+    suffix &&
+    VERSION_LABEL.test(suffix[1] ?? suffix[2] ?? "") &&
+    !titles.some((title) => normalizeMatch(title) === normalizeMatch(name))
+  )
+    return 0;
   if (compatible(name, titles)) return 3;
   const a = compact(name);
   for (const title of titles) {
@@ -354,6 +484,7 @@ function titleMatchRank(name: string, titles: string[], albumMatch: boolean): nu
     if (a.length >= 4 && a === b) return 2;
   }
   if (!albumMatch) return 0;
+  if (titles.some((title) => sameArabicRomanization(name, title))) return 1;
   const x = latinSkeleton(a);
   if (x.length < 4) return 0;
   return titles.some((title) => {
@@ -374,6 +505,13 @@ function artistNameRank(
   if (compatible(name, artists)) return 4;
   const creditRank = Math.max(0, ...credits.map((credit) => creditSetMatch(credit, name)));
   if (creditRank) return creditRank + 1;
+  if (
+    creditParts(name).length === 1 &&
+    artists.some(
+      (artist) => creditParts(artist).length === 1 && sameArabicRomanization(name, artist),
+    )
+  )
+    return 1;
   // Only allow a whole, distinctive name at an edge of a longer single credit.
   // Sharing a token in two different full names is not an artist match.
   if (!albumMatch || creditParts(name).length !== 1) return 0;
@@ -411,7 +549,12 @@ function chooseFallbackLyrics(
       const artistRank = artistNameRank(text(row.artistName), artists, credits, albumMatch);
       if (!titleRank || !artistRank) return [];
       // Do not stack two weak matches without corroboration from the album.
-      if ((titleRank === 1 || artistRank === 1) && !albumMatch) return [];
+      const crossScriptCredit = artists.some((artist) =>
+        sameArabicRomanization(text(row.artistName), artist),
+      );
+      if (titleRank === 1 && !albumMatch) return [];
+      if (artistRank === 1 && !albumMatch && !(crossScriptCredit && titleRank === 3 && gap <= 2))
+        return [];
       return [{ row, titleRank, artistRank, albumMatch, gap }];
     })
     .sort(
@@ -437,16 +580,15 @@ function chooseFallbackLyrics(
   );
 }
 
-/** At most two broad searches, using distinctive title tokens and a full artist
- * credit (or a distinctive last name). Search results still have to pass the
- * recording checks above; this only widens discovery, never acceptance. */
+/** At most two broad searches. Native-script title-only discovery still
+ * requires independently validated artist and recording metadata. */
 function broadQueries(title: string, artist: string): string[] {
-  const words = unique(
-    normalizeMatch(title)
-      .split(" ")
-      .filter((word) => word.length >= 3),
-  );
+  const normalized = normalizeMatch(title);
+  const words = unique(normalized.split(" ").filter((word) => word.length >= 3));
   const name = normalizeMatch(artist);
+  if (!normalized || !name) return [];
+  if (NATIVE_SCRIPT.test(title) || NATIVE_SCRIPT.test(artist))
+    return unique([normalized + " " + name, normalized]).slice(0, 2);
   if (!words.length || name.length < 3) return [];
   const last = words.at(-1)!;
   const first = words[0];
@@ -584,6 +726,14 @@ async function fetchLyrics(track: MusicTrack, signal?: AbortSignal): Promise<Lyr
   const queryFor = (t: string, a: string) =>
     "artist_name=" + encodeURIComponent(a) + "&track_name=" + encodeURIComponent(t);
   const query = queryFor(title, artist);
+  const bilingualTitle = unique([
+    ...bilingualAliases(track.title),
+    ...bilingualAliases(origin?.title ?? ""),
+  ]).find((candidate) => LATIN_SCRIPT.test(candidate) && !NATIVE_SCRIPT.test(candidate));
+  const bilingualArtist = unique([
+    ...bilingualAliases(artist),
+    ...bilingualAliases(origin?.artist ?? ""),
+  ]).find((candidate) => LATIN_SCRIPT.test(candidate) && !NATIVE_SCRIPT.test(candidate));
   const alternateTitle = titles.find(
     (candidate) =>
       candidate !== title &&
@@ -616,8 +766,14 @@ async function fetchLyrics(track: MusicTrack, signal?: AbortSignal): Promise<Lyr
     API + "/get?" + query,
     API + "/search?" + query,
     ...individualArtists.map((candidate) => API + "/search?" + queryFor(title, candidate)),
+    origin?.title && origin.artist
+      ? API + "/search?" + queryFor(lyricTitle(origin.title, origin.artist), origin.artist)
+      : "",
     alternateTitle && alternateArtist
       ? API + "/search?" + queryFor(alternateTitle, alternateArtist)
+      : "",
+    bilingualTitle && bilingualArtist
+      ? API + "/search?" + queryFor(bilingualTitle, bilingualArtist)
       : "",
     ...titles
       .filter((candidate) => candidate !== title)

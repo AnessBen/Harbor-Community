@@ -870,3 +870,189 @@ test("a stronger broad match is preferred over a weaker spelling and artist matc
     [{ at: 3, text: "Stronger" }],
   );
 });
+
+test("Arabic title-only discovery requires a complete matching romanized credit and close duration", async () => {
+  const title = "\u0628\u0634\u0631\u0629 \u062e\u064a\u0631";
+  const artist = "\u062d\u0633\u064a\u0646 \u0627\u0644\u062c\u0633\u0645\u064a";
+  const candidate = {
+    trackName: title,
+    artistName: "Hussain Aljassmi",
+    albumName: "Masri",
+    duration: 228,
+    syncedLyrics: "[00:03]Matched",
+  };
+  const { lyrics, calls } = build(async (url) =>
+    ok(
+      new URL(url).searchParams.get("q") === title
+        ? [
+            {
+              ...candidate,
+              artistName: "Different Aljassmi",
+              duration: 229,
+              syncedLyrics: "[00:02]Wrong",
+            },
+            candidate,
+          ]
+        : [],
+    ),
+  );
+  assert.deepEqual(
+    await lyrics.loadTrackLyrics(track({ title, artist, album: title, durationSeconds: 229 })),
+    [{ at: 3, text: "Matched" }],
+  );
+  assert.equal(calls.filter((url) => new URL(url).searchParams.has("q")).length, 2);
+});
+
+test("a cross-script artist credit does not match different titles, versions or durations", async () => {
+  const title = "\u0628\u0634\u0631\u0629 \u062e\u064a\u0631";
+  const artist = "\u062d\u0633\u064a\u0646 \u0627\u0644\u062c\u0633\u0645\u064a";
+  const row = {
+    trackName: title,
+    artistName: "Hussain Aljassmi",
+    albumName: "Masri",
+    duration: 228,
+    syncedLyrics: "[00:03]Wrong",
+  };
+  const { lyrics } = build(async (url) =>
+    ok(
+      new URL(url).searchParams.has("q")
+        ? [
+            { ...row, trackName: "Other Song" },
+            { ...row, trackName: title + " (Live)" },
+            { ...row, duration: 232 },
+            { ...row, artistName: "Ali Aljassmi" },
+            { ...row, artistName: "Hassan Aljassmi" },
+            { ...row, artistName: "Hussain Aljassmi & Other" },
+            { ...row, artistName: "Aljassmi" },
+            { ...row, artistName: undefined },
+          ]
+        : [],
+    ),
+  );
+  assert.equal(
+    await lyrics.loadTrackLyrics(track({ title, artist, album: title, durationSeconds: 229 })),
+    null,
+  );
+});
+
+test("explicit bilingual titles and artist credits work in either script", async () => {
+  for (const [native, latin, artistNative, artistLatin] of [
+    [
+      "\u0924\u0941\u092e \u0939\u0940 \u0939\u094b",
+      "Tum Hi Ho",
+      "\u0905\u0930\u093f\u091c\u0940\u0924 \u0938\u093f\u0902\u0939",
+      "Arijit Singh",
+    ],
+    ["\ubd04\ub0a0", "Spring Day", "\ubc29\ud0c4\uc18c\ub144\ub2e8", "BTS"],
+    ["\u591c\u306b\u99c6\u3051\u308b", "Yoru ni Kakeru", "\u30e8\u30a2\u30bd\u30d3", "YOASOBI"],
+  ]) {
+    const { lyrics } = build(async (url) => {
+      const q = new URL(url).searchParams;
+      return ok(
+        q.get("track_name") === latin && q.get("artist_name") === artistLatin
+          ? [
+              {
+                trackName: latin,
+                artistName: artistLatin,
+                duration: 180,
+                syncedLyrics: "[00:04]Matched",
+              },
+            ]
+          : [],
+      );
+    });
+    assert.deepEqual(
+      await lyrics.loadTrackLyrics(
+        track({
+          title: native + " - " + latin,
+          artist: artistNative + " (" + artistLatin + ")",
+          durationSeconds: 180,
+        }),
+      ),
+      [{ at: 4, text: "Matched" }],
+      latin,
+    );
+  }
+});
+
+test("Arabic romanized title and artist require independently matching album", async () => {
+  const title = "\u0628\u0634\u0631\u0629 \u062e\u064a\u0631",
+    artist = "\u062d\u0633\u064a\u0646 \u0627\u0644\u062c\u0633\u0645\u064a";
+  const row = {
+    trackName: "Boshret Kheir",
+    artistName: "Hussain Al Jassmi",
+    albumName: "Boshret Kheir",
+    duration: 228,
+    syncedLyrics: "[00:01]Matched",
+  };
+  const { lyrics } = build(async (url) => ok(new URL(url).searchParams.has("q") ? [row] : []));
+  assert.deepEqual(
+    await lyrics.loadTrackLyrics(track({ title, artist, album: title, durationSeconds: 229 })),
+    [{ at: 1, text: "Matched" }],
+  );
+  assert.equal(
+    await lyrics.loadTrackLyrics(
+      track({ title, artist, album: "Other Album", durationSeconds: 229, id: "wrong-album" }),
+    ),
+    null,
+  );
+});
+
+test("short native titles are eligible for title-only discovery with an explicit bilingual credit", async () => {
+  const title = "\ubd04\ub0a0";
+  const { lyrics, calls } = build(async (url) =>
+    ok(
+      new URL(url).searchParams.get("q") === title
+        ? [
+            {
+              trackName: title,
+              artistName: "BTS",
+              duration: 275,
+              syncedLyrics: "[00:01]Matched",
+            },
+          ]
+        : [],
+    ),
+  );
+  assert.deepEqual(
+    await lyrics.loadTrackLyrics(
+      track({
+        title,
+        artist: "\ubc29\ud0c4\uc18c\ub144\ub2e8 (BTS)",
+        durationSeconds: 275,
+      }),
+    ),
+    [{ at: 1, text: "Matched" }],
+  );
+  assert.ok(calls.some((url) => new URL(url).searchParams.get("q") === title));
+});
+test("paired original catalog credits can discover the recording in a different script", async () => {
+  const native = "\u591c\u306b\u99c6\u3051\u308b",
+    artist = "\u30e8\u30a2\u30bd\u30d3";
+  const { lyrics } = build(async (url) => {
+    const q = new URL(url).searchParams;
+    return ok(
+      q.get("track_name") === "Yoru ni Kakeru" && q.get("artist_name") === "YOASOBI"
+        ? [
+            {
+              trackName: "Yoru ni Kakeru",
+              artistName: "YOASOBI",
+              duration: 262,
+              syncedLyrics: "[00:01]Matched",
+            },
+          ]
+        : [],
+    );
+  });
+  assert.deepEqual(
+    await lyrics.loadTrackLyrics(
+      track({
+        title: native,
+        artist,
+        durationSeconds: 262,
+        collectionOrigin: { id: "catalog:original", title: "Yoru ni Kakeru", artist: "YOASOBI" },
+      }),
+    ),
+    [{ at: 1, text: "Matched" }],
+  );
+});
