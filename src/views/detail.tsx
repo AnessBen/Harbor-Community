@@ -210,6 +210,7 @@ import { useScrollUpTrailer } from "./detail/use-scroll-up-trailer";
 import { prefetchTrailerDownload, resolveTrailerQuality } from "@/lib/trailer";
 import { discardIdleTrailerVideo } from "@/lib/trailer-video";
 import { resolveTrailerCandidates } from "@/lib/trailer-resolver";
+import { notifyTrackerStatusChanged } from "@/lib/tracker-status-events";
 import { SeriesEpisodes } from "./detail/series-episodes";
 import { CinemetaEpisodes } from "./detail/cinemeta-episodes";
 import { AnimeEpisodes } from "./detail/anime-episodes";
@@ -2024,6 +2025,7 @@ function DetailContent({
       )
     )
       revert();
+    notifyTrackerStatusChanged();
     try {
       requireMediaActionSuccess(result);
     } catch (cause) {
