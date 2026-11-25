@@ -5,6 +5,7 @@ import ts from "typescript";
 import { shouldResolvePreferredSource } from "../src/lib/music/source-version";
 import { adoptRequestedIdentity } from "../src/lib/music/queue-source";
 import { queueTrackKey } from "../src/lib/music/queue-order";
+import { youtubeRestrictionDelay } from "../src/lib/music/youtube-restriction";
 import { sameMusicTrack } from "../src/lib/music/track-identity";
 import type { MusicTrack } from "../src/lib/music/types";
 
@@ -19,7 +20,7 @@ const spotify: MusicTrack = {
 };
 const alternative: MusicTrack = { ...spotify, id: "soundcloud:one", connectorId: "soundcloud" };
 
-function fixture(failImmediately = false) {
+function fixture(failImmediately = false, youtubeFailure?: string) {
   const source = readFileSync(new URL("../src/lib/music/player.ts", import.meta.url), "utf8");
   const tree = ts.createSourceFile("player.ts", source, ts.ScriptTarget.Latest, true);
   const functions = tree.statements.filter(
@@ -54,6 +55,11 @@ function fixture(failImmediately = false) {
   const scope = {
     state,
     queueTrackKey,
+    youtubeRestrictionDelay,
+    nextTrackWarmup: { suspendFor: () => {} },
+    skipUnavailableTrack: () => {
+      throw new Error("Must not skip a temporarily restricted track");
+    },
     shouldResolvePreferredSource,
     adoptRequestedIdentity,
     sameMusicTrack,
@@ -80,6 +86,7 @@ function fixture(failImmediately = false) {
     invoke: async (command: string, args: { track: MusicTrack }) => {
       if (command !== "music_play_track") return;
       attempts.push(args.track);
+      if (youtubeFailure && args.track.connectorId === "youtube") throw new Error(youtubeFailure);
       if (failImmediately && args.track.connectorId === "spotify")
         throw new Error("Spotify unavailable");
     },
@@ -142,4 +149,30 @@ test("automatic playback still recovers and a new request clears the manual sour
   assert.equal(h.lookups(), 1);
   assert.equal(h.state.current?.connectorId, "soundcloud");
   assert.equal(h.state.error, null);
+});
+
+test("YouTube restrictions stop source fallback and automatic skipping, retaining the queue", async () => {
+  const message = "YouTube rate limit. Wait 120 seconds before retrying.";
+  const h = fixture(false, message);
+  const song = { ...spotify, id: "yt:one", connectorId: "youtube" };
+  await assert.rejects(
+    h.play(song, [song, alternative], undefined, true, true),
+    /YouTube rate limit/,
+  );
+  assert.equal(h.attempts.length, 1);
+  assert.equal(h.lookups(), 0);
+  assert.deepEqual(h.state.queue, [song, alternative]);
+  assert.equal(h.state.current?.id, song.id);
+  assert.equal(h.state.phase, "error");
+  assert.equal(h.state.error, message);
+});
+
+test("a later browser verification error preserves the current song", async () => {
+  const h = fixture();
+  const song = { ...spotify, id: "yt:one", connectorId: "youtube" };
+  await h.play(song, [song, alternative], undefined, false, false, true);
+  h.failLater("YouTube requires browser verification. Wait 120 seconds before retrying.");
+  assert.equal(h.lookups(), 0);
+  assert.equal(h.state.phase, "error");
+  assert.deepEqual(h.state.queue, [song, alternative]);
 });

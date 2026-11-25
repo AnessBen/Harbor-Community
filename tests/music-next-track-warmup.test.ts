@@ -118,3 +118,27 @@ test("successful and failed warmups are both throttled", async () => {
   }
   assert.equal(calls, 2);
 });
+
+test("a YouTube restriction suppresses speculative requests across queue changes", async () => {
+  const warm = new NextTrackWarmup();
+  let calls = 0;
+  await warm.run(
+    "one",
+    () => true,
+    async () => {
+      calls++;
+      throw new Error("YouTube rate limit. Wait 120 seconds before retrying.");
+    },
+  );
+  warm.reset();
+  await warm.run(
+    "two",
+    () => true,
+    async () => {
+      calls++;
+      return true;
+    },
+  );
+  assert.equal(calls, 1);
+  assert.equal(warm.isSuspended(), true);
+});

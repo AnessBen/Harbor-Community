@@ -23,6 +23,7 @@ import { engineSnapshot } from "./decks";
 import { markManuallyQueued, queueInsertAfterManualBlock, withTrackNext } from "./queue-insert";
 import { queueTrackKey } from "./queue-order";
 import { NextTrackWarmup } from "./next-track-warmup";
+import { youtubeRestrictionDelay } from "./youtube-restriction";
 import { adoptRequestedIdentity } from "./queue-source";
 import {
   shouldReportSpotifyStartupTimeout,
@@ -200,7 +201,8 @@ function nextWarmTarget(): MusicTrack | undefined {
 
 function warmNextTrack(): void {
   // Let foreground playback settle before spending any requests on a neighbour.
-  if (state.currentTime < 3 || getMusicSpeakerState().active) return;
+  if (state.currentTime < 3 || getMusicSpeakerState().active || nextTrackWarmup.isSuspended())
+    return;
   const target = nextWarmTarget();
   if (!target || target.mediaKind === "video") return;
   const preferred = readMusicPreference("harbor.music.preferred-source.v1");
@@ -1149,6 +1151,15 @@ export async function playMusic(
       recoverPlayback = (message) => {
         if (recovering || !ownsRequest()) return;
         recovering = true;
+        const delay =
+          attemptTrack.connectorId === "youtube" ? youtubeRestrictionDelay(message) : null;
+        if (delay !== null) {
+          nextTrackWarmup.suspendFor(delay);
+          enginePrimed = false;
+          recoverPlayback = null;
+          publish({ phase: "error", error: message ?? "music.source.none" });
+          return;
+        }
         failedAttempts.add(`${attemptTrack.connectorId}:${attemptTrack.id}`);
         publish({ phase: "resolving", error: null });
         void (async () => {
@@ -1207,7 +1218,12 @@ export async function playMusic(
         failedAttempts.add(`${track.connectorId}:${track.id}`);
         const errorKey =
           error && typeof error === "object" && "key" in error ? String(error.key) : String(error);
-        if (chosenByHand || /STOP_UNCONFIRMED|stopUnconfirmed/i.test(errorKey)) throw error;
+        if (
+          chosenByHand ||
+          /STOP_UNCONFIRMED|stopUnconfirmed/i.test(errorKey) ||
+          (track.connectorId === "youtube" && youtubeRestrictionDelay(errorKey) !== null)
+        )
+          throw error;
         if (!searchedAlternatives && track.mediaKind !== "video") {
           searchedAlternatives = true;
           const failedTrack = track;
@@ -1279,6 +1295,13 @@ export async function playMusic(
         : error instanceof Error
           ? error.message
           : String(error);
+    const delay = track.connectorId === "youtube" ? youtubeRestrictionDelay(message) : null;
+    if (delay !== null) {
+      nextTrackWarmup.suspendFor(delay);
+      recoverPlayback = null;
+      publish({ phase: "error", error: message });
+      throw error instanceof Error ? error : new Error(message);
+    }
     if (
       skipUnavailable &&
       !/STOP_UNCONFIRMED|stopUnconfirmed/i.test(message) &&

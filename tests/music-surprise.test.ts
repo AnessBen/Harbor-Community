@@ -751,6 +751,8 @@ function playerEntries() {
     isMusicLiked: () => false,
     getMusicSpeakerState: () => ({ active: false }),
     skipUnavailableTrack: () => false,
+    youtubeRestrictionDelay: () => null,
+    nextTrackWarmup: { suspendFor: () => {} },
     deckAdoption: { deck: () => 0 },
     require: () => ({ unhideMusicRecent: () => {} }),
   };
