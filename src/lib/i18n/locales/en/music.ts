@@ -791,6 +791,7 @@ const music: Record<string, string> = {
   "Lyrics earlier": "Lyrics earlier",
   "Lyrics later": "Lyrics later",
   "Finding lyrics": "Finding lyrics",
+  "Unsynced lyrics": "Unsynced lyrics",
   "No lyrics for this track": "No lyrics for this track",
   Karaoke: "Karaoke",
   "music.playlistTools.added": "Last added",

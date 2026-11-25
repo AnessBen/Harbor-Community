@@ -481,6 +481,7 @@ const music: Record<string, string> = {
   "Lyrics earlier": "تقديم الكلمات",
   "Lyrics later": "تأخير الكلمات",
   "Finding lyrics": "جارٍ البحث عن الكلمات",
+  "Unsynced lyrics": "كلمات غير متزامنة",
   "No lyrics for this track": "لا توجد كلمات لهذه الأغنية",
   Karaoke: "كاريوكي",
   Fullscreen: "ملء الشاشة",

@@ -488,6 +488,7 @@ const music: Record<string, string> = {
   "Lyrics earlier": "歌詞を早める",
   "Lyrics later": "歌詞を遅らせる",
   "Finding lyrics": "歌詞を検索中",
+  "Unsynced lyrics": "同期されていない歌詞",
   "No lyrics for this track": "この曲の歌詞はありません",
   Karaoke: "カラオケ",
   Fullscreen: "全画面表示",

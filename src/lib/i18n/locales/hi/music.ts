@@ -483,6 +483,7 @@ const music: Record<string, string> = {
   "Lyrics earlier": "लिरिक पहले",
   "Lyrics later": "लिरिक बाद में",
   "Finding lyrics": "बोल खोजे जा रहे हैं",
+  "Unsynced lyrics": "असमन्वित गीत के बोल",
   "No lyrics for this track": "इस ट्रैक के लिए बोल नहीं हैं",
   Karaoke: "कराओके",
   Fullscreen: "पूर्ण स्क्रीन",

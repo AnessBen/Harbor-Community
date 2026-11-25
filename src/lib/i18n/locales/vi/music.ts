@@ -484,6 +484,7 @@ const music: Record<string, string> = {
   "Lyrics earlier": "Lời sớm hơn",
   "Lyrics later": "Lời muộn hơn",
   "Finding lyrics": "Đang tìm lời bài hát",
+  "Unsynced lyrics": "Lời bài hát chưa đồng bộ",
   "No lyrics for this track": "Không có lời cho bản nhạc này",
   Karaoke: "Karaoke",
   Fullscreen: "Toàn màn hình",

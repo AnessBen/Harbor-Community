@@ -490,6 +490,7 @@ const music: Record<string, string> = {
   "Lyrics earlier": "Lirik lebih awal",
   "Lyrics later": "Lirik lebih lambat",
   "Finding lyrics": "Mencari lirik",
+  "Unsynced lyrics": "Lirik tidak tersinkron",
   "No lyrics for this track": "Tidak ada lirik untuk lagu ini",
   Karaoke: "Karaoke",
   Fullscreen: "Layar penuh",

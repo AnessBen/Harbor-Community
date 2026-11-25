@@ -473,6 +473,7 @@ const music: Record<string, string> = {
   "Lyrics earlier": "歌词提前",
   "Lyrics later": "歌词延后",
   "Finding lyrics": "正在查找歌词",
+  "Unsynced lyrics": "未同步歌词",
   "No lyrics for this track": "此曲目暂无歌词",
   Karaoke: "卡拉OK",
   Fullscreen: "全屏",

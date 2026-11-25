@@ -499,6 +499,7 @@ const music: Record<string, string> = {
   "Lyrics earlier": "Text früher",
   "Lyrics later": "Text später",
   "Finding lyrics": "Songtext wird gesucht",
+  "Unsynced lyrics": "Nicht synchronisierter Liedtext",
   "No lyrics for this track": "Kein Songtext für diesen Titel",
   Karaoke: "Karaoke",
   Fullscreen: "Vollbild",

@@ -493,6 +493,7 @@ const music: Record<string, string> = {
   "Lyrics earlier": "Sözler daha erken",
   "Lyrics later": "Sözler daha geç",
   "Finding lyrics": "Şarkı sözleri aranıyor",
+  "Unsynced lyrics": "Eşzamanlanmamış şarkı sözleri",
   "No lyrics for this track": "Bu parça için söz yok",
   Karaoke: "Karaoke",
   Fullscreen: "Tam ekran",

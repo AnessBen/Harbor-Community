@@ -484,6 +484,7 @@ const music: Record<string, string> = {
   "Lyrics earlier": "가사 앞당기기",
   "Lyrics later": "가사 늦추기",
   "Finding lyrics": "가사를 찾는 중",
+  "Unsynced lyrics": "동기화되지 않은 가사",
   "No lyrics for this track": "이 곡에는 가사가 없습니다",
   Karaoke: "노래방",
   Fullscreen: "전체 화면",
