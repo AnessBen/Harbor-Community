@@ -8,13 +8,15 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ChevronLeft } from "@/components/icons/music-icons";
+import { Captions, ChevronLeft, Music2 } from "@/components/icons/music-icons";
 import {
   errorText,
   MusicConnectionRow,
   SECONDARY_BUTTON,
 } from "@/components/music/music-connections/connection-row";
 import { useT } from "@/lib/i18n";
+import { useNeteaseLyricsEnabled } from "@/lib/music/use-lyrics-provider-settings";
+import { setNeteaseLyricsEnabled } from "@/lib/music/lyrics-provider-settings";
 import { loadConnections } from "@/lib/music/catalog";
 import { hydrateMusicSourceConsent } from "@/lib/music/source-consent";
 import type { MusicConnection, MusicConnectionKind } from "@/lib/music/types";
@@ -156,6 +158,7 @@ export function useMusicConnections(): MusicConnectionsContextValue {
 export function MusicConnections({ focusId, onClose }: { focusId?: string; onClose?: () => void }) {
   const t = useT();
   const { connections, status, error, connected, reload, apply } = useMusicConnections();
+  const neteaseLyrics = useNeteaseLyricsEnabled();
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     if (onClose || focusId) heading.current?.focus({ preventScroll: true });
@@ -206,6 +209,62 @@ export function MusicConnections({ focusId, onClose }: { focusId?: string; onClo
           <p className="mt-3">{t("music.legal.saving")}</p>
           <p className="mt-3">{t("music.legal.data")}</p>
         </details>
+        <section>
+          <h3 className="text-lg font-semibold text-ink">{t("music.lyrics.providers")}</h3>
+          <div className="mt-3 overflow-hidden rounded-lg bg-surface">
+            <div className="grid min-h-20 grid-cols-[40px_minmax(0,1fr)] items-center gap-4 border-b border-edge-soft px-5 py-4">
+              <span className="grid size-10 place-items-center rounded-xl bg-raised text-ink-muted">
+                <Captions size={24} aria-hidden="true" />
+              </span>
+              <span className="min-w-0">
+                <span className="flex flex-wrap items-center gap-2">
+                  <span className="size-2 shrink-0 rounded-full bg-accent" aria-hidden="true" />
+                  <strong className="text-[14px] font-semibold text-ink">LRCLIB</strong>
+                  <span className="text-[11px] text-ink-muted">{t("music.lyrics.primary")}</span>
+                </span>
+                <span className="mt-1 block text-[13px] leading-5 text-ink-muted">
+                  {t("music.lyrics.primaryHelp")}
+                </span>
+              </span>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-label={t("music.lyrics.neteaseToggle")}
+              aria-checked={neteaseLyrics}
+              onClick={() => setNeteaseLyricsEnabled(!neteaseLyrics)}
+              className="grid min-h-24 w-full grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-4 px-5 py-4 text-start outline-none transition-colors hover:bg-elevated/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent motion-reduce:transition-none max-[560px]:grid-cols-[36px_minmax(0,1fr)_auto] max-[560px]:gap-3 max-[560px]:px-4"
+            >
+              <span className="grid size-10 place-items-center rounded-xl bg-[#d81f26] text-white max-[560px]:size-9">
+                <Music2 size={25} aria-hidden="true" />
+              </span>
+              <span className="min-w-0">
+                <span className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={`size-2 shrink-0 rounded-full ${neteaseLyrics ? "bg-accent" : "bg-ink-subtle"}`}
+                    aria-hidden="true"
+                  />
+                  <strong className="text-[14px] font-semibold text-ink">
+                    NetEase Cloud Music
+                  </strong>
+                  <span className="text-[11px] text-ink-muted">{t("music.lyrics.fallback")}</span>
+                </span>
+                <span className="mt-1 block text-[13px] leading-5 text-ink-muted">
+                  {t("music.lyrics.neteaseHelp")}
+                </span>
+              </span>
+              <span className="flex shrink-0 items-center" aria-hidden="true">
+                <span
+                  className={`relative block h-6 w-10 rounded-full transition-colors motion-reduce:transition-none ${neteaseLyrics ? "bg-ink" : "bg-edge"}`}
+                >
+                  <span
+                    className={`absolute start-[3px] top-[3px] size-[18px] rounded-full bg-canvas shadow-sm transition-transform duration-200 motion-reduce:transition-none ${neteaseLyrics ? "translate-x-4 rtl:-translate-x-4" : "translate-x-0"}`}
+                  />
+                </span>
+              </span>
+            </button>
+          </div>
+        </section>
         {status === "loading" && (
           <div className="grid gap-2 p-4" aria-label={t("music.loading")}>
             {[0, 1, 2].map((item) => (

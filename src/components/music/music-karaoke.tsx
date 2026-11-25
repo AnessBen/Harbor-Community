@@ -4,6 +4,7 @@ import { useT } from "@/lib/i18n";
 import { useReducedMotion } from "@/lib/use-reduced-motion";
 import { useMusicPlayer, seekMusic } from "@/lib/music/player";
 import { lyricIndexAt, loadTrackLyrics, type LyricLine } from "@/lib/music/lyrics";
+import { useNeteaseLyricsEnabled } from "@/lib/music/use-lyrics-provider-settings";
 import { getLyricOffset, shiftedLyricTime } from "@/lib/music/lyric-offset";
 import { applyLyricSync } from "@/lib/music/lyric-sync";
 import { useLyricSync } from "@/lib/music/use-lyric-sync";
@@ -39,6 +40,7 @@ export function MusicKaraoke({
   onClose: () => void;
 }): JSX.Element | null {
   const t = useT();
+  const neteaseLyrics = useNeteaseLyricsEnabled();
   const player = useMusicPlayer();
   const reduced = useReducedMotion();
   const track = player.current;
@@ -100,7 +102,7 @@ export function MusicKaraoke({
       controller.abort();
       window.clearTimeout(bail);
     };
-  }, [open, key]);
+  }, [open, key, neteaseLyrics]);
 
   useEffect(() => {
     if (!open) {
@@ -200,7 +202,12 @@ export function MusicKaraoke({
           <MicVocal size={18} aria-hidden="true" />
           <div>
             <strong>{title}</strong>
-            {artist ? <span>{artist}</span> : null}
+            {artist ? (
+              <span>
+                {artist}
+                {lines?.[0]?.provider === "netease" ? " ? NetEase Cloud Music" : ""}
+              </span>
+            ) : null}
           </div>
         </div>
         <button

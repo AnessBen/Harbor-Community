@@ -14,6 +14,13 @@ import musicPlaylists from "./music-playlists";
 import musicPossible from "./music-possible";
 import musicLegal from "./music-legal";
 const music: Record<string, string> = {
+  "music.lyrics.providers": "Lyrics providers",
+  "music.lyrics.primary": "Primary lyrics provider",
+  "music.lyrics.primaryHelp": "Used first for synchronized and plain lyrics.",
+  "music.lyrics.fallback": "Experimental fallback",
+  "music.lyrics.neteaseToggle": "Enable NetEase lyrics fallback",
+  "music.lyrics.neteaseHelp":
+    "Optional experimental fallback for missing or unsynced lyrics. Uses an unofficial third-party interface and sends track title and artist to NetEase. Availability may vary.",
   "music.linked.import": "Import from link",
   "music.linked.linkLabel": "YouTube Music playlist link or ID",
   "music.linked.importHelp":

@@ -2,9 +2,16 @@ import { safeFetch } from "@/lib/safe-fetch";
 import { parse as parseYaml } from "yaml";
 import type { MusicTrack } from "./types";
 import { backingTrackVersion } from "./source-version";
+import { neteaseLyricsEnabled, subscribeLyricsProviders } from "./lyrics-provider-settings";
 
 export type LyricWord = { at: number; end?: number; text: string };
-export type LyricLine = { at: number; text: string; unsynced?: true; words?: LyricWord[] };
+export type LyricLine = {
+  at: number;
+  text: string;
+  unsynced?: true;
+  words?: LyricWord[];
+  provider?: "netease";
+};
 
 export function hasTimedLyrics(lines: LyricLine[] | null): boolean {
   return !!lines?.some((line) => !line.unsynced && line.text.trim());
@@ -41,6 +48,10 @@ type LyricsRequest = {
   expiresAt: number;
 };
 const cache = new Map<string, LyricsRequest>();
+subscribeLyricsProviders(() => {
+  for (const request of cache.values()) if (!request.settled) request.controller.abort();
+  cache.clear();
+});
 
 const text = (value: unknown): string => (typeof value === "string" ? value : "");
 const seconds = (value: unknown): number =>
@@ -921,7 +932,11 @@ function verifiedCatalogLyrics(
   return readRankedLyrics(ranked, duration);
 }
 
-async function fetchLyrics(track: MusicTrack, signal?: AbortSignal): Promise<LyricLine[] | null> {
+async function fetchLrclibLyrics(
+  track: MusicTrack,
+  signal?: AbortSignal,
+  budgetMs = 18_000,
+): Promise<LyricLine[] | null> {
   const artist = text(track.artist).trim();
   const title = lyricTitle(track.title, artist);
   if (!artist || !title) return null;
@@ -1033,7 +1048,7 @@ async function fetchLyrics(track: MusicTrack, signal?: AbortSignal): Promise<Lyr
       .map((candidate) => API + "/search?" + queryFor(title, candidate)),
   ]);
   let plain: LyricLine[] | null = null;
-  const budget = AbortSignal.timeout(18_000);
+  const budget = AbortSignal.timeout(budgetMs);
   const lookup = signal ? AbortSignal.any([signal, budget]) : budget;
   for (const url of attempts) {
     try {
@@ -1141,6 +1156,39 @@ async function fetchLyrics(track: MusicTrack, signal?: AbortSignal): Promise<Lyr
   return plain;
 }
 
+async function fetchLyrics(
+  track: MusicTrack,
+  signal: AbortSignal,
+  fallback: boolean,
+): Promise<LyricLine[] | null> {
+  if (!fallback) return fetchLrclibLyrics(track, signal);
+  let primary: LyricLine[] | null = null;
+  let primaryError: unknown;
+  try {
+    primary = await fetchLrclibLyrics(track, signal, 11_000);
+    if (hasTimedLyrics(primary)) return primary;
+  } catch (error) {
+    primaryError = error;
+  }
+  signal.throwIfAborted();
+  if (!neteaseLyricsEnabled()) return primary;
+  try {
+    const { loadNetEaseFallback } = await import("./netease-lyrics");
+    signal.throwIfAborted();
+    if (!neteaseLyricsEnabled()) return primary;
+    const lookup = AbortSignal.any([signal, AbortSignal.timeout(7_000)]);
+    const found = await loadNetEaseFallback(track, lookup);
+    signal.throwIfAborted();
+    if (neteaseLyricsEnabled() && hasTimedLyrics(found))
+      return found!.map((line) => ({ ...line, provider: "netease" as const }));
+  } catch (error) {
+    signal.throwIfAborted();
+    if (!primary) throw primaryError ?? error;
+  }
+  if (primaryError && !primary) throw primaryError;
+  return primary;
+}
+
 export function loadTrackLyrics(
   track: MusicTrack,
   signal?: AbortSignal,
@@ -1151,7 +1199,8 @@ export function loadTrackLyrics(
     (track.collectionOrigin?.title && backingTrackVersion({ title: track.collectionOrigin.title }))
   )
     return Promise.resolve(null);
-  const key = identity(track);
+  const fallback = neteaseLyricsEnabled();
+  const key = identity(track) + (fallback ? "|netease" : "|lrclib");
   let request = cache.get(key);
   if (request && request.expiresAt <= Date.now()) {
     cache.delete(key);
@@ -1165,10 +1214,11 @@ export function loadTrackLyrics(
       settled: false,
       expiresAt: Infinity,
     };
-    entry.promise = fetchLyrics(track, entry.controller.signal)
+    entry.promise = fetchLyrics(track, entry.controller.signal, fallback)
       .then((lines) => {
         // A transient miss must not become a permanent "no lyrics" result.
-        if (!lines) entry.expiresAt = Date.now() + CACHE_MISS_TTL_MS;
+        if (!lines || (fallback && !hasTimedLyrics(lines)))
+          entry.expiresAt = Date.now() + CACHE_MISS_TTL_MS;
         return lines;
       })
       .catch(() => {

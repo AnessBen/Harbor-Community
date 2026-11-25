@@ -64,6 +64,7 @@ import { getMusicState, seekMusic, toggleMusicLiked, isMusicVideoActive } from "
 import { useMusicClock, useMusicPlayback } from "@/lib/music/use-music-playback";
 import { useMusicTransport } from "@/lib/music/transport";
 import { loadTrackLyrics, lyricIndexAt, type LyricLine } from "@/lib/music/lyrics";
+import { useNeteaseLyricsEnabled } from "@/lib/music/use-lyrics-provider-settings";
 import {
   LYRIC_OFFSET_STEP,
   getLyricOffset,
@@ -350,6 +351,7 @@ export const MusicNowPlaying = memo(function MusicNowPlaying({
     }, 190);
     return () => window.clearTimeout(id);
   }, [searchExit]);
+  const neteaseLyrics = useNeteaseLyricsEnabled();
   const [karaoke, setKaraoke] = useState(false);
   const [lyrics, setLyrics] = useState<LyricLine[]>([]);
   const [lyricsState, setLyricsState] = useState<"loading" | "ready" | "empty">("loading");
@@ -578,7 +580,7 @@ export const MusicNowPlaying = memo(function MusicNowPlaying({
       alive = false;
       controller.abort();
     };
-  }, [current]);
+  }, [current, neteaseLyrics]);
   useEffect(() => {
     if (hasLyrics !== false) return;
     setKaraoke(false);
@@ -604,7 +606,7 @@ export const MusicNowPlaying = memo(function MusicNowPlaying({
       controller.abort();
       window.clearTimeout(giveUp);
     };
-  }, [panel, current]);
+  }, [panel, current, neteaseLyrics]);
 
   // Rebuilt only when the queue or the play order changes, not on every render.
   const next = useMemo(
@@ -1085,6 +1087,9 @@ export const MusicNowPlaying = memo(function MusicNowPlaying({
                               +
                             </button>
                           </div>
+                        )}
+                        {lyrics[0]?.provider === "netease" && (
+                          <div className="music-now-lyric-sync">NetEase Cloud Music</div>
                         )}
                         {plainLyrics && (
                           <div className="music-now-lyric-sync" role="status">

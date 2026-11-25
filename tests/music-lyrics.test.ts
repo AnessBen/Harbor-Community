@@ -26,7 +26,20 @@ function build(
       connector: string,
     ) => Promise<unknown[]>;
   },
+  netease?: {
+    enabled: boolean;
+    load: (
+      track: import("../src/lib/music/types").MusicTrack,
+      signal: AbortSignal,
+    ) => Promise<import("../src/lib/music/lyrics").LyricLine[] | null>;
+  },
 ) {
+  const listeners = new Set<() => void>();
+  const setEnabled = (enabled: boolean) => {
+    if (!netease || netease.enabled === enabled) return;
+    netease.enabled = enabled;
+    for (const listener of listeners) listener();
+  };
   const calls: string[] = [];
   const input = readFileSync(new URL("../src/lib/music/lyrics.ts", import.meta.url), "utf8");
   const output = ts.transpileModule(input, {
@@ -45,6 +58,22 @@ function build(
               ? "instrumental"
               : null,
         };
+      if (name === "./lyrics-provider-settings")
+        return {
+          neteaseLyricsEnabled: () => netease?.enabled === true,
+          subscribeLyricsProviders: (listener: () => void) => {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+          },
+        };
+      if (name === "./netease-lyrics")
+        return {
+          loadNetEaseFallback:
+            netease?.load ??
+            (() => {
+              throw Error("Unexpected fallback");
+            }),
+        };
       if (name === "./source-consent")
         return { musicSourceAllowed: (id: string) => catalog?.allowed?.(id) ?? !!catalog };
       if (name === "./sources")
@@ -60,7 +89,7 @@ function build(
     module,
     module.exports,
   );
-  return { lyrics: module.exports as Lyrics, calls };
+  return { lyrics: module.exports as Lyrics, calls, setEnabled };
 }
 
 const ok = (body: unknown) => ({ ok: true, json: async () => body });
@@ -1449,8 +1478,88 @@ test("catalog alias discovery respects source consent, local privacy and the exa
   assert.equal(calls, 0);
 });
 
-test("explicit instrumental tracks do not query LRCLIB", async () => {
-  const { lyrics, calls } = build(async () => ok([]));
+test("optional NetEase fallback is disabled by default and setting changes invalidate misses", async () => {
+  let requests = 0;
+  const { lyrics, setEnabled } = build(async () => ok([]), undefined, {
+    enabled: false,
+    load: async () => {
+      requests++;
+      return [{ at: 5, text: "Fallback" }];
+    },
+  });
+  assert.equal(await lyrics.loadTrackLyrics(track()), null);
+  assert.equal(requests, 0);
+  setEnabled(true);
+  assert.deepEqual(await lyrics.loadTrackLyrics(track()), [
+    { at: 5, text: "Fallback", provider: "netease" },
+  ]);
+  assert.equal(requests, 1);
+  assert.deepEqual(await lyrics.loadTrackLyrics(track()), [
+    { at: 5, text: "Fallback", provider: "netease" },
+  ]);
+  assert.equal(requests, 1);
+  setEnabled(false);
+  assert.equal(await lyrics.loadTrackLyrics(track()), null);
+  assert.equal(requests, 1);
+});
+
+test("LRCLIB timed results retain priority even with NetEase enabled", async () => {
+  let requests = 0;
+  const { lyrics } = build(
+    async () =>
+      ok({
+        trackName: "Evil Twins",
+        artistName: "King Von",
+        duration: 116,
+        syncedLyrics: "[00:05]Primary",
+      }),
+    undefined,
+    {
+      enabled: true,
+      load: async () => {
+        requests++;
+        return [{ at: 5, text: "Fallback" }];
+      },
+    },
+  );
+  assert.deepEqual(await lyrics.loadTrackLyrics(track()), [{ at: 5, text: "Primary" }]);
+  assert.equal(requests, 0);
+});
+
+test("NetEase timed result upgrades plain LRCLIB, but a failure preserves plain lyrics", async () => {
+  const primary = {
+    trackName: "Evil Twins",
+    artistName: "King Von",
+    duration: 116,
+    plainLyrics: "Primary",
+  };
+  const { lyrics } = build(async () => ok(primary), undefined, {
+    enabled: true,
+    load: async () => [{ at: 7, text: "Synced" }],
+  });
+  assert.deepEqual(await lyrics.loadTrackLyrics(track()), [
+    { at: 7, text: "Synced", provider: "netease" },
+  ]);
+  const failing = build(async () => ok(primary), undefined, {
+    enabled: true,
+    load: async () => {
+      throw Error("offline");
+    },
+  });
+  assert.deepEqual(await failing.lyrics.loadTrackLyrics(track()), [
+    { at: 0, text: "Primary", unsynced: true },
+  ]);
+});
+
+test("explicit instrumental tracks do not query either lyrics provider", async () => {
+  let requests = 0;
+  const { lyrics, calls } = build(async () => ok([]), undefined, {
+    enabled: true,
+    load: async () => {
+      requests++;
+      return [{ at: 1, text: "Wrong" }];
+    },
+  });
   for (const t of [
     track({ title: "To the Wilder (Instrumental)" }),
     track({ version: "Karaoke" }),
@@ -1459,4 +1568,29 @@ test("explicit instrumental tracks do not query LRCLIB", async () => {
     assert.equal(await lyrics.loadTrackLyrics(t), null);
   }
   assert.equal(calls.length, 0);
+  assert.equal(requests, 0);
+});
+
+test("disabling NetEase cancels an outstanding fallback and prevents stale results", async () => {
+  let start!: () => void;
+  const started = new Promise<void>((resolve) => {
+    start = resolve;
+  });
+  let observed: AbortSignal | undefined;
+  const { lyrics, setEnabled } = build(async () => ok([]), undefined, {
+    enabled: true,
+    load: async (_track, signal) => {
+      observed = signal;
+      start();
+      return new Promise((resolve) =>
+        signal.addEventListener("abort", () => resolve([{ at: 1, text: "Stale" }]), { once: true }),
+      );
+    },
+  });
+  const result = lyrics.loadTrackLyrics(track());
+  await started;
+  setEnabled(false);
+  assert.equal(await result, null);
+  assert.ok(observed?.aborted);
+  assert.equal(await lyrics.loadTrackLyrics(track()), null);
 });

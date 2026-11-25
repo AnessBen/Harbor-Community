@@ -28,6 +28,7 @@ import {
   toggleMusicVideoFullscreen,
 } from "@/lib/music/video-fullscreen";
 import { loadTrackLyrics, type LyricLine } from "@/lib/music/lyrics";
+import { useNeteaseLyricsEnabled } from "@/lib/music/use-lyrics-provider-settings";
 import { applyLyricSync } from "@/lib/music/lyric-sync";
 import { useLyricSync } from "@/lib/music/use-lyric-sync";
 import { MusicVideoControls } from "./music-video-controls";
@@ -99,6 +100,7 @@ export function MusicVideoSurface({
   onRetry?: () => void;
 }) {
   const t = useT();
+  const neteaseLyrics = useNeteaseLyricsEnabled();
   const owner = useRef(Symbol("music video surface")).current;
   const shell = useRef<HTMLDivElement>(null);
   const nodes = musicVideoHost();
@@ -317,7 +319,7 @@ export function MusicVideoSurface({
       live = false;
       controller.abort();
     };
-  }, [lyricsOn, ready, key]);
+  }, [lyricsOn, ready, key, neteaseLyrics]);
   useEffect(() => {
     setWaited(0);
     if (!active || preempted || settled) return;
