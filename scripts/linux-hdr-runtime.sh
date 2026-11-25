@@ -124,6 +124,10 @@ for file in "$stage"/libav*.so.* "$stage"/libsw*.so.* "$stage"/libplacebo.so.*; 
   done
   mv "$file" "$stage/$new"
 done
+# Ubuntu-built native bundles also run on Fedora/Arch/Nix.
+if [[ -f /etc/debian_version ]]; then
+  bash "$root/scripts/stage-linux-hdr-compat.sh" "$stage" "$stage"
+fi
 mkdir -p "$stage/licenses"
 for name in wayland protocols ffmpeg placebo mpv Vulkan-Headers Vulkan-Loader; do
   [[ -d "$work/$name" ]] || continue

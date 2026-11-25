@@ -1,6 +1,7 @@
 {
   "bundle": {
     "createUpdaterArtifacts": false,
+    "license": "MIT",
     "externalBin": [],
     "linux": {
       "deb": {

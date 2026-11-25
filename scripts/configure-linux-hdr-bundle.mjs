@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { spawnSync } from "node:child_process";
 
 const [runtimeArg, mode, outputArg] = process.argv.slice(2);
 if (!runtimeArg || !["native", "appimage"].includes(mode) || !outputArg) {
@@ -33,7 +34,7 @@ if (mode === "native") {
     "libxkbcommon0", "libx11-6", "libxext6", "libxrandr2", "libxpresent1",
     "libxss1", "libxinerama1", "libxv1", "libxfixes3", "libxcb1",
     "libgbm1", "libdisplay-info1", "libjpeg-turbo8", "libuchardet0", "libzimg2",
-    "libvulkan1", "zlib1g",
+    "libvulkan1", "zlib1g", "libbsd0", "libslang2",
   ];
   const rpm = [
     "gnutls", "libdav1d", "libass", "libdrm", "libva", "libvdpau",
@@ -41,9 +42,26 @@ if (mode === "native") {
     "alsa-lib", "pulseaudio-libs", "pipewire-libs", "libxkbcommon", "libX11",
     "libXext", "libXrandr", "libXpresent", "libXScrnSaver", "libXinerama",
     "libXv", "libXfixes", "libxcb", "mesa-libgbm", "libdisplay-info",
-    "libjpeg-turbo", "uchardet", "zimg", "vulkan-loader", "zlib-ng-compat",
+    "libjpeg-turbo", "uchardet", "zimg", "vulkan-loader", "zlib-ng-compat", "libbsd", "slang",
   ];
   linux.deb.depends = [...new Set([...linux.deb.depends, ...deb])];
-  linux.rpm.depends = [...new Set([...linux.rpm.depends, ...rpm])];
+  const sonames = new Set(fs.readdirSync(runtime));
+  const required = new Set();
+  if (process.platform === "linux") {
+    for (const file of sonames) {
+      if (!/\.so(?:\.|$)/.test(file)) continue;
+      const fd = fs.openSync(path.join(runtime, file), "r");
+      const magic = Buffer.alloc(4);
+      try { fs.readSync(fd, magic, 0, 4, 0); } finally { fs.closeSync(fd); }
+      if (magic.toString("hex") !== "7f454c46") continue;
+      const result = spawnSync("readelf", ["-d", path.join(runtime, file)], { encoding: "utf8" });
+      if (result.status !== 0) throw new Error("Cannot inspect ELF dependency list for " + file);
+      for (const match of result.stdout.matchAll(/\(NEEDED\).*?\[([^\]]+)\]/g)) {
+        const name = match[1];
+        if (!sonames.has(name) && /^lib[^/]+\.so(?:\.|$)/.test(name)) required.add(name + "()(64bit)");
+      }
+    }
+  }
+  linux.rpm.depends = [...new Set([...linux.rpm.depends, ...rpm, ...required])];
 }
 fs.writeFileSync(outputArg, JSON.stringify(config, null, 2) + "\n");

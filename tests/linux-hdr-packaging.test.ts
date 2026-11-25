@@ -29,7 +29,16 @@ test("native and portable packages stage the same private HDR runtime without lo
           }
         }
       }
-      if (mode === "native") assert.deepEqual(config.bundle.externalBin, []);
+      if (mode === "native") {
+        assert.deepEqual(config.bundle.externalBin, []);
+        assert.equal(config.bundle.license, "MIT");
+        for (const dependency of ["libbsd0", "libslang2"]) {
+          assert.ok(config.bundle.linux.deb.depends.includes(dependency));
+        }
+        for (const dependency of ["libbsd", "slang"]) {
+          assert.ok(config.bundle.linux.rpm.depends.includes(dependency));
+        }
+      }
     }
     rmSync(join(runtime, "libharbor-linux-hdr.so"));
     const failed = spawnSync(process.execPath, [generator, runtime, "native", join(runtime, "bad.json")]);
@@ -51,4 +60,20 @@ test("the native and Flatpak builds pin the tested MPV, libplacebo and protocol 
     assert.ok(manifest.includes(rev));
   }
   assert.match(manifest, /\/app\/bin\/harbor --verify-linux-hdr-runtime/);
+});
+
+test("the native HDR runtime collects the tested recursive compatibility family", () => {
+  const stage = readFileSync(new URL("../scripts/stage-linux-hdr-compat.sh", import.meta.url), "utf8");
+  const runtime = readFileSync(new URL("../scripts/linux-hdr-runtime.sh", import.meta.url), "utf8");
+  for (const abi of [
+    "libmujs.so.*", "libbluray.so.*", "libluajit-5.1.so.*", "libshaderc.so.*",
+    "libxml2.so.2", "libudfread.so.0", "libicuuc.so.74", "libicudata.so.74",
+  ]) {
+    assert.ok(stage.includes(abi), abi);
+  }
+  assert.ok(stage.includes('queue+=("$out/$needed")'));
+  assert.ok(stage.includes("(SONAME)"));
+  assert.ok(stage.includes("ubuntu-compat-sources.txt"));
+  assert.ok(stage.includes("dpkg-query"));
+  assert.ok(runtime.includes("stage-linux-hdr-compat.sh"));
 });
