@@ -399,6 +399,21 @@ fn force_c_numeric_locale() {}
 
 #[tauri::command]
 pub async fn mpv_probe(_app: AppHandle) -> MpvProbe {
+    // Complete the synchronous libmpv probe before awaiting the GTK main
+    // thread. libmpv2::Error contains an Rc, so its Result is not Send.
+    let probe = probe_libmpv();
+    #[cfg(target_os = "linux")]
+    let probe = if probe.available {
+        let mut probe = probe;
+        probe.linux_embedded_hdr_experimental = crate::linux_hdr_embed::available(&_app).await;
+        probe
+    } else {
+        probe
+    };
+    probe
+}
+
+fn probe_libmpv() -> MpvProbe {
     force_c_numeric_locale();
     match Mpv::with_initializer(|init| {
         let _ = init.set_property("media-controls", "no");
@@ -411,12 +426,7 @@ pub async fn mpv_probe(_app: AppHandle) -> MpvProbe {
                 .or_else(|| Some("libmpv (embedded)".to_string()));
             MpvProbe {
                 available: true,
-                linux_embedded_hdr_experimental: {
-                    #[cfg(target_os = "linux")]
-                    { crate::linux_hdr_embed::available(&_app).await }
-                    #[cfg(not(target_os = "linux"))]
-                    { false }
-                },
+                linux_embedded_hdr_experimental: false,
                 binary: Some("embedded libmpv".into()),
                 version,
                 error: None,
@@ -611,10 +621,7 @@ fn apply_pre_init(
         set("http-header-fields", &header_fields.join(","));
     }
     #[cfg(target_os = "linux")]
-    let linux_hdr = crate::linux_hdr::current_output(
-        args.embed.unwrap_or(false),
-        args.hdr_to_sdr,
-    );
+    let linux_hdr = crate::linux_hdr::current_output(args.embed.unwrap_or(false), args.hdr_to_sdr);
     #[cfg(target_os = "linux")]
     let linux_hdr_requested = linux_hdr != crate::linux_hdr::LinuxHdrOutput::Unchanged;
     #[cfg(not(target_os = "linux"))]
@@ -1022,7 +1029,9 @@ pub async fn mpv_start(
     let want_embed = args.embed.unwrap_or(false);
     #[cfg(target_os = "linux")]
     let native_hdr_library = crate::linux_hdr_embed::requested(
-        args.linux_embedded_hdr == Some(true), want_embed, args.hdr_to_sdr,
+        args.linux_embedded_hdr == Some(true),
+        want_embed,
+        args.hdr_to_sdr,
     )?;
     // Resolve the monitor this session's video lands on before anything reads HDR
     // state. Embedded mpv is a child of "main"; a separate window goes to the
@@ -2763,9 +2772,11 @@ fn spawn_event_loop(
                             linux_output_logged = false;
                         } else if !linux_output_logged && matches!(&event, Event::PlaybackRestart) {
                             linux_output_logged = true;
-                            let read = |name: &str| mpv_keepalive
-                                .get_property::<String>(name)
-                                .unwrap_or_else(|_| "unknown".into());
+                            let read = |name: &str| {
+                                mpv_keepalive
+                                    .get_property::<String>(name)
+                                    .unwrap_or_else(|_| "unknown".into())
+                            };
                             let message = format!(
                                 "[harbor/linux-hdr] info: vo={} context={} source_gamma={} target_gamma={} target_primaries={}",
                                 read("current-vo"),
@@ -3183,7 +3194,8 @@ pub async fn mpv_get_seekable_ranges(state: State<'_, MpvState>) -> Result<Value
         .get_property("demuxer-cache-state")
         .map_err(|_| "seekable-ranges-unavailable".to_string())?;
     let mut state = mpv_node_to_json(node);
-    state.get_mut("seekable-ranges")
+    state
+        .get_mut("seekable-ranges")
         .filter(|ranges| ranges.is_array())
         .map(Value::take)
         .ok_or_else(|| "seekable-ranges-invalid".to_string())
