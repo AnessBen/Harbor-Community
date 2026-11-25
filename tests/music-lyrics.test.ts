@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import ts from "typescript";
+import * as yaml from "yaml";
 
 type Lyrics = typeof import("../src/lib/music/lyrics.ts");
 
@@ -25,6 +26,7 @@ function build(safeFetch: (url: string, init?: { signal?: AbortSignal }) => Prom
   const module = { exports: {} };
   new Function("require", "module", "exports", output)(
     (name: string) => {
+      if (name === "yaml") return yaml;
       assert.equal(name, "@/lib/safe-fetch");
       return {
         safeFetch: async (url: string, init?: { signal?: AbortSignal }) => {
@@ -146,7 +148,7 @@ test("a wrong provider duration still resolves through get instead of the heavy 
   const { lyrics, calls } = build(async (url) => {
     if (url.includes("album_name=") || url.includes("duration="))
       return { ok: false, status: 404, json: async () => null };
-    return ok({ duration: 192, instrumental: false, syncedLyrics: "[00:08.00]Duration was off" });
+    return ok({ duration: 119, instrumental: false, syncedLyrics: "[00:08.00]Duration was off" });
   });
   const lines = await lyrics.loadTrackLyrics(track({ id: "t-duration", album: "73K likes" }));
   assert.deepEqual(lines, [{ at: 8, text: "Duration was off" }]);
@@ -170,7 +172,7 @@ test("loadTrackLyrics falls back to search when the exact lookup misses", async 
   assert.ok(calls[3].startsWith("https://lrclib.net/api/search?"), calls[3]);
 });
 
-test("loadTrackLyrics returns null for instrumentals and for plain-only lyrics", async () => {
+test("loadTrackLyrics returns null for instrumentals and retains plain-only lyrics", async () => {
   const instrumental = build(async () =>
     ok([{ duration: 116, instrumental: true, plainLyrics: "" }]),
   );
@@ -179,7 +181,9 @@ test("loadTrackLyrics returns null for instrumentals and for plain-only lyrics",
   const plain = build(async () =>
     ok([{ duration: 116, instrumental: false, plainLyrics: "No timing here" }]),
   );
-  assert.equal(await plain.lyrics.loadTrackLyrics(track({ id: "t-plain" })), null);
+  const lines = await plain.lyrics.loadTrackLyrics(track({ id: "t-plain" }));
+  assert.deepEqual(lines, [{ at: 0, text: "No timing here", unsynced: true }]);
+  assert.equal(plain.lyrics.lyricIndexAt(lines!, 100), -1);
 });
 
 test("loadTrackLyrics never throws and permits recovery after network failure", async () => {
@@ -217,7 +221,7 @@ test("lyrics do not immediately retry throttled requests or cache them as missin
   let limited = true;
   const { lyrics, calls } = build(async () =>
     limited
-      ? { ok: false, status: 429 }
+      ? { ok: false, status: 429, headers: new Headers({ "Retry-After": "0" }) }
       : ok([{ duration: 116, syncedLyrics: "[00:02]Recovered" }]),
   );
   assert.equal(await lyrics.loadTrackLyrics(track()), null);
@@ -332,4 +336,348 @@ test("a cancellable viewer cannot abort another caller without a signal", async 
   respond(ok({ duration: 116, syncedLyrics: "[00:04]Kept alive" }));
   assert.deepEqual(await keepMe, [{ at: 4, text: "Kept alive" }]);
   assert.equal(calls.length, 1);
+});
+
+test("plain lyrics are retained when no timed match exists and timed lyrics win when available", async () => {
+  const { lyrics } = build(async (url) =>
+    url.includes("/search?")
+      ? ok([{ duration: 116, syncedLyrics: "[00:03]Timed" }])
+      : ok({ duration: 116, plainLyrics: "First\n\nSecond" }),
+  );
+  assert.deepEqual(await lyrics.loadTrackLyrics(track()), [{ at: 3, text: "Timed" }]);
+});
+
+test("LRCLIB word timing is parsed from Lyricsfile YAML in seconds", async () => {
+  const { lyrics } = build(async () =>
+    ok({
+      duration: 116,
+      hasWordSync: true,
+      syncedLyrics: "[00:02]Hello world",
+      lyricsfile: [
+        "version: '1.0'",
+        "lines:",
+        "  - text: Hello world",
+        "    start_ms: 2000",
+        "    words:",
+        "      - text: 'Hello '",
+        "        start_ms: 2000",
+        "        end_ms: 2400",
+        "      - text: world",
+        "        start_ms: 2400",
+      ].join("\n"),
+    }),
+  );
+  assert.deepEqual(await lyrics.loadTrackLyrics(track()), [
+    {
+      at: 2,
+      text: "Hello world",
+      words: [
+        { at: 2, end: 2.4, text: "Hello " },
+        { at: 2.4, text: "world" },
+      ],
+    },
+  ]);
+  assert.deepEqual(lyrics.parseLyricsfile("lines: ["), []);
+});
+
+test("mismatched recordings and artists are rejected", async () => {
+  const { lyrics } = build(async () =>
+    ok([
+      {
+        duration: 116,
+        trackName: "Evil Twins",
+        artistName: "Wrong Artist",
+        syncedLyrics: "[00:02]Wrong",
+      },
+      {
+        duration: 200,
+        trackName: "Evil Twins",
+        artistName: "King Von",
+        syncedLyrics: "[00:02]Wrong take",
+      },
+      {
+        duration: 116,
+        trackName: "Other Song",
+        artistName: "King Von",
+        syncedLyrics: "[00:02]Wrong title",
+      },
+    ]),
+  );
+  assert.equal(await lyrics.loadTrackLyrics(track()), null);
+});
+
+test("original Arabic title alias is tried without losing Unicode", async () => {
+  const title = "\u062D\u0628\u064A\u0628\u064A";
+  const artist = "\u0639\u0645\u0631\u0648";
+  const { lyrics, calls } = build(async (url) => {
+    const params = new URL(url).searchParams;
+    return params.get("track_name") === title
+      ? ok({
+          duration: 116,
+          trackName: title,
+          artistName: artist,
+          plainLyrics: "\u0633\u0644\u0627\u0645",
+        })
+      : ok([]);
+  });
+  assert.deepEqual(
+    await lyrics.loadTrackLyrics(track({ title: "Habibi (" + title + ")", artist })),
+    [{ at: 0, text: "\u0633\u0644\u0627\u0645", unsynced: true }],
+  );
+  assert.ok(calls.some((url) => new URL(url).searchParams.get("track_name") === title));
+});
+
+test("Retry-After applies across different tracks", async () => {
+  const { lyrics, calls } = build(async () => ({
+    ok: false,
+    status: 429,
+    headers: new Headers({ "Retry-After": "60" }),
+  }));
+  assert.equal(await lyrics.loadTrackLyrics(track({ id: "first" })), null);
+  assert.equal(await lyrics.loadTrackLyrics(track({ id: "second" })), null);
+  assert.equal(calls.length, 1);
+});
+
+test("collaborative credits fall back to individual performers with matching recording", async () => {
+  const { lyrics, calls } = build(async (url) => {
+    const artist = new URL(url).searchParams.get("artist_name");
+    if (artist === "Arijit Singh") {
+      return ok([
+        {
+          trackName: "Tum Hi Ho",
+          artistName: "Arijit Singh",
+          duration: 330,
+          syncedLyrics: "[00:04]Different recording",
+        },
+        {
+          trackName: "Tum Hi Ho",
+          artistName: "Arijit Singh",
+          duration: 262,
+          syncedLyrics: "[00:03]Correct recording",
+        },
+      ]);
+    }
+    return ok([{ trackName: "Tum Hi Ho", artistName: artist, duration: 261, instrumental: true }]);
+  });
+  assert.deepEqual(
+    await lyrics.loadTrackLyrics(
+      track({
+        title: "Tum Hi Ho",
+        artist: "Mithoon & Arijit Singh",
+        album: "Aashiqui 2 (Original Motion Picture Soundtrack)",
+        durationSeconds: 261,
+      }),
+    ),
+    [{ at: 3, text: "Correct recording" }],
+  );
+  assert.ok(calls.some((url) => new URL(url).searchParams.get("artist_name") === "Arijit Singh"));
+});
+
+test("partial credits cannot match without the right title and a close duration", async () => {
+  const { lyrics } = build(async () =>
+    ok([
+      {
+        trackName: "Other Song",
+        artistName: "Arijit Singh",
+        duration: 261,
+        syncedLyrics: "[00:03]Wrong title",
+      },
+      {
+        trackName: "Tum Hi Ho",
+        artistName: "Arijit Singh",
+        duration: 280,
+        syncedLyrics: "[00:03]Wrong recording",
+      },
+      {
+        trackName: "Tum Hi Ho",
+        artistName: "Unrelated singer",
+        duration: 261,
+        syncedLyrics: "[00:03]Wrong singer",
+      },
+      { artistName: "Arijit Singh", duration: 261, syncedLyrics: "[00:03]Missing title" },
+      {
+        trackName: "Tum Hi Ho",
+        artistName: "Arijit Singh",
+        syncedLyrics: "[00:03]Missing duration",
+      },
+    ]),
+  );
+  assert.equal(
+    await lyrics.loadTrackLyrics(
+      track({
+        title: "Tum Hi Ho",
+        artist: "Mithoon & Arijit Singh",
+        durationSeconds: 261,
+      }),
+    ),
+    null,
+  );
+});
+
+test("a single artist credit can also match a collaborator from the original collection", async () => {
+  const { lyrics } = build(async (url) => {
+    const artist = new URL(url).searchParams.get("artist_name");
+    return ok(
+      artist === "Arijit Singh"
+        ? [
+            {
+              trackName: "Tum Hi Ho",
+              artistName: artist,
+              duration: 262,
+              syncedLyrics: "[00:03]Correct",
+            },
+          ]
+        : [],
+    );
+  });
+  assert.deepEqual(
+    await lyrics.loadTrackLyrics(
+      track({
+        title: "Tum Hi Ho",
+        artist: "Mithoon",
+        durationSeconds: 261,
+        collectionOrigin: { id: "catalog:1", title: "Tum Hi Ho", artist: "Mithoon & Arijit Singh" },
+      }),
+    ),
+    [{ at: 3, text: "Correct" }],
+  );
+});
+
+test("artist sets accept added composer credits in Darkhaast", async () => {
+  const { lyrics } = build(async () =>
+    ok([
+      {
+        trackName: "Darkhaast",
+        artistName: "Mithoon, Arijit Singh, Sunidhi Chauhan",
+        duration: 374,
+        syncedLyrics: "[00:05]Matched",
+      },
+    ]),
+  );
+  assert.deepEqual(
+    await lyrics.loadTrackLyrics(
+      track({
+        title: "Darkhaast",
+        artist: "Arijit Singh & Sunidhi Chauhan",
+        durationSeconds: 375,
+      }),
+    ),
+    [{ at: 5, text: "Matched" }],
+  );
+});
+
+test("artist sets handle reordered, slash-separated and duplicate credits", async () => {
+  const { lyrics } = build(async () =>
+    ok([
+      {
+        trackName: "Example",
+        artistName: "Singer B/Singer A/Singer A",
+        duration: 116,
+        syncedLyrics: "[00:02]Matched",
+      },
+    ]),
+  );
+  assert.deepEqual(
+    await lyrics.loadTrackLyrics(
+      track({
+        title: "Example",
+        artist: "Singer A & Singer B",
+      }),
+    ),
+    [{ at: 2, text: "Matched" }],
+  );
+});
+
+test("artist set containment also works from a single performer to expanded credits", async () => {
+  const { lyrics } = build(async () =>
+    ok([
+      {
+        trackName: "Example",
+        artistName: "Composer; Singer",
+        duration: 116,
+        syncedLyrics: "[00:02]Matched",
+      },
+    ]),
+  );
+  assert.deepEqual(
+    await lyrics.loadTrackLyrics(
+      track({
+        title: "Example",
+        artist: "Singer",
+      }),
+    ),
+    [{ at: 2, text: "Matched" }],
+  );
+});
+
+test("shared collaborators alone do not match a different artist set", async () => {
+  const { lyrics } = build(async () =>
+    ok([
+      {
+        trackName: "Example",
+        artistName: "Singer A & Singer C",
+        duration: 116,
+        syncedLyrics: "[00:02]Wrong collaboration",
+      },
+      {
+        trackName: "Example",
+        artistName: "Singer A & Singer B & Composer",
+        duration: 140,
+        syncedLyrics: "[00:02]Wrong recording",
+      },
+      {
+        trackName: "Other Song",
+        artistName: "Singer A & Singer B & Composer",
+        duration: 116,
+        syncedLyrics: "[00:02]Wrong song",
+      },
+      {
+        trackName: "Example",
+        artistName: "Singer A & Singer B & Composer",
+        syncedLyrics: "[00:02]Missing duration",
+      },
+      {
+        artistName: "Singer A & Singer B & Composer",
+        duration: 116,
+        syncedLyrics: "[00:02]Missing title",
+      },
+    ]),
+  );
+  assert.equal(
+    await lyrics.loadTrackLyrics(
+      track({
+        title: "Example",
+        artist: "Singer A & Singer B",
+      }),
+    ),
+    null,
+  );
+});
+
+test("full artist credit wins over a subset with equal recording duration", async () => {
+  const { lyrics } = build(async () =>
+    ok([
+      {
+        trackName: "Example",
+        artistName: "Singer A",
+        duration: 116,
+        syncedLyrics: "[00:02]Partial",
+      },
+      {
+        trackName: "Example",
+        artistName: "Singer A & Singer B",
+        duration: 116,
+        syncedLyrics: "[00:02]Full",
+      },
+    ]),
+  );
+  assert.deepEqual(
+    await lyrics.loadTrackLyrics(
+      track({
+        title: "Example",
+        artist: "Singer A & Singer B",
+      }),
+    ),
+    [{ at: 2, text: "Full" }],
+  );
 });

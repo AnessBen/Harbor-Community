@@ -77,7 +77,8 @@
     "remark-gfm": "^4.0.1",
     "skinview3d": "^3.4.2",
     "tailwindcss": "^4",
-    "tldts": "7.4.12"
+    "tldts": "7.4.12",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@resvg/resvg-js": "^2.6.2",

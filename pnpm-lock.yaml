@@ -119,13 +119,16 @@ importers:
       tldts:
         specifier: 7.4.12
         version: 7.4.12
+      yaml:
+        specifier: ^2.9.1
+        version: 2.9.1
     devDependencies:
       '@resvg/resvg-js':
         specifier: ^2.6.2
         version: 2.6.2
       '@tailwindcss/vite':
         specifier: ^4
-        version: 4.2.4(vite@7.3.2(@types/node@26.1.1)(jiti@2.6.1)(lightningcss@1.32.0))
+        version: 4.2.4(vite@7.3.2(@types/node@26.1.1)(jiti@2.6.1)(lightningcss@1.32.0)(yaml@2.9.1))
       '@tauri-apps/cli':
         specifier: ^2
         version: 2.10.1
@@ -146,7 +149,7 @@ importers:
         version: 19.2.3(@types/react@19.2.14)
       '@vitejs/plugin-react':
         specifier: ^4.6.0
-        version: 4.7.0(vite@7.3.2(@types/node@26.1.1)(jiti@2.6.1)(lightningcss@1.32.0))
+        version: 4.7.0(vite@7.3.2(@types/node@26.1.1)(jiti@2.6.1)(lightningcss@1.32.0)(yaml@2.9.1))
       cheerio:
         specifier: ^1.2.0
         version: 1.2.0
@@ -158,10 +161,10 @@ importers:
         version: 5.8.3
       vite:
         specifier: ^7.0.4
-        version: 7.3.2(@types/node@26.1.1)(jiti@2.6.1)(lightningcss@1.32.0)
+        version: 7.3.2(@types/node@26.1.1)(jiti@2.6.1)(lightningcss@1.32.0)(yaml@2.9.1)
       vite-plugin-static-copy:
         specifier: ^2.0.0
-        version: 2.3.2(vite@7.3.2(@types/node@26.1.1)(jiti@2.6.1)(lightningcss@1.32.0))
+        version: 2.3.2(vite@7.3.2(@types/node@26.1.1)(jiti@2.6.1)(lightningcss@1.32.0)(yaml@2.9.1))
 
 packages:
 
@@ -2251,6 +2254,11 @@ packages:
   yallist@3.1.1:
     resolution: {integrity: sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g==}
 
+  yaml@2.9.1:
+    resolution: {integrity: sha512-3NxN8+78OdzbT7C/WjGsyfPAtJaN3FNDsWxv7Y7mcDsT/oOmgW8BpyQQFFBnvZE3j9Y2Sdz1ULFLezL7Eb2yFw==}
+    engines: {node: '>= 14.6'}
+    hasBin: true
+
   yargs-parser@18.1.3:
     resolution: {integrity: sha512-o50j0JeToy/4K6OZcaQmW6lyXXKhq7csREXcDwk2omFPJEwUNOVtJKvmDr9EI1fAJZUyZcRF7kxGBWmRXudrCQ==}
     engines: {node: '>=6'}
@@ -2801,12 +2809,12 @@ snapshots:
       '@tailwindcss/oxide-win32-arm64-msvc': 4.2.4
       '@tailwindcss/oxide-win32-x64-msvc': 4.2.4
 
-  '@tailwindcss/vite@4.2.4(vite@7.3.2(@types/node@26.1.1)(jiti@2.6.1)(lightningcss@1.32.0))':
+  '@tailwindcss/vite@4.2.4(vite@7.3.2(@types/node@26.1.1)(jiti@2.6.1)(lightningcss@1.32.0)(yaml@2.9.1))':
     dependencies:
       '@tailwindcss/node': 4.2.4
       '@tailwindcss/oxide': 4.2.4
       tailwindcss: 4.2.4
-      vite: 7.3.2(@types/node@26.1.1)(jiti@2.6.1)(lightningcss@1.32.0)
+      vite: 7.3.2(@types/node@26.1.1)(jiti@2.6.1)(lightningcss@1.32.0)(yaml@2.9.1)
 
   '@tanstack/react-virtual@3.14.9(react-dom@19.2.5(react@19.2.5))(react@19.2.5)':
     dependencies:
@@ -3009,7 +3017,7 @@ snapshots:
 
   '@ungap/structured-clone@1.3.1': {}
 
-  '@vitejs/plugin-react@4.7.0(vite@7.3.2(@types/node@26.1.1)(jiti@2.6.1)(lightningcss@1.32.0))':
+  '@vitejs/plugin-react@4.7.0(vite@7.3.2(@types/node@26.1.1)(jiti@2.6.1)(lightningcss@1.32.0)(yaml@2.9.1))':
     dependencies:
       '@babel/core': 7.29.0
       '@babel/plugin-transform-react-jsx-self': 7.27.1(@babel/core@7.29.0)
@@ -3017,7 +3025,7 @@ snapshots:
       '@rolldown/pluginutils': 1.0.0-beta.27
       '@types/babel__core': 7.20.5
       react-refresh: 0.17.0
-      vite: 7.3.2(@types/node@26.1.1)(jiti@2.6.1)(lightningcss@1.32.0)
+      vite: 7.3.2(@types/node@26.1.1)(jiti@2.6.1)(lightningcss@1.32.0)(yaml@2.9.1)
     transitivePeerDependencies:
       - supports-color
 
@@ -4361,16 +4369,16 @@ snapshots:
       '@types/unist': 3.0.3
       vfile-message: 4.0.3
 
-  vite-plugin-static-copy@2.3.2(vite@7.3.2(@types/node@26.1.1)(jiti@2.6.1)(lightningcss@1.32.0)):
+  vite-plugin-static-copy@2.3.2(vite@7.3.2(@types/node@26.1.1)(jiti@2.6.1)(lightningcss@1.32.0)(yaml@2.9.1)):
     dependencies:
       chokidar: 3.6.0
       fast-glob: 3.3.3
       fs-extra: 11.3.6
       p-map: 7.0.5
       picocolors: 1.1.1
-      vite: 7.3.2(@types/node@26.1.1)(jiti@2.6.1)(lightningcss@1.32.0)
+      vite: 7.3.2(@types/node@26.1.1)(jiti@2.6.1)(lightningcss@1.32.0)(yaml@2.9.1)
 
-  vite@7.3.2(@types/node@26.1.1)(jiti@2.6.1)(lightningcss@1.32.0):
+  vite@7.3.2(@types/node@26.1.1)(jiti@2.6.1)(lightningcss@1.32.0)(yaml@2.9.1):
     dependencies:
       esbuild: 0.27.7
       fdir: 6.5.0(picomatch@4.0.4)
@@ -4383,6 +4391,7 @@ snapshots:
       fsevents: 2.3.3
       jiti: 2.6.1
       lightningcss: 1.32.0
+      yaml: 2.9.1
 
   w3c-xmlserializer@6.0.0:
     dependencies:
@@ -4429,6 +4438,8 @@ snapshots:
   y18n@4.0.3: {}
 
   yallist@3.1.1: {}
+
+  yaml@2.9.1: {}
 
   yargs-parser@18.1.3:
     dependencies:
