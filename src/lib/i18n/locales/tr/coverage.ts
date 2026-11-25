@@ -939,6 +939,10 @@ const coverage: Record<string, string> = {
     "Bu, başlığı bağlı tüm izleyicilerden kaldırır. Simkl'de tamamlanmış veya izlenen başlıklar değişmez; AniList ve MyAnimeList liste ilerlemesi kaldırılabilir.",
   "Updated: {providers}.": "Güncellendi: {providers}.",
   "No changes were made.": "Değişiklik yapılmadı.",
+  "Maps HDR sources to SDR. Works with embedded playback and SDR displays.":
+    "HDR kaynaklarını SDR'ye dönüştürür. Gömülü oynatma ve SDR ekranlarla çalışır.",
+  "Uses mpv's native window and automatic Wayland color management (mpv 0.41 or newer recommended). Requires a compatible GPU driver, compositor and HDR-enabled display. X11 falls back to SDR. Restart playback to apply.":
+    "mpv'nin yerel penceresini ve Wayland'ın otomatik renk yönetimini kullanır (mpv 0.41 veya daha yenisi önerilir). Uyumlu bir GPU sürücüsü, bir birleştirici ve HDR etkin bir ekran gerektirir. X11'de SDR'ye geri dönülür. Değişikliği uygulamak için oynatmayı yeniden başlatın.",
 };
 
 export default coverage;

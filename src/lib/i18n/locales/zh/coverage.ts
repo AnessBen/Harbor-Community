@@ -890,6 +890,10 @@ const coverage: Record<string, string> = {
     "This removes the title from every connected tracker. Simkl completed or watching titles stay unchanged; AniList and MyAnimeList list progress may be removed.",
   "Updated: {providers}.": "Updated: {providers}.",
   "No changes were made.": "No changes were made.",
+  "Maps HDR sources to SDR. Works with embedded playback and SDR displays.":
+    "将 HDR 源转换为 SDR。适用于嵌入式播放和 SDR 显示器。",
+  "Uses mpv's native window and automatic Wayland color management (mpv 0.41 or newer recommended). Requires a compatible GPU driver, compositor and HDR-enabled display. X11 falls back to SDR. Restart playback to apply.":
+    "使用 mpv 原生窗口和 Wayland 自动色彩管理（建议使用 mpv 0.41 或更新版本）。需要兼容的 GPU 驱动程序、合成器以及已启用 HDR 的显示器。X11 下会回退到 SDR。重新开始播放以应用更改。",
 };
 
 export default coverage;
