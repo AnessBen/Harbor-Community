@@ -3,7 +3,7 @@ import { Play } from "@/components/icons/music-icons";
 import { Poster } from "@/components/poster";
 import { MusicTrackPlaybackMark } from "./music-now-playing-mark";
 import { useT } from "@/lib/i18n";
-import { enqueueMusic, playMusic } from "@/lib/music/player";
+import { enqueueMusic, playQueuedMusic } from "@/lib/music/player";
 import type { MusicTrack } from "@/lib/music/types";
 import { MusicMediaBadge } from "./music-media-badge";
 import { MusicTrackLabels } from "./music-track-labels";
@@ -26,7 +26,7 @@ export const MusicUpNextRow = memo(function MusicUpNextRow({
   onMoreLikeThis?: () => void;
 }) {
   const t = useT();
-  const play = () => void playMusic(track, queue).catch(() => {});
+  const play = () => void playQueuedMusic(track, queue).catch(() => {});
   const menu = useMusicTrackContextMenu(track, {
     onPlay: play,
     onAddToQueue: () => enqueueMusic(track),

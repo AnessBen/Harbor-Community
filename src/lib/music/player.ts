@@ -1,6 +1,9 @@
 import { compatibleVocalVersion, shouldResolvePreferredSource } from "./source-version";
 import {
   cancelMusicQueueAutomation,
+  getMusicQueueAutomationRevision,
+  ownMusicQueueAutomation,
+  releaseMusicQueueAutomation,
   markMusicQueueAutomationStarted,
   ownsMusicQueueAutomation,
 } from "./queue-automation";
@@ -24,6 +27,8 @@ import { markManuallyQueued, queueInsertAfterManualBlock, withTrackNext } from "
 import { queueTrackKey } from "./queue-order";
 import { NextTrackWarmup } from "./next-track-warmup";
 import { fillSingleSongQueue, singleSongRecommendations } from "./single-song-queue";
+import { RecommendationContinuation } from "./recommendation-continuation";
+import { withTimeout } from "@/lib/progressive-rows";
 import { youtubeRestrictionDelay } from "./youtube-restriction";
 import { adoptRequestedIdentity } from "./queue-source";
 import {
@@ -112,6 +117,8 @@ let lastSessionWrite = 0;
 const VOLUME_KEY = "harbor.music.volume.v1";
 const listeners = new Set<() => void>();
 let playRequest = 0;
+let recommendationContinuation: RecommendationContinuation | null = null;
+let pendingRecommendationEnd: number | null = null;
 let nativeEventsReady: Promise<void> | null = null;
 let endHandledAt = 0;
 let enginePrimed = false;
@@ -981,6 +988,80 @@ export function warmMusicSourceCache(track: MusicTrack): void {
   void sourcesFor(track).catch(() => {});
 }
 
+/** The initial recommendation fetch owns its session before asynchronous work starts.
+ * The owner deliberately is not marked as a Surprise Me session: queue edits keep the songs
+ * already generated, but stop future automatic additions. */
+function startRecommendationQueue(track: MusicTrack): void {
+  let controller: RecommendationContinuation | null = null;
+  let unsubscribe = () => {};
+  let unsubscribeTransport = () => {};
+  const owner = ownMusicQueueAutomation(() => {
+    controller?.stop();
+    unsubscribe();
+    unsubscribeTransport();
+    if (recommendationContinuation === controller) recommendationContinuation = null;
+    pendingRecommendationEnd = null;
+  });
+  const filter = (tracks: MusicTrack[]) =>
+    filterBlockedTracks(filterBlockedTracks(tracks, "show"), "play");
+  const recommendations = (seed: MusicTrack) =>
+    withTimeout(singleSongRecommendations(seed), 25_000);
+  void fillSingleSongQueue(track, {
+    snapshot: () => ({
+      ...state,
+      revision: playRequest,
+      phase:
+        ownsMusicQueueAutomation(owner) && !followingListenHost && !ownsMusicVideo()
+          ? state.phase
+          : "idle",
+    }),
+    recommendations,
+    filter,
+    apply: (queue) => {
+      if (!ownsMusicQueueAutomation(owner)) return;
+      setMusicQueue(queue, owner);
+      if (!ownsMusicQueueAutomation(owner)) return;
+      controller = new RecommendationContinuation({
+        snapshot: () => ({
+          ...state,
+          enabled:
+            ownsMusicQueueAutomation(owner) &&
+            !followingListenHost &&
+            !ownsMusicVideo() &&
+            getMusicTransport().repeat === "off",
+        }),
+        remaining: () => musicUpcoming(state.queue, state.queueIndex, 5, false).length,
+        recommendations,
+        filter,
+        apply: (next) => setMusicQueue(next, owner),
+        onInvalidated: () => releaseMusicQueueAutomation(owner),
+      });
+      recommendationContinuation = controller;
+      const check = () => {
+        void controller?.request();
+      };
+      unsubscribe = subscribeMusic(check);
+      unsubscribeTransport = subscribeTransport(check);
+      check();
+    },
+  }).finally(() => {
+    if (!controller) releaseMusicQueueAutomation(owner);
+  });
+}
+
+/** Selecting a row within the active generated queue is not a new collection. */
+export function playQueuedMusic(track: MusicTrack, queue: MusicTrack[]): Promise<void> {
+  if (
+    recommendationContinuation &&
+    queue.length === state.queue.length &&
+    queue.every((item, i) => queueTrackKey(item) === queueTrackKey(state.queue[i]))
+  ) {
+    pendingRecommendationEnd = null;
+    return playMusic(track, state.queue, new Set(), true);
+  }
+  return playMusic(track, queue);
+}
+
 export async function playMusic(
   track: MusicTrack,
   queue = [track],
@@ -993,6 +1074,7 @@ export async function playMusic(
 ): Promise<void> {
   if (automationOwner && !ownsMusicQueueAutomation(automationOwner)) return;
   if (!continuing && !failedAttempts.size && !automationOwner) cancelMusicQueueAutomation();
+  const recommendationRevision = singleSong ? getMusicQueueAutomationRevision() : null;
   await initializeMusic();
   if (automationOwner && !ownsMusicQueueAutomation(automationOwner)) return;
   // Playing something reopens the player the listener closed last time.
@@ -1281,13 +1363,14 @@ export async function playMusic(
     }
     if (!ownsRequest()) return;
     enginePrimed = true;
-    if (singleSong && !automationOwner && !isDeckWindow()) {
-      void fillSingleSongQueue(track, {
-        snapshot: () => ({ ...state, revision: playRequest }),
-        recommendations: singleSongRecommendations,
-        filter: (tracks) => filterBlockedTracks(filterBlockedTracks(tracks, "show"), "play"),
-        apply: setMusicQueue,
-      });
+    if (
+      singleSong &&
+      !automationOwner &&
+      !isDeckWindow() &&
+      !followingListenHost &&
+      recommendationRevision === getMusicQueueAutomationRevision()
+    ) {
+      startRecommendationQueue(track);
     }
     armSpotifyStartupWatchdog(request, track);
     if (deckAdoption.deck() !== 0 && !getMusicSpeakerState().active)
@@ -1374,6 +1457,7 @@ export async function playMusic(
 }
 
 export function toggleMusicPlayback(): void {
+  pendingRecommendationEnd = null;
   const current = state.current;
   if (!current || state.phase === "resolving") return;
   if (getMusicSpeakerState().active) {
@@ -1404,6 +1488,7 @@ export function toggleMusicPlayback(): void {
 
 /** Pause running music without ever starting it; used when a movie or series takes the screen. */
 export function pauseMusicPlayer(): void {
+  pendingRecommendationEnd = null;
   if (state.phase === "playing") toggleMusicPlayback();
 }
 
@@ -1429,6 +1514,7 @@ export function loopMusic(start: number | null, end: number | null): void {
 
 export function seekMusic(position: number): void {
   if (!Number.isFinite(position)) return;
+  pendingRecommendationEnd = null;
   if (getMusicSpeakerState().active) {
     void seekMusicSpeaker(position)
       .then(() => refreshMusicSpeakerStatus())
@@ -1502,6 +1588,7 @@ export function setMusicVolume(volume: number): void {
 let followingListenHost = false;
 
 export function followMusicQueue(): () => void {
+  if (recommendationContinuation) cancelMusicQueueAutomation();
   let active = true;
   let saved: MusicTrack[] | undefined;
   followingListenHost = true;
@@ -1525,7 +1612,10 @@ export function nextMusic(auto = false): void {
     publish({ phase: "paused", currentTime: state.duration });
     return;
   }
-  if (!auto) autoSkipped.clear();
+  if (!auto) {
+    pendingRecommendationEnd = null;
+    autoSkipped.clear();
+  }
   if (auto && ownsMusicVideo() && getMusicTransport().repeat === "one" && videoController) {
     // Restart the video host itself. Reloading the native track would leave the
     // picture's audio running beside a second audio engine.
@@ -1537,6 +1627,32 @@ export function nextMusic(auto = false): void {
   const next = musicAdvance(state.queue, state.queueIndex, auto);
   if (next) void playMusic(next, state.queue, new Set(), true, auto).catch(() => {});
   else {
+    // If the final track finishes while its refill is in flight, wait for that same
+    // bounded request, not a second provider lookup. Never resume a superseded queue.
+    const controller = recommendationContinuation;
+    if (auto && controller && pendingRecommendationEnd === playRequest) return;
+    const refill = auto ? controller?.request(true) : null;
+    if (refill) {
+      const request = playRequest;
+      pendingRecommendationEnd = request;
+      enginePrimed = false;
+      publish({ phase: "paused", currentTime: state.duration });
+      void refill.then((added) => {
+        if (pendingRecommendationEnd !== request) return;
+        pendingRecommendationEnd = null;
+        if (
+          added &&
+          recommendationContinuation === controller &&
+          request === playRequest &&
+          state.phase === "paused" &&
+          getMusicTransport().repeat === "off" &&
+          !followingListenHost
+        ) {
+          nextMusic(true);
+        }
+      });
+      return;
+    }
     if (auto) enginePrimed = false;
     if (!auto) {
       if (getMusicSpeakerState().active) void pauseMusicSpeaker().catch(() => {});
@@ -1548,6 +1664,7 @@ export function nextMusic(auto = false): void {
 }
 
 export function previousMusic(): void {
+  pendingRecommendationEnd = null;
   if (state.currentTime > 5) {
     seekMusic(0);
     return;

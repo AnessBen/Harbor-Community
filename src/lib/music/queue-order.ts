@@ -78,7 +78,7 @@ export class MusicQueueOrder {
       const position = at + step;
       if (position >= order.length && modes.repeat !== "all") break;
       const key = order[position % order.length];
-      if (key === currentKey) continue;
+      if (key === currentKey || (modes.repeat === "off" && this.visited.has(key))) continue;
       const track = byKey.get(key);
       if (track && !out.some((item) => queueTrackKey(item) === key)) out.push(track);
     }

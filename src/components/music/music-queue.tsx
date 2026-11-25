@@ -22,7 +22,12 @@ import { MusicTrackPlaybackMark } from "./music-now-playing-mark";
 import { MusicServiceLogo } from "./music-service-logo";
 import "./music-queue.css";
 import { useT } from "@/lib/i18n";
-import { playMusic, setMusicQueue, toggleMusicPlayback, useMusicPlayer } from "@/lib/music/player";
+import {
+  playQueuedMusic,
+  setMusicQueue,
+  toggleMusicPlayback,
+  useMusicPlayer,
+} from "@/lib/music/player";
 import { musicPriorityNext, setMusicPriorityNext, useMusicTransport } from "@/lib/music/transport";
 import type { MusicSourceCandidate, MusicTrack } from "@/lib/music/types";
 
@@ -389,7 +394,7 @@ export function MusicQueue({
       onPlay={
         current
           ? toggleMusicPlayback
-          : () => void playMusic(track, queue.length ? queue : [track]).catch(() => {})
+          : () => void playQueuedMusic(track, queue.length ? queue : [track]).catch(() => {})
       }
       onArtist={() => {
         onClose();

@@ -1,7 +1,11 @@
+let revision = 0;
+export const getMusicQueueAutomationRevision = () => revision;
+
 let session: { owner: symbol; started: boolean; stop: () => void } | null = null;
 
 /** Explicit playback/queue edits own the player before any asynchronous work starts. */
 export function cancelMusicQueueAutomation(): boolean {
+  revision += 1;
   const previous = session;
   session = null;
   previous?.stop();
