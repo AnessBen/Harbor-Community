@@ -92,7 +92,9 @@ pub fn explicit_badge(value: &Value) -> Option<bool> {
             _ => false,
         }
     }
-    value.get("badges").and_then(|badges| scan(badges).then_some(true))
+    value
+        .get("badges")
+        .and_then(|badges| scan(badges).then_some(true))
 }
 
 pub fn track_from_list_item(value: &Value) -> Option<MusicTrack> {

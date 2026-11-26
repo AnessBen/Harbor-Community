@@ -771,7 +771,8 @@ const music: Record<string, string> = {
   "music.spotifyBrowse.action": "Use my own Spotify app",
   "music.recovery.copyDiagnostics": "Copy playback diagnostics",
   "music.recovery.diagnosticsCopied": "Playback diagnostics copied.",
-  "music.recovery.diagnosticsFailed": "Could not copy diagnostics. If a report appears below, copy it manually.",
+  "music.recovery.diagnosticsFailed":
+    "Could not copy diagnostics. If a report appears below, copy it manually.",
   "music.recovery.diagnosticsCollecting": "Collecting playback diagnostics...",
   "music.recovery.title": "Playback help",
   "music.recovery.failed": "{source} couldn’t play this song",

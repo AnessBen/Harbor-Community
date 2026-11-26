@@ -160,7 +160,9 @@ impl ConnectorRegistry {
                 connector.id() != original_id && connector.searchable() && connector.playable()
             })
             .partition(|connector| connector.health() != ConnectorHealth::Offline);
-        let mut alternatives = self.matched_sources(app, track, &query, reachable, &mut seen).await;
+        let mut alternatives = self
+            .matched_sources(app, track, &query, reachable, &mut seen)
+            .await;
         if alternatives.is_empty() && !unreachable.is_empty() {
             alternatives = self
                 .matched_sources(app, track, &query, unreachable, &mut seen)

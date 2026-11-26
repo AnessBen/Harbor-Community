@@ -215,10 +215,7 @@ pub trait MusicConnector: Send + Sync {
         }
         let tracks = self.playlist_tracks(app, playlist).await?;
         Ok(MusicCatalogPage {
-            items: tracks
-                .into_iter()
-                .map(MusicCatalogItem::Track)
-                .collect(),
+            items: tracks.into_iter().map(MusicCatalogItem::Track).collect(),
             next_cursor: None,
             total: None,
             scope: MusicCatalogScope::Catalog,

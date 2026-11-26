@@ -3,6 +3,7 @@ pub(crate) mod auth;
 mod catalog;
 #[cfg(test)]
 mod clients;
+pub(crate) mod extraction_cooldown;
 mod fields;
 mod innertube;
 mod items;
@@ -10,9 +11,8 @@ mod parse;
 #[cfg(test)]
 mod player;
 mod rows;
-mod ytdlp;
-pub(crate) mod extraction_cooldown;
 mod video_page;
+mod ytdlp;
 
 use super::super::connector::{ConnectorHealth, HealthCell, MusicConnector};
 use super::super::{
@@ -81,7 +81,11 @@ impl MusicConnector for YouTubeMusicConnector {
         limit: usize,
         interviews: bool,
     ) -> Result<Vec<MusicTrack>, String> {
-        let result = if interviews { ytdlp::search_interviews(app, query, limit).await } else { catalog::videos(&self.client, app, query, limit, false).await };
+        let result = if interviews {
+            ytdlp::search_interviews(app, query, limit).await
+        } else {
+            catalog::videos(&self.client, app, query, limit, false).await
+        };
         self.record(&result);
         result
     }

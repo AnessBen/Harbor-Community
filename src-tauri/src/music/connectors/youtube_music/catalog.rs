@@ -65,7 +65,8 @@ pub(super) fn video_results_kind(
             if kind != "MUSIC_VIDEO_TYPE_UGC" {
                 continue;
             }
-        } else if kind != "MUSIC_VIDEO_TYPE_OMV" && kind != "MUSIC_VIDEO_TYPE_OFFICIAL_SOURCE_MUSIC" {
+        } else if kind != "MUSIC_VIDEO_TYPE_OMV" && kind != "MUSIC_VIDEO_TYPE_OFFICIAL_SOURCE_MUSIC"
+        {
             continue;
         }
         let Some(mut track) = items::track_from_list_item(item) else {
@@ -127,7 +128,12 @@ pub(super) fn card_video(response: &Value) -> Option<MusicTrack> {
     let seconds = super::fields::seconds_from_label(duration_label).unwrap_or(0);
     let art = parse::nav(
         card,
-        &["thumbnail", "musicThumbnailRenderer", "thumbnail", "thumbnails"],
+        &[
+            "thumbnail",
+            "musicThumbnailRenderer",
+            "thumbnail",
+            "thumbnails",
+        ],
     )?;
     let url = art.as_array()?.last()?.get("url")?.as_str()?;
     let id = url.split("/vi/").nth(1)?.split('/').next()?;
@@ -297,7 +303,10 @@ fn playlists_row(response: &Value, id: &str, title: &str) -> Option<MusicCatalog
         subtitle: None,
         layout: MusicRowLayout::Covers,
         source: super::fields::CONNECTOR.to_string(),
-        items: playlists.into_iter().map(MusicCatalogItem::Playlist).collect(),
+        items: playlists
+            .into_iter()
+            .map(MusicCatalogItem::Playlist)
+            .collect(),
     })
 }
 
@@ -963,7 +972,9 @@ mod tests {
         assert_eq!(row.title, "music.row.artists");
         assert_eq!(row.layout, MusicRowLayout::Circles);
         assert_eq!(row.items.len(), 2);
-        assert!(artists_row_from(&json!({"contents": [library_playlist("A", "VLPLone")]})).is_none());
+        assert!(
+            artists_row_from(&json!({"contents": [library_playlist("A", "VLPLone")]})).is_none()
+        );
 
         let saved = json!({"contents": [
             library_album("Absolution", "MPREb_one"),
