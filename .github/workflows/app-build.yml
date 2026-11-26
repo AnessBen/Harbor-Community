@@ -63,7 +63,11 @@ jobs:
 
       - name: Install macOS build dependencies
         if: matrix.platform.name == 'macOS'
-        run: brew install mpv pkg-config
+        shell: bash
+        run: |
+          PREFIX="$RUNNER_TEMP/harbor-mpv-upstream"
+          bash scripts/macos-build-libmpv.sh "$PREFIX"
+          echo "PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
 
       - name: Prepare bundled macOS libraries
         if: matrix.platform.name == 'macOS'

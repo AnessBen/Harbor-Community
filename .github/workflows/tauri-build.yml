@@ -49,9 +49,9 @@ jobs:
       - name: Install Mac deps
         if: contains(matrix.platform.runner, 'macos')
         run: |
-          brew install mpv pkg-config
-          # Make pkg-config find libmpv from homebrew
-          echo "PKG_CONFIG_PATH=$(brew --prefix mpv)/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> $GITHUB_ENV
+          PREFIX="$RUNNER_TEMP/harbor-mpv-upstream"
+          bash scripts/macos-build-libmpv.sh "$PREFIX"
+          echo "PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}" >> "$GITHUB_ENV"
 
       - uses: dtolnay/rust-toolchain@stable
         with:
