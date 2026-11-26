@@ -49,7 +49,12 @@ export function useBpTrailer(meta: Meta | null): { src: string | null } {
     const resolve = () => {
       if (!request.type) return;
       const lookup = resolveTrailerCandidates(
-        { id: request.id, type: request.type, name: request.name, releaseInfo: request.releaseInfo },
+        {
+          id: request.id,
+          type: request.type,
+          name: request.name,
+          releaseInfo: request.releaseInfo,
+        },
         request.tmdbKey,
       );
 

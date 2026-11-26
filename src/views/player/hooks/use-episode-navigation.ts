@@ -129,32 +129,34 @@ export function useEpisodeNavigation(params: {
       skip: settings.episodeHiding
         ? (s, e, metaId) => isEpisodeHidden(metaId ?? src.meta.id, s, e)
         : undefined,
-    }).then((r) => {
-      if (cancelled) return;
-      if (localShowKey) {
-        const eps = localShowEpisodes(localShowKey);
-        const i = eps.findIndex((e) => e.season === cur.season && e.episode === cur.episode);
-        const localPrev = i > 0 ? eps[i - 1] : null;
-        const localNext = i >= 0 && i < eps.length - 1 ? eps[i + 1] : null;
-        setAdjacent({
-          ...r,
-          prev:
-            r.prev ??
-            (localPrev
-              ? { season: localPrev.season as number, episode: localPrev.episode as number }
-              : null),
-          next:
-            r.next ??
-            (localNext
-              ? { season: localNext.season as number, episode: localNext.episode as number }
-              : null),
-        });
-        return;
-      }
-      setAdjacent(r);
-    }).catch(() => {
-      if (!cancelled) setAdjacent({ prev: null, next: null });
-    });
+    })
+      .then((r) => {
+        if (cancelled) return;
+        if (localShowKey) {
+          const eps = localShowEpisodes(localShowKey);
+          const i = eps.findIndex((e) => e.season === cur.season && e.episode === cur.episode);
+          const localPrev = i > 0 ? eps[i - 1] : null;
+          const localNext = i >= 0 && i < eps.length - 1 ? eps[i + 1] : null;
+          setAdjacent({
+            ...r,
+            prev:
+              r.prev ??
+              (localPrev
+                ? { season: localPrev.season as number, episode: localPrev.episode as number }
+                : null),
+            next:
+              r.next ??
+              (localNext
+                ? { season: localNext.season as number, episode: localNext.episode as number }
+                : null),
+          });
+          return;
+        }
+        setAdjacent(r);
+      })
+      .catch(() => {
+        if (!cancelled) setAdjacent({ prev: null, next: null });
+      });
     return () => {
       cancelled = true;
     };

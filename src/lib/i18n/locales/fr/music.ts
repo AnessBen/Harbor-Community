@@ -476,7 +476,8 @@ const music: Record<string, string> = {
     "Vérifiez le Client ID et l’URI de redirection dans les paramètres de votre application Spotify, puis réessayez.",
   "music.recovery.copyDiagnostics": "Copier les diagnostics de lecture",
   "music.recovery.diagnosticsCopied": "Diagnostics de lecture copi?s.",
-  "music.recovery.diagnosticsFailed": "Impossible de copier les diagnostics. Si un rapport appara?t ci-dessous, copiez-le manuellement.",
+  "music.recovery.diagnosticsFailed":
+    "Impossible de copier les diagnostics. Si un rapport appara?t ci-dessous, copiez-le manuellement.",
   "music.recovery.diagnosticsCollecting": "Collecte des diagnostics de lecture...",
   "music.recovery.title": "Aide à la lecture",
   "music.recovery.failed": "{source} n’a pas pu lire ce titre",

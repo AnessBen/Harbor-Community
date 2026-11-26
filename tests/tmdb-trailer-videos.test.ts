@@ -112,15 +112,26 @@ test("keeps season videos before show-level videos and removes duplicates", () =
 });
 
 test("clips and featurettes never become trailer candidates, including an official clip", () => {
-  assert.deepEqual(pickTrailers([
-    { key: "0lGyuTtYUJo", site: "YouTube", type: "Clip", official: true, name: "Krabby Patties Ranked By Size!" },
-    { key: "featurette", site: "YouTube", type: "Featurette", official: true },
-  ]), []);
+  assert.deepEqual(
+    pickTrailers([
+      {
+        key: "0lGyuTtYUJo",
+        site: "YouTube",
+        type: "Clip",
+        official: true,
+        name: "Krabby Patties Ranked By Size!",
+      },
+      { key: "featurette", site: "YouTube", type: "Featurette", official: true },
+    ]),
+    [],
+  );
 });
 
 test("show-level official trailer outranks season teaser", () => {
   const season = [{ key: "season-teaser", site: "YouTube", type: "Teaser", official: true }];
   const show = [{ key: "show-trailer", site: "YouTube", type: "Trailer", official: true }];
-  assert.deepEqual(sortTrailerVideos(mergeTrailerVideoGroups(show, season)).map(v => v.key),
-    ["show-trailer", "season-teaser"]);
+  assert.deepEqual(
+    sortTrailerVideos(mergeTrailerVideoGroups(show, season)).map((v) => v.key),
+    ["show-trailer", "season-teaser"],
+  );
 });

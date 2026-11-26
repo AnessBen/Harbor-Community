@@ -1,4 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type SetStateAction } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type Dispatch,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type SetStateAction,
+} from "react";
 import {
   Bookmark,
   BookOpen,
@@ -41,7 +52,10 @@ import { PdfDocumentError, pdfPageCount } from "@/lib/ebook/pdf";
 import { zoomPdfView, type PdfViewSettings } from "@/lib/ebook/pdf-view-settings";
 import { PdfViewToolbar } from "./pdf-view-toolbar";
 import { PdfContinuousView, type PdfScrollApi } from "./pdf-continuous-view";
-import { createPdfFlipbookPageUrls, releasePdfFlipbookPageUrls } from "@/lib/ebook/pdf-flipbook-pages";
+import {
+  createPdfFlipbookPageUrls,
+  releasePdfFlipbookPageUrls,
+} from "@/lib/ebook/pdf-flipbook-pages";
 import {
   addEBookBookmark,
   loadEBookAnnotations,
@@ -599,7 +613,11 @@ export function PdfPageView({
   }, [pdf.width, width]);
 
   return (
-    <div ref={host} data-pdf-page-view className="mx-auto flex w-full min-w-0 flex-col items-center gap-4">
+    <div
+      ref={host}
+      data-pdf-page-view
+      className="mx-auto flex w-full min-w-0 flex-col items-center gap-4"
+    >
       <PdfViewToolbar view={view} onViewChange={onViewChange} visible={chromeVisible} />
       <div data-pdf-viewport className="w-full min-w-0 overflow-x-auto pb-6">
         <div
@@ -727,40 +745,57 @@ export function HarborReader({
   const originalText = content.originalText ?? content.text ?? pdfText;
   const textAvailable = Boolean(originalText.trim());
   const imageOnly = !textAvailable && Boolean(content.images?.length);
-  const pdfSource = useMemo(() => pdfPage ? pdfChapterSource(chapter.id) : null, [pdfPage, chapter.id]);
+  const pdfSource = useMemo(
+    () => (pdfPage ? pdfChapterSource(chapter.id) : null),
+    [pdfPage, chapter.id],
+  );
   const readingMode = pdfSource && prefs.pdfContinuous ? "continuous" : prefs.mode;
   const [scrollPage, setScrollPage] = useState(pdfSource?.page ?? 1);
   const pdfChapters = useMemo(() => {
     const pages = new Map<number, EBookChapter>();
-    if (pdfSource) for (const item of bookChapters) {
-      const source = pdfChapterSource(item.id);
-      if (source?.path === pdfSource.path) pages.set(source.page, item);
-    }
+    if (pdfSource)
+      for (const item of bookChapters) {
+        const source = pdfChapterSource(item.id);
+        if (source?.path === pdfSource.path) pages.set(source.page, item);
+      }
     return pages;
   }, [bookChapters, pdfSource]);
-  const knownPdfCount = [...pdfChapters.keys()].reduce((max, page) => Math.max(max, page), pdfSource?.page ?? 1);
+  const knownPdfCount = [...pdfChapters.keys()].reduce(
+    (max, page) => Math.max(max, page),
+    pdfSource?.page ?? 1,
+  );
   const [scrollCount, setScrollCount] = useState(knownPdfCount);
   const pdfScrollApi = useRef<PdfScrollApi>(null);
-  const activeChapter = readingMode === "continuous" ? pdfChapters.get(scrollPage) ?? chapter : chapter;
-  const activeChapterIndex = readingMode === "continuous" ? bookChapters.findIndex(item => item.id === activeChapter.id) : chapterIndex;
+  const activeChapter =
+    readingMode === "continuous" ? (pdfChapters.get(scrollPage) ?? chapter) : chapter;
+  const activeChapterIndex =
+    readingMode === "continuous"
+      ? bookChapters.findIndex((item) => item.id === activeChapter.id)
+      : chapterIndex;
   const activePosition = activeChapterIndex >= 0 ? activeChapterIndex : firstPosition;
   const previousChapter = activePosition > 0 ? bookChapters[activePosition - 1] : undefined;
   const nextChapter = activeChapter.legacyNext
-    ? bookChapters.find(item => item.id === activeChapter.legacyNext?.chapterId)
-    : activeChapterIndex >= 0 ? bookChapters[activeChapterIndex + 1] : undefined;
+    ? bookChapters.find((item) => item.id === activeChapter.legacyNext?.chapterId)
+    : activeChapterIndex >= 0
+      ? bookChapters[activeChapterIndex + 1]
+      : undefined;
   const onScrollPage = (page: number, count: number) => {
     setScrollPage(page);
     setScrollCount(count);
     if (!pdfSource) return;
     const item = pdfChapters.get(page);
-    const index = item ? bookChapters.findIndex(value => value.id === item.id) : -1;
+    const index = item ? bookChapters.findIndex((value) => value.id === item.id) : -1;
     saveEBookResume(profile, bookId, {
       chapterId: item?.id ?? JSON.stringify([pdfSource.path, "pdf:" + page]),
       chapterTitle: item?.title ?? "Page " + page,
       chapterLabel: item?.chapter,
-      volumeLabel: item?.volumeTitle || (item?.volume ? t("Volume {volume}", { volume: item.volume }) : undefined),
+      volumeLabel:
+        item?.volumeTitle ||
+        (item?.volume ? t("Volume {volume}", { volume: item.volume }) : undefined),
       chapterProgress: 100,
-      bookProgress: Math.round((index >= 0 ? (index + 1) / bookChapters.length : page / count) * 100),
+      bookProgress: Math.round(
+        (index >= 0 ? (index + 1) / bookChapters.length : page / count) * 100,
+      ),
       ...(index >= 0 ? { chapterIndex: index, totalChapters: bookChapters.length } : {}),
     });
   };
@@ -839,7 +874,12 @@ export function HarborReader({
     (chapter.volume ? t("Volume {volume}", { volume: chapter.volume }) : undefined);
   const persistReadingPosition = useCallback(
     (line: number) => {
-      if (readingMode === "continuous" || !paragraphs.length || (!chapter.legacy && chapterIndex < 0) || !bookChapters.length)
+      if (
+        readingMode === "continuous" ||
+        !paragraphs.length ||
+        (!chapter.legacy && chapterIndex < 0) ||
+        !bookChapters.length
+      )
         return;
       const safeLine = Math.max(0, Math.min(paragraphs.length - 1, line));
       const chapterProgress =
@@ -1180,16 +1220,24 @@ export function HarborReader({
   const startPdfTap = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!pdfPage) return;
     const target = event.target;
-    pdfTap.current = event.isPrimary && event.button === 0 && target instanceof Element &&
+    pdfTap.current =
+      event.isPrimary &&
+      event.button === 0 &&
+      target instanceof Element &&
       target.closest("[data-pdf-reading-surface]") &&
-      !target.closest("[data-pdf-reader-controls], button, a, input, textarea, select, [role=button], [contenteditable=true]")
-      ? { id: event.pointerId, x: event.clientX, y: event.clientY }
-      : null;
+      !target.closest(
+        "[data-pdf-reader-controls], button, a, input, textarea, select, [role=button], [contenteditable=true]",
+      )
+        ? { id: event.pointerId, x: event.clientX, y: event.clientY }
+        : null;
   };
 
   const movePdfTap = (event: ReactPointerEvent<HTMLDivElement>) => {
     const tap = pdfTap.current;
-    if (tap && (tap.id !== event.pointerId || Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > 6)) {
+    if (
+      tap &&
+      (tap.id !== event.pointerId || Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > 6)
+    ) {
       pdfTap.current = null;
     }
   };
@@ -1199,11 +1247,25 @@ export function HarborReader({
     const tap = pdfTap.current;
     pdfTap.current = null;
     const target = event.target;
-    if (!tap || event.button !== 0 || event.ctrlKey || event.altKey || event.shiftKey || event.metaKey ||
+    if (
+      !tap ||
+      event.button !== 0 ||
+      event.ctrlKey ||
+      event.altKey ||
+      event.shiftKey ||
+      event.metaKey ||
       Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > 6 ||
-      !(target instanceof Element) || !target.closest("[data-pdf-reading-surface]") ||
-      target.closest("[data-pdf-reader-controls], button, a, input, textarea, select, [role=button], [contenteditable=true]") ||
-      panel || chaptersOpen || editing || !window.getSelection()?.isCollapsed && window.getSelection()?.toString()) return;
+      !(target instanceof Element) ||
+      !target.closest("[data-pdf-reading-surface]") ||
+      target.closest(
+        "[data-pdf-reader-controls], button, a, input, textarea, select, [role=button], [contenteditable=true]",
+      ) ||
+      panel ||
+      chaptersOpen ||
+      editing ||
+      (!window.getSelection()?.isCollapsed && window.getSelection()?.toString())
+    )
+      return;
     // Like the manga reader, leave the page-turn edges of the book alone.
     if (readingMode === "book") {
       const bounds = event.currentTarget.getBoundingClientRect();
@@ -1581,10 +1643,22 @@ export function HarborReader({
       patchPrefs({ mode });
       return;
     }
-    const target = pdfSource && (readingMode === "continuous" || readingMode === "book")
-      ? pdfChapters.get(readingMode === "continuous" ? scrollPage : flipPages.urls.length ? flipPage + 1 : pdfSource.page)
-      : undefined;
-    const next: EBookReaderPrefs = { ...prefs, ...(mode === "continuous" ? { pdfContinuous: true } : { mode, ...(pdfSource ? { pdfContinuous: false } : {}) }) };
+    const target =
+      pdfSource && (readingMode === "continuous" || readingMode === "book")
+        ? pdfChapters.get(
+            readingMode === "continuous"
+              ? scrollPage
+              : flipPages.urls.length
+                ? flipPage + 1
+                : pdfSource.page,
+          )
+        : undefined;
+    const next: EBookReaderPrefs = {
+      ...prefs,
+      ...(mode === "continuous"
+        ? { pdfContinuous: true }
+        : { mode, ...(pdfSource ? { pdfContinuous: false } : {}) }),
+    };
     stopSpeech();
     setPanel(null);
     saveEBookReaderPrefs(next);
@@ -2019,8 +2093,12 @@ export function HarborReader({
       onMouseMove={revealChrome}
       onPointerDownCapture={startPdfTap}
       onPointerMoveCapture={movePdfTap}
-      onPointerCancelCapture={() => { pdfTap.current = null; }}
-      onWheelCapture={() => { pdfTap.current = null; }}
+      onPointerCancelCapture={() => {
+        pdfTap.current = null;
+      }}
+      onWheelCapture={() => {
+        pdfTap.current = null;
+      }}
       onClick={handleReaderClick}
     >
       {readerBackground.image && (
@@ -2067,7 +2145,11 @@ export function HarborReader({
           </button>
         </div>
         <div data-tauri-drag-region className="min-w-0 text-center">
-          <div className="truncate text-sm font-semibold">{readingMode === "continuous" ? activeChapter.title || t("Page {page}", { page: scrollPage }) : readerTitle}</div>
+          <div className="truncate text-sm font-semibold">
+            {readingMode === "continuous"
+              ? activeChapter.title || t("Page {page}", { page: scrollPage })
+              : readerTitle}
+          </div>
           <div className="mt-0.5 text-[11px]" style={{ color: colors.muted }}>
             {readingMode === "continuous"
               ? `${scrollPage} / ${scrollCount}`
@@ -2153,7 +2235,10 @@ export function HarborReader({
           chromeVisible={chromeVisible}
         />
       ) : readingMode === "book" ? (
-        <div data-pdf-reading-surface={pdfPage || undefined} className="absolute inset-x-0 bottom-16 top-16 overflow-hidden">
+        <div
+          data-pdf-reading-surface={pdfPage || undefined}
+          className="absolute inset-x-0 bottom-16 top-16 overflow-hidden"
+        >
           {flipLayers.map((layer) => {
             const isActive = layer.id === activeFlipLayerId;
             const isWaiting = !isActive && layer.id === flipLayers.at(-1)?.id;
@@ -2219,7 +2304,11 @@ export function HarborReader({
           )}
         </div>
       ) : (
-        <div ref={scroller} data-pdf-reading-surface={pdfPage || undefined} className="absolute inset-0 overflow-y-auto px-4 pb-32 pt-24 sm:px-8">
+        <div
+          ref={scroller}
+          data-pdf-reading-surface={pdfPage || undefined}
+          className="absolute inset-0 overflow-y-auto px-4 pb-32 pt-24 sm:px-8"
+        >
           <article
             ref={article}
             dir={effectiveDirection}
@@ -3272,10 +3361,18 @@ function Settings({
             [
               { mode: "harbor", label: t("Harbor"), icon: <Type size={18} /> },
               { mode: "book", label: t("Book"), icon: <BookOpen size={18} /> },
-              { mode: "continuous", label: t("Continuous scrolling"), icon: <ScrollText size={18} /> },
+              {
+                mode: "continuous",
+                label: t("Continuous scrolling"),
+                icon: <ScrollText size={18} />,
+              },
             ] as const
           )
-            .filter((item) => (!bookModeDisabled || item.mode !== "book") && (continuousAvailable || item.mode !== "continuous"))
+            .filter(
+              (item) =>
+                (!bookModeDisabled || item.mode !== "book") &&
+                (continuousAvailable || item.mode !== "continuous"),
+            )
             .map((item) => (
               <button
                 key={item.mode}

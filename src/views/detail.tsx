@@ -631,27 +631,52 @@ function DetailContent({
   const addonNative = liveContext || isAddonNativeMeta(meta);
   const capstanMeta = useCapstanDetail(meta);
   const capstanCanonicalId = capstanMeta?.canonicalId ?? null;
-  const trailerRequest = useMemo(() => ({
-    meta,
-    tmdbKey: settings.tmdbKey,
-    options: {
-      candidateIds: [...(sourceText.trailerCandidates ?? []), ...(detail?.trailerCandidates ?? [])],
-      excludedIds: (detail?.extraVideos ?? [])
-        .filter((video) => !/^(Trailer|Teaser)$/i.test(video.type))
-        .map((video) => video.ytId),
-      aliases: [detail?.originalTitle, detail?.title].filter((name): name is string => !!name),
-      year: detail?.year,
-    },
-  }), [meta, settings.tmdbKey, sourceText.trailerCandidates, detail?.trailerCandidates,
-    detail?.extraVideos, detail?.originalTitle, detail?.title, detail?.year]);
-  const [resolvedTrailers, setResolvedTrailers] = useState<{ request: typeof trailerRequest; ids: string[] } | null>(null);
+  const trailerRequest = useMemo(
+    () => ({
+      meta,
+      tmdbKey: settings.tmdbKey,
+      options: {
+        candidateIds: [
+          ...(sourceText.trailerCandidates ?? []),
+          ...(detail?.trailerCandidates ?? []),
+        ],
+        excludedIds: (detail?.extraVideos ?? [])
+          .filter((video) => !/^(Trailer|Teaser)$/i.test(video.type))
+          .map((video) => video.ytId),
+        aliases: [detail?.originalTitle, detail?.title].filter((name): name is string => !!name),
+        year: detail?.year,
+      },
+    }),
+    [
+      meta,
+      settings.tmdbKey,
+      sourceText.trailerCandidates,
+      detail?.trailerCandidates,
+      detail?.extraVideos,
+      detail?.originalTitle,
+      detail?.title,
+      detail?.year,
+    ],
+  );
+  const [resolvedTrailers, setResolvedTrailers] = useState<{
+    request: typeof trailerRequest;
+    ids: string[];
+  } | null>(null);
   useEffect(() => {
     let alive = true;
-    resolveTrailerCandidates(trailerRequest.meta, trailerRequest.tmdbKey, trailerRequest.options)
-      .then((ids) => { if (alive) setResolvedTrailers({ request: trailerRequest, ids }); });
-    return () => { alive = false; };
+    resolveTrailerCandidates(
+      trailerRequest.meta,
+      trailerRequest.tmdbKey,
+      trailerRequest.options,
+    ).then((ids) => {
+      if (alive) setResolvedTrailers({ request: trailerRequest, ids });
+    });
+    return () => {
+      alive = false;
+    };
   }, [trailerRequest]);
-  const trailerCandidates = resolvedTrailers?.request === trailerRequest ? resolvedTrailers.ids : [];
+  const trailerCandidates =
+    resolvedTrailers?.request === trailerRequest ? resolvedTrailers.ids : [];
   const trailerCandidate = trailerCandidates[0] ?? null;
   useEffect(() => {
     if (playerOpen) discardIdleTrailerVideo();

@@ -31,7 +31,10 @@ export function setSoloistPreference(
   engine: SoloistStatus["preferredEngine"],
   remoteDeviceConfirmation?: string,
 ): Promise<void> {
-  return invoke("music_soloist_set_engine", { engine, remoteDeviceConfirmation: remoteDeviceConfirmation ?? null });
+  return invoke("music_soloist_set_engine", {
+    engine,
+    remoteDeviceConfirmation: remoteDeviceConfirmation ?? null,
+  });
 }
 
 export function startSoloist(): Promise<SoloistStatus> {

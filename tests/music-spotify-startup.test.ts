@@ -80,7 +80,9 @@ function watchdogHarness() {
     clearTimeout(id: number) {
       timers.delete(id);
     },
-    invoke: async (command: string, args: unknown) => { diagnosticCommands.push({ command, args }); },
+    invoke: async (command: string, args: unknown) => {
+      diagnosticCommands.push({ command, args });
+    },
     console: { warn() {} },
   };
   const callbacks = new Function(

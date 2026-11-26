@@ -174,19 +174,26 @@ export function BpDetail({
     onSources(meta, ep, onResumeTarget, auto, true);
   };
 
-  const [resolvedTrailer, setResolvedTrailer] = useState<{ id: string; ytId: string | null } | null>(null);
+  const [resolvedTrailer, setResolvedTrailer] = useState<{
+    id: string;
+    ytId: string | null;
+  } | null>(null);
   useEffect(() => {
     if (!meta) return;
     let alive = true;
     resolveTrailerCandidates(meta, settings.tmdbKey, {
       candidateIds: detail?.trailerCandidates,
-      excludedIds: (detail?.extraVideos ?? []).filter((v) => !/^(Trailer|Teaser)$/i.test(v.type)).map((v) => v.ytId),
+      excludedIds: (detail?.extraVideos ?? [])
+        .filter((v) => !/^(Trailer|Teaser)$/i.test(v.type))
+        .map((v) => v.ytId),
       aliases: detail?.originalTitle ? [detail.originalTitle] : [],
       year: detail?.year,
     }).then((ids) => {
       if (alive) setResolvedTrailer({ id: meta.id, ytId: ids[0] ?? null });
     });
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, [meta, detail, settings.tmdbKey]);
   const trailerYtId = resolvedTrailer?.id === shell.id ? resolvedTrailer.ytId : null;
 

@@ -542,12 +542,16 @@ export async function fetchAdjacentEpisodes(
 ): Promise<Adjacent> {
   // Native anime playback uses entry-relative coordinates, which may not match
   // the configured generic episode provider's franchise-wide numbering.
-  const animeSeries = animeSeriesFromStreamId(opts.kitsuStreamId) ??
+  const animeSeries =
+    animeSeriesFromStreamId(opts.kitsuStreamId) ??
     (opts.sourceMetaId && isAnimeId(opts.sourceMetaId) ? opts.sourceMetaId : null) ??
     (isAnimeId(meta.id) ? meta.id : null);
   if (animeSeries) {
     const eps = await getAnimeEpisodes(animeSeries);
-    const start = { season: current.season, episode: current.episode - (opts.episodeEndOffset ?? 0) };
+    const start = {
+      season: current.season,
+      episode: current.episode - (opts.episodeEndOffset ?? 0),
+    };
     if (eps && animeCurrentIndex(eps, start, opts) >= 0) {
       return animeAdjacent(animeSeries, eps, current, opts);
     }

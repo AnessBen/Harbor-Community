@@ -13,7 +13,11 @@ export function PdfViewToolbar({
 }) {
   const { fit, zoom } = view;
   return (
-    <div data-pdf-reader-controls inert={!visible} className={`flex flex-wrap items-center justify-center gap-2 rounded-full bg-black/70 px-3 py-2 text-xs text-white shadow-lg backdrop-blur transition-opacity duration-300 ${visible ? "opacity-100" : "pointer-events-none opacity-0"}`}>
+    <div
+      data-pdf-reader-controls
+      inert={!visible}
+      className={`flex flex-wrap items-center justify-center gap-2 rounded-full bg-black/70 px-3 py-2 text-xs text-white shadow-lg backdrop-blur transition-opacity duration-300 ${visible ? "opacity-100" : "pointer-events-none opacity-0"}`}
+    >
       <button
         type="button"
         aria-label="Fit PDF page"

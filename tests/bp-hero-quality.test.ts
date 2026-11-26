@@ -89,7 +89,9 @@ function trailerHarness() {
         narrowMediaType: (t: string) => t,
         meta: async (_: string, id: string) => ({ trailers: [{ source: id }] }),
       },
-      "@/lib/trailer-resolver": { resolveTrailerCandidates: async (meta: { id: string }) => [meta.id] },
+      "@/lib/trailer-resolver": {
+        resolveTrailerCandidates: async (meta: { id: string }) => [meta.id],
+      },
       "@/lib/trailer": {
         resolveTrailerQuality: (q: string) => (q === "auto" ? "360p" : q),
         fetchFirstTrailer: (ids: readonly string[], quality: string) =>

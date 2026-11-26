@@ -251,7 +251,11 @@ export function PdfContinuousView({
     return () => window.removeEventListener("wheel", listener, { capture: true });
   }, [onViewChange]);
   return (
-    <div ref={host} data-pdf-reading-surface className="absolute inset-x-0 top-16 bottom-20 flex flex-col overflow-hidden">
+    <div
+      ref={host}
+      data-pdf-reading-surface
+      className="absolute inset-x-0 top-16 bottom-20 flex flex-col overflow-hidden"
+    >
       <div className="z-10 flex shrink-0 justify-center p-2">
         <PdfViewToolbar view={view} onViewChange={onViewChange} visible={chromeVisible} />
       </div>

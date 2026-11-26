@@ -38,7 +38,9 @@ export function DetailActions({
     let alive = true;
     resolveTrailerCandidates(meta, settings.tmdbKey, {
       candidateIds: [trailerId ?? "", ...(detail?.trailerCandidates ?? [])],
-      excludedIds: (detail?.extraVideos ?? []).filter((v) => !/^(Trailer|Teaser)$/i.test(v.type)).map((video) => video.ytId),
+      excludedIds: (detail?.extraVideos ?? [])
+        .filter((v) => !/^(Trailer|Teaser)$/i.test(v.type))
+        .map((video) => video.ytId),
       aliases: detail?.originalTitle ? [detail.originalTitle] : [],
       year: detail?.year,
     })
