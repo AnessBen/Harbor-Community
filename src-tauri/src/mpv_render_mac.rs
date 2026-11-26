@@ -1,12 +1,11 @@
 #![cfg(target_os = "macos")]
 
-use std::ffi::{c_char, c_void, CString};
+use std::ffi::{c_char, c_void};
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 
-use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType};
-use libmpv2_sys::mpv_handle;
+use libmpv2_sys::{self as mpv, mpv_handle};
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::{msg_send, AnyThread, ClassType, MainThreadOnly, Message};
@@ -126,7 +125,8 @@ pub struct Embed {
     ns_window: Retained<NSWindow>,
     video_window: Option<Retained<NSWindow>>,
     css: Option<MpvGeometry>,
-    render: Mutex<RenderContext>,
+    render: Mutex<MacRenderContext>,
+    float_surface: bool,
 }
 
 // macOS can rebuild the content-view layers when entering or leaving native
@@ -159,7 +159,12 @@ fn slot() -> &'static Mutex<Option<Embed>> {
     EMBED.get_or_init(|| Mutex::new(None))
 }
 
-pub fn install(mpv_ctx: NonNull<mpv_handle>, ns_window_ptr: i64, edr: bool) -> Result<(), String> {
+pub fn install(
+    mpv_ctx: NonNull<mpv_handle>,
+    ns_window_ptr: i64,
+    edr: bool,
+    prefer_legacy: bool,
+) -> Result<&'static str, String> {
     let mtm = MainThreadMarker::new()
         .ok_or_else(|| "mpv_render_mac::install must run on main thread".to_string())?;
     if ns_window_ptr == 0 {
@@ -231,12 +236,11 @@ pub fn install(mpv_ctx: NonNull<mpv_handle>, ns_window_ptr: i64, edr: bool) -> R
             msg_send![pf_alloc, initWithAttributes: attrs.as_ptr()]
         };
 
-        let pf = if edr {
-            make_pf(true).or_else(|| make_pf(false))
-        } else {
-            make_pf(false)
-        }
-        .ok_or_else(|| "NSOpenGLPixelFormat init failed".to_string())?;
+        let float_pf = if edr { make_pf(true) } else { None };
+        let float_surface = float_pf.is_some();
+        let pf = float_pf
+            .or_else(|| make_pf(false))
+            .ok_or_else(|| "NSOpenGLPixelFormat init failed".to_string())?;
 
         let view_alloc = NSOpenGLView::alloc(mtm);
         let view: Option<Retained<NSOpenGLView>> = msg_send![
@@ -301,6 +305,20 @@ pub fn install(mpv_ctx: NonNull<mpv_handle>, ns_window_ptr: i64, edr: bool) -> R
             forParameter: NSOPENGL_CONTEXT_PARAM_SURFACE_OPACITY,
         ];
 
+        // Initialize before making WebKit transparent, and undo attachment on failure.
+        let (render, backend) = match MacRenderContext::new(mpv_ctx, prefer_legacy) {
+            Ok(value) => value,
+            Err(error) => {
+                view_as_view.removeFromSuperview();
+                if let Some(window) = video_window.as_deref() {
+                    let _: () = msg_send![ns_window, removeChildWindow: window];
+                    let _: () = msg_send![window, orderOut: std::ptr::null::<AnyObject>()];
+                }
+                return Err(error);
+            }
+        };
+        render.set_update_callback();
+
         let mut web_view_was_opaque = true;
         if let Some(wv) = first_subview.as_deref() {
             let was_opaque: bool = msg_send![wv, isOpaque];
@@ -314,22 +332,6 @@ pub fn install(mpv_ctx: NonNull<mpv_handle>, ns_window_ptr: i64, edr: bool) -> R
             }
         }
 
-        let init_params = OpenGLInitParams::<()> {
-            get_proc_address,
-            ctx: (),
-        };
-        let params: Vec<RenderParam<()>> = vec![
-            RenderParam::ApiType(RenderParamApiType::OpenGl),
-            RenderParam::InitParams(init_params),
-        ];
-        let mpv_handle_ref: &mut mpv_handle = &mut *mpv_ctx.as_ptr();
-        let mut render = RenderContext::new(mpv_handle_ref, params)
-            .map_err(|e| format!("render init: {:?}", e))?;
-
-        render.set_update_callback(|| {
-            schedule_redraw();
-        });
-
         let embed = Embed {
             view,
             web_view: first_subview,
@@ -338,6 +340,7 @@ pub fn install(mpv_ctx: NonNull<mpv_handle>, ns_window_ptr: i64, edr: bool) -> R
             video_window,
             css: None,
             render: Mutex::new(render),
+            float_surface,
         };
         refresh_compositing(&embed);
         eprintln!(
@@ -347,9 +350,9 @@ pub fn install(mpv_ctx: NonNull<mpv_handle>, ns_window_ptr: i64, edr: bool) -> R
         *slot().lock().map_err(|e| format!("slot lock: {}", e))? = Some(embed);
 
         schedule_redraw();
-        eprintln!("[harbor::mpv_mac] installed");
+        eprintln!("[harbor::mpv_mac] installed renderer={backend} float_surface={float_surface}");
+        Ok(backend)
     }
-    Ok(())
 }
 
 pub fn set_hdr_active(active: bool, bt2020: bool) {
@@ -551,9 +554,7 @@ pub fn render_now() -> Result<(), String> {
             .render
             .lock()
             .map_err(|e| format!("render lock: {}", e))?;
-        render
-            .render::<()>(0, w, h, true)
-            .map_err(|e| format!("render: {:?}", e))?;
+        render.render(w, h, embed.float_surface)?;
         gl_ctx.flushBuffer();
     }
     Ok(())
@@ -578,6 +579,16 @@ pub fn uninstall() -> Result<(), String> {
 
 fn teardown_embed(embed: Embed) {
     unsafe {
+        // Free the renderer while its original OpenGL context is current.
+        if let Some(gl_ctx) = embed.view.openGLContext() {
+            gl_ctx.makeCurrentContext();
+        }
+        drop(
+            embed
+                .render
+                .into_inner()
+                .unwrap_or_else(|error| error.into_inner()),
+        );
         let view_as_view: &NSView = embed.view.as_super();
         view_as_view.removeFromSuperview();
         if let Some(video_window) = embed.video_window.as_deref() {
@@ -600,12 +611,179 @@ fn teardown_embed(embed: Embed) {
     }
 }
 
-fn get_proc_address(_ctx: &(), name: &str) -> *mut c_void {
-    let cstr = match CString::new(name) {
-        Ok(s) => s,
-        Err(_) => return std::ptr::null_mut(),
-    };
-    unsafe { dlsym(RTLD_DEFAULT, cstr.as_ptr()) }
+// Upstream libmpv API 2.7. The current Rust bindings predate this enum.
+const MPV_RENDER_PARAM_RENDERER: mpv::mpv_render_param_type = 23;
+const RENDERER_API_VERSION: u64 = (2 << 16) | 7;
+
+struct MacRenderContext(NonNull<mpv::mpv_render_context>);
+
+fn renderer_attempts(
+    version: u64,
+    prefer_legacy: bool,
+) -> &'static [Option<&'static std::ffi::CStr>] {
+    if version < RENDERER_API_VERSION {
+        &[None]
+    } else if prefer_legacy {
+        &[Some(c"gpu")]
+    } else {
+        &[Some(c"gpu-next"), Some(c"gpu")]
+    }
+}
+
+fn param(kind: mpv::mpv_render_param_type, data: *mut c_void) -> mpv::mpv_render_param {
+    mpv::mpv_render_param { type_: kind, data }
+}
+
+fn end_param() -> mpv::mpv_render_param {
+    param(
+        mpv::mpv_render_param_type_MPV_RENDER_PARAM_INVALID,
+        std::ptr::null_mut(),
+    )
+}
+
+impl MacRenderContext {
+    fn new(
+        handle: NonNull<mpv_handle>,
+        prefer_legacy: bool,
+    ) -> Result<(Self, &'static str), String> {
+        let version = unsafe { mpv::mpv_client_api_version() } as u64;
+        let mut errors = Vec::new();
+        for renderer in renderer_attempts(version, prefer_legacy) {
+            let name = if *renderer == Some(c"gpu-next") {
+                "gpu-next"
+            } else {
+                "gpu"
+            };
+            let mut init = mpv::mpv_opengl_init_params {
+                get_proc_address: Some(get_proc_address),
+                get_proc_address_ctx: std::ptr::null_mut(),
+            };
+            let mut params = vec![
+                param(
+                    mpv::mpv_render_param_type_MPV_RENDER_PARAM_API_TYPE,
+                    c"opengl".as_ptr().cast_mut().cast(),
+                ),
+                param(
+                    mpv::mpv_render_param_type_MPV_RENDER_PARAM_OPENGL_INIT_PARAMS,
+                    (&mut init as *mut mpv::mpv_opengl_init_params).cast(),
+                ),
+            ];
+            if let Some(renderer) = renderer {
+                params.push(param(
+                    MPV_RENDER_PARAM_RENDERER,
+                    renderer.as_ptr().cast_mut().cast(),
+                ));
+            }
+            params.push(end_param());
+            let mut raw = std::ptr::null_mut();
+            let status = unsafe {
+                mpv::mpv_render_context_create(&mut raw, handle.as_ptr(), params.as_mut_ptr())
+            };
+            if status >= 0 {
+                let context = NonNull::new(raw)
+                    .ok_or_else(|| "libmpv returned a null render context".to_string())?;
+                eprintln!(
+                    "[harbor::mpv_mac] renderer={name} client_api={}.{}",
+                    version >> 16,
+                    version & 0xffff
+                );
+                return Ok((Self(context), name));
+            }
+            eprintln!("[harbor::mpv_mac] renderer={name} init failed ({status})");
+            errors.push(format!("{name}: {status}"));
+        }
+        Err(format!("render init: {}", errors.join(", ")))
+    }
+
+    fn set_update_callback(&self) {
+        unsafe {
+            mpv::mpv_render_context_set_update_callback(
+                self.0.as_ptr(),
+                Some(render_update),
+                std::ptr::null_mut(),
+            );
+        }
+    }
+
+    fn render(&self, w: i32, h: i32, float_surface: bool) -> Result<(), String> {
+        let mut fbo = mpv::mpv_opengl_fbo {
+            fbo: 0,
+            w,
+            h,
+            internal_format: if float_surface { 0x881A } else { 0 }, // GL_RGBA16F
+        };
+        let mut flip: i32 = 1;
+        let mut depth: i32 = if float_surface { 16 } else { 8 };
+        let mut params = [
+            param(
+                mpv::mpv_render_param_type_MPV_RENDER_PARAM_OPENGL_FBO,
+                (&mut fbo as *mut mpv::mpv_opengl_fbo).cast(),
+            ),
+            param(
+                mpv::mpv_render_param_type_MPV_RENDER_PARAM_FLIP_Y,
+                (&mut flip as *mut i32).cast(),
+            ),
+            param(
+                mpv::mpv_render_param_type_MPV_RENDER_PARAM_DEPTH,
+                (&mut depth as *mut i32).cast(),
+            ),
+            end_param(),
+        ];
+        let status =
+            unsafe { mpv::mpv_render_context_render(self.0.as_ptr(), params.as_mut_ptr()) };
+        if status < 0 {
+            Err(format!("render: {status}"))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl Drop for MacRenderContext {
+    fn drop(&mut self) {
+        unsafe {
+            mpv::mpv_render_context_set_update_callback(
+                self.0.as_ptr(),
+                None,
+                std::ptr::null_mut(),
+            );
+            mpv::mpv_render_context_free(self.0.as_ptr());
+        }
+    }
+}
+
+unsafe extern "C" fn get_proc_address(_ctx: *mut c_void, name: *const c_char) -> *mut c_void {
+    if name.is_null() {
+        return std::ptr::null_mut();
+    }
+    unsafe { dlsym(RTLD_DEFAULT, name) }
+}
+
+unsafe extern "C" fn render_update(_ctx: *mut c_void) {
+    schedule_redraw();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn old_api_never_receives_unknown_renderer_param() {
+        assert_eq!(renderer_attempts((2 << 16) | 6, false), &[None]);
+        assert_eq!(renderer_attempts((2 << 16) | 6, true), &[None]);
+    }
+
+    #[test]
+    fn new_api_prefers_gpu_next_and_can_fall_back_or_force_gpu() {
+        assert_eq!(
+            renderer_attempts(RENDERER_API_VERSION, false),
+            &[Some(c"gpu-next"), Some(c"gpu")]
+        );
+        assert_eq!(
+            renderer_attempts(RENDERER_API_VERSION, true),
+            &[Some(c"gpu")]
+        );
+    }
 }
 
 static REDRAW_PENDING: AtomicBool = AtomicBool::new(false);

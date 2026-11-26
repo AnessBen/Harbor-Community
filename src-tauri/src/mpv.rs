@@ -1212,6 +1212,8 @@ pub async fn mpv_start(
         msg
     })?;
 
+    let mpv = Arc::new(mpv);
+
     // Never write the demuxer cache to disk. Debrid and HTTPS streams stay in
     // RAM (bounded by demuxer-max-bytes); mpv's disk cache is append-only and
     // would grow to the size of everything played during the session.
@@ -1266,28 +1268,30 @@ pub async fn mpv_start(
         let ns_window_ptr = window
             .ns_window()
             .map_err(|e| format!("ns_window: {:?}", e))? as i64;
-        let mpv_ctx_addr: usize = mpv.ctx.as_ptr() as usize;
         let mac_edr = args.mac_edr.unwrap_or(false);
         MAC_EDR_ACTIVE.store(mac_edr, std::sync::atomic::Ordering::Relaxed);
-        let (tx, rx) = std::sync::mpsc::sync_channel::<Result<(), String>>(1);
-        let _ = app.run_on_main_thread(move || {
-            let res = match std::ptr::NonNull::new(mpv_ctx_addr as *mut libmpv2_sys::mpv_handle) {
-                Some(p) => crate::mpv_render_mac::install(p, ns_window_ptr, mac_edr),
-                None => Err("null mpv ctx".into()),
-            };
-            let _ = tx.send(res);
-        });
-        match rx.recv_timeout(std::time::Duration::from_millis(3000)) {
-            Ok(Ok(())) => eprintln!("[harbor::mpv_mac] install OK"),
-            Ok(Err(e)) => {
-                eprintln!("[harbor::mpv_mac] install failed: {}", e);
-                return Err(format!("mac render install: {}", e));
+        let prefer_legacy = args.renderer.as_deref() == Some("gpu");
+        let render_mpv = mpv.clone();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        app.run_on_main_thread(move || {
+            let result = crate::mpv_render_mac::install(
+                render_mpv.ctx, ns_window_ptr, mac_edr, prefer_legacy,
+            );
+            let attached = result.is_ok();
+            if tx.send(result).is_err() && attached {
+                let _ = crate::mpv_render_mac::uninstall();
             }
-            Err(e) => {
-                eprintln!("[harbor::mpv_mac] install timed out: {:?}", e);
-                return Err("mac render install timeout".into());
-            }
-        }
+        })
+        .map_err(|e| format!("schedule mac render install: {e}"))?;
+        let renderer = rx
+            .await
+            .map_err(|_| "mac render install cancelled".to_string())?
+            .map_err(|e| format!("mac render install: {e}"))?;
+        eprintln!("[harbor::mpv_mac] install OK renderer={renderer}");
+        let _ = mpv_argv_command(
+            &mpv,
+            &["print-text", &format!("harbor: mac embedded renderer={renderer}")],
+        );
     }
 
     #[cfg(target_os = "linux")]
@@ -1422,7 +1426,7 @@ pub async fn mpv_start(
         }
     }
 
-    let mpv_arc = Arc::new(mpv);
+    let mpv_arc = mpv;
     #[cfg(target_os = "linux")]
     if let Some(path) = native_hdr_library.as_deref() {
         let window = app
