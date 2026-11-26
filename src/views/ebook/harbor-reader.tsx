@@ -25,8 +25,7 @@ import {
   Trash2,
   Type,
   Upload,
-  ZoomIn,
-  ZoomOut,
+  ScrollText,
   Volume2,
   VolumeX,
   X,
@@ -39,7 +38,9 @@ import type { EBookChapter, EBookChapterContent } from "@/lib/ebook/providers";
 import { ebookTextIdentity } from "@/lib/ebook/chapter-locations";
 import { createEBookFlipPages, type EBookFlipPages } from "@/lib/ebook/book-pages";
 import { PdfDocumentError, pdfPageCount } from "@/lib/ebook/pdf";
-import { fitPdfView, zoomPdfView, type PdfViewSettings } from "@/lib/ebook/pdf-view-settings";
+import { zoomPdfView, type PdfViewSettings } from "@/lib/ebook/pdf-view-settings";
+import { PdfViewToolbar } from "./pdf-view-toolbar";
+import { PdfContinuousView, type PdfScrollApi } from "./pdf-continuous-view";
 import { createPdfFlipbookPageUrls, releasePdfFlipbookPageUrls } from "@/lib/ebook/pdf-flipbook-pages";
 import {
   addEBookBookmark,
@@ -596,36 +597,8 @@ export function PdfPageView({
   }, [pdf.width, width]);
 
   return (
-    <div
-      ref={host}
-      data-pdf-page-view
-      className="mx-auto flex w-full min-w-0 flex-col items-center gap-4"
-    >
-      <div className="flex flex-wrap items-center justify-center gap-2 rounded-full bg-black/70 px-3 py-2 text-xs text-white shadow-lg backdrop-blur">
-        <button type="button" aria-label="Fit PDF page" aria-pressed={fit === "page"}
-          onClick={() => onViewChange(fitPdfView("page"))}
-          className={`rounded-full px-3 py-1.5 ${fit === "page" ? "bg-white/25" : "hover:bg-white/15"}`}>
-          Fit page
-        </button>
-        <button type="button" aria-label="Fit PDF width" aria-pressed={fit === "width"}
-          onClick={() => onViewChange(fitPdfView("width"))}
-          className={`rounded-full px-3 py-1.5 ${fit === "width" ? "bg-white/25" : "hover:bg-white/15"}`}>
-          Fit width
-        </button>
-        <span className="mx-1 h-4 w-px bg-white/25" aria-hidden="true" />
-        <button type="button" aria-label="Zoom out PDF" disabled={zoom <= 0.5}
-          onClick={() => onViewChange((value) => zoomPdfView(value, -0.15))}
-          className="rounded-full p-1.5 hover:bg-white/15 disabled:opacity-40">
-          <ZoomOut size={16} />
-        </button>
-        <button type="button" aria-label="Reset PDF zoom" onClick={() => onViewChange((value) => ({ ...value, zoom: 1 }))}
-          className="min-w-12 rounded-full px-2 py-1.5 hover:bg-white/15">{Math.round(zoom * 100)}%</button>
-        <button type="button" aria-label="Zoom in PDF" disabled={zoom >= 3}
-          onClick={() => onViewChange((value) => zoomPdfView(value, 0.15))}
-          className="rounded-full p-1.5 hover:bg-white/15 disabled:opacity-40">
-          <ZoomIn size={16} />
-        </button>
-      </div>
+    <div ref={host} data-pdf-page-view className="mx-auto flex w-full min-w-0 flex-col items-center gap-4">
+      <PdfViewToolbar view={view} onViewChange={onViewChange} />
       <div data-pdf-viewport className="w-full min-w-0 overflow-x-auto pb-6">
         <div
           className="flex w-full"
@@ -716,12 +689,7 @@ export function HarborReader({
   const bookChapters = useMemo(() => volumes.flatMap((volume) => volume.chapters), [volumes]);
   const chapterIndex = bookChapters.findIndex((item) => item.id === chapter.id);
   const firstPosition = chapterIndex >= 0 ? chapterIndex : (chapter.position ?? -1);
-  const previousChapter = firstPosition > 0 ? bookChapters[firstPosition - 1] : undefined;
-  const nextChapter = chapter.legacyNext
-    ? bookChapters.find((item) => item.id === chapter.legacyNext?.chapterId)
-    : chapterIndex >= 0
-      ? bookChapters[chapterIndex + 1]
-      : undefined;
+
   const [query, setQuery] = useState("");
   const [showFutureResults, setShowFutureResults] = useState(false);
   const [current, setCurrent] = useState(0);
@@ -757,7 +725,43 @@ export function HarborReader({
   const originalText = content.originalText ?? content.text ?? pdfText;
   const textAvailable = Boolean(originalText.trim());
   const imageOnly = !textAvailable && Boolean(content.images?.length);
-  const readingMode = prefs.mode;
+  const pdfSource = useMemo(() => pdfPage ? pdfChapterSource(chapter.id) : null, [pdfPage, chapter.id]);
+  const readingMode = pdfSource && prefs.pdfContinuous ? "continuous" : prefs.mode;
+  const [scrollPage, setScrollPage] = useState(pdfSource?.page ?? 1);
+  const pdfChapters = useMemo(() => {
+    const pages = new Map<number, EBookChapter>();
+    if (pdfSource) for (const item of bookChapters) {
+      const source = pdfChapterSource(item.id);
+      if (source?.path === pdfSource.path) pages.set(source.page, item);
+    }
+    return pages;
+  }, [bookChapters, pdfSource]);
+  const knownPdfCount = [...pdfChapters.keys()].reduce((max, page) => Math.max(max, page), pdfSource?.page ?? 1);
+  const [scrollCount, setScrollCount] = useState(knownPdfCount);
+  const pdfScrollApi = useRef<PdfScrollApi>(null);
+  const activeChapter = readingMode === "continuous" ? pdfChapters.get(scrollPage) ?? chapter : chapter;
+  const activeChapterIndex = readingMode === "continuous" ? bookChapters.findIndex(item => item.id === activeChapter.id) : chapterIndex;
+  const activePosition = activeChapterIndex >= 0 ? activeChapterIndex : firstPosition;
+  const previousChapter = activePosition > 0 ? bookChapters[activePosition - 1] : undefined;
+  const nextChapter = activeChapter.legacyNext
+    ? bookChapters.find(item => item.id === activeChapter.legacyNext?.chapterId)
+    : activeChapterIndex >= 0 ? bookChapters[activeChapterIndex + 1] : undefined;
+  const onScrollPage = (page: number, count: number) => {
+    setScrollPage(page);
+    setScrollCount(count);
+    if (!pdfSource) return;
+    const item = pdfChapters.get(page);
+    const index = item ? bookChapters.findIndex(value => value.id === item.id) : -1;
+    saveEBookResume(profile, bookId, {
+      chapterId: item?.id ?? JSON.stringify([pdfSource.path, "pdf:" + page]),
+      chapterTitle: item?.title ?? "Page " + page,
+      chapterLabel: item?.chapter,
+      volumeLabel: item?.volumeTitle || (item?.volume ? t("Volume {volume}", { volume: item.volume }) : undefined),
+      chapterProgress: 100,
+      bookProgress: Math.round((index >= 0 ? (index + 1) / bookChapters.length : page / count) * 100),
+      ...(index >= 0 ? { chapterIndex: index, totalChapters: bookChapters.length } : {}),
+    });
+  };
   const [readerTitle, setReaderTitle] = useState(content.translatedTitle ?? originalTitle);
   const [translation, setTranslation] = useState(() =>
     content.translated
@@ -830,7 +834,7 @@ export function HarborReader({
     (chapter.volume ? t("Volume {volume}", { volume: chapter.volume }) : undefined);
   const persistReadingPosition = useCallback(
     (line: number) => {
-      if (!paragraphs.length || (!chapter.legacy && chapterIndex < 0) || !bookChapters.length)
+      if (readingMode === "continuous" || !paragraphs.length || (!chapter.legacy && chapterIndex < 0) || !bookChapters.length)
         return;
       const safeLine = Math.max(0, Math.min(paragraphs.length - 1, line));
       const chapterProgress =
@@ -861,6 +865,7 @@ export function HarborReader({
       progressId,
       resumeVolumeLabel,
       textIdentity,
+      readingMode,
     ],
   );
   const colors = paper[prefs.background];
@@ -1191,6 +1196,7 @@ export function HarborReader({
   );
 
   useEffect(() => {
+    if (readingMode === "continuous") return;
     const saved = loadEBookProgress(profile, bookId, progressId);
     const timer = window.setTimeout(() => {
       goTo(saved);
@@ -1198,7 +1204,7 @@ export function HarborReader({
       updateTrace();
     }, 80);
     return () => window.clearTimeout(timer);
-  }, [bookId, goTo, persistReadingPosition, profile, progressId, updateTrace]);
+  }, [bookId, goTo, persistReadingPosition, profile, progressId, readingMode, updateTrace]);
 
   useEffect(() => {
     const root = scroller.current;
@@ -1508,12 +1514,35 @@ export function HarborReader({
 
   const selectChapter = (target?: EBookChapter) => {
     if (!target) return;
+    const source = readingMode === "continuous" ? pdfChapterSource(target.id) : null;
+    if (source && source.path === pdfSource?.path && pdfScrollApi.current) {
+      pdfScrollApi.current.goToPage(source.page);
+      setChaptersOpen(false);
+      return;
+    }
     stopSpeech();
     setSelection(null);
     setEditing(null);
     if (target.id === chapter.legacyNext?.chapterId)
       saveEBookProgress(profile, bookId, `${target.id}:harbor`, chapter.legacyNext.line);
     onSelectChapter(target);
+  };
+
+  const selectReadingMode = (mode: "harbor" | "book" | "continuous") => {
+    if (mode === readingMode) return;
+    if (!pdfSource && mode !== "continuous") {
+      patchPrefs({ mode });
+      return;
+    }
+    const target = pdfSource && (readingMode === "continuous" || readingMode === "book")
+      ? pdfChapters.get(readingMode === "continuous" ? scrollPage : flipPages.urls.length ? flipPage + 1 : pdfSource.page)
+      : undefined;
+    const next: EBookReaderPrefs = { ...prefs, ...(mode === "continuous" ? { pdfContinuous: true } : { mode, ...(pdfSource ? { pdfContinuous: false } : {}) }) };
+    stopSpeech();
+    setPanel(null);
+    saveEBookReaderPrefs(next);
+    if (target && target.id !== chapter.id) onSelectChapter(target);
+    else setPrefs(next);
   };
 
   const NARRATION_BUDGETS = [700, 1500, 3000, 4000];
@@ -1985,16 +2014,18 @@ export function HarborReader({
           </button>
         </div>
         <div data-tauri-drag-region className="min-w-0 text-center">
-          <div className="truncate text-sm font-semibold">{readerTitle}</div>
+          <div className="truncate text-sm font-semibold">{readingMode === "continuous" ? activeChapter.title || t("Page {page}", { page: scrollPage }) : readerTitle}</div>
           <div className="mt-0.5 text-[11px]" style={{ color: colors.muted }}>
-            {readingMode === "book"
-              ? `${flipPage + 1} / ${Math.max(1, flipPages.urls.length)}`
-              : `${current + 1} / ${paragraphProgress}`}{" "}
+            {readingMode === "continuous"
+              ? `${scrollPage} / ${scrollCount}`
+              : readingMode === "book"
+                ? `${flipPage + 1} / ${Math.max(1, flipPages.urls.length)}`
+                : `${current + 1} / ${paragraphProgress}`}{" "}
             · {bookTitle}
           </div>
         </div>
         <div className="flex items-center gap-1">
-          {textAvailable && (
+          {textAvailable && readingMode !== "continuous" && (
             <button
               className="reader-icon"
               onClick={() => {
@@ -2055,7 +2086,19 @@ export function HarborReader({
         </div>
       </div>
 
-      {readingMode === "book" ? (
+      {readingMode === "continuous" && pdfSource && content.pdf && content.images?.[0] ? (
+        <PdfContinuousView
+          key={pdfSource.path}
+          path={pdfSource.path}
+          initialPage={pdfSource.page}
+          initialData={{ ...content.pdf, image: content.images[0], text: content.pdf.text ?? "" }}
+          knownCount={knownPdfCount}
+          view={pdfView}
+          onViewChange={onPdfViewChange}
+          onPageChange={onScrollPage}
+          apiRef={pdfScrollApi}
+        />
+      ) : readingMode === "book" ? (
         <div className="absolute inset-x-0 bottom-16 top-16 overflow-hidden">
           {flipLayers.map((layer) => {
             const isActive = layer.id === activeFlipLayerId;
@@ -2360,7 +2403,7 @@ export function HarborReader({
             )}
           </>
         )}
-        {textAvailable && (
+        {textAvailable && readingMode !== "continuous" && (
           <>
             <VoicePicker
               voices={availableNarrationVoices}
@@ -2455,9 +2498,11 @@ export function HarborReader({
         )}
         <div className="px-3 text-xs tabular-nums" style={{ color: colors.muted }}>
           {Math.round(
-            readingMode === "book"
-              ? ((flipPage + 1) / Math.max(1, flipPages.urls.length)) * 100
-              : ((current + 1) / paragraphProgress) * 100,
+            readingMode === "continuous"
+              ? (scrollPage / Math.max(1, scrollCount)) * 100
+              : readingMode === "book"
+                ? ((flipPage + 1) / Math.max(1, flipPages.urls.length)) * 100
+                : ((current + 1) / paragraphProgress) * 100,
           )}
           %
         </div>
@@ -2586,19 +2631,19 @@ export function HarborReader({
                 : t("{count} chapters", { count: shownChapters.length })}
             </span>
             <span>
-              {shownChapters.some((item) => item.id === chapter.id)
-                ? `${shownChapters.findIndex((item) => item.id === chapter.id) + 1} / ${shownChapters.length}`
+              {shownChapters.some((item) => item.id === activeChapter.id)
+                ? `${shownChapters.findIndex((item) => item.id === activeChapter.id) + 1} / ${shownChapters.length}`
                 : t("Select a chapter")}
             </span>
           </div>
           <div className="mt-3 min-h-0 flex-1 space-y-1 overflow-y-auto pe-1 pb-10">
             {shownChapters.map((item, index) => {
-              const active = item.id === chapter.id;
+              const active = item.id === activeChapter.id;
               return (
                 <button
                   key={item.id}
                   data-current-chapter={active || undefined}
-                  onClick={() => !active && onSelectChapter(item)}
+                  onClick={() => !active && selectChapter(item)}
                   className={`group flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-start transition ${active ? "border-accent/50 bg-accent/10" : "border-transparent hover:border-white/10 hover:bg-white/5"}`}
                 >
                   <span
@@ -2658,6 +2703,9 @@ export function HarborReader({
                   patch={patchPrefs}
                   colors={colors}
                   bookModeDisabled={false}
+                  continuousAvailable={Boolean(pdfSource)}
+                  activeMode={readingMode}
+                  onModeChange={selectReadingMode}
                 />
               </>
             )}
@@ -3127,14 +3175,19 @@ function Settings({
   patch,
   colors,
   bookModeDisabled,
+  continuousAvailable,
+  activeMode,
+  onModeChange,
 }: {
   prefs: EBookReaderPrefs;
   patch: (value: Partial<EBookReaderPrefs>) => void;
   colors: (typeof paper)[keyof typeof paper];
   bookModeDisabled: boolean;
+  continuousAvailable: boolean;
+  activeMode: "harbor" | "book" | "continuous";
+  onModeChange: (mode: "harbor" | "book" | "continuous") => void;
 }) {
   const t = useT();
-  const activeMode = bookModeDisabled ? "harbor" : prefs.mode;
   const [adjustmentsOpen, setAdjustmentsOpen] = useState(true);
   const [audioCacheStatus, setAudioCacheStatus] = useState("");
   const { fonts, busy: fontBusy, error: fontError, addFont, removeFont } = useCustomFonts();
@@ -3162,16 +3215,17 @@ function Settings({
             [
               { mode: "harbor", label: t("Harbor"), icon: <Type size={18} /> },
               { mode: "book", label: t("Book"), icon: <BookOpen size={18} /> },
+              { mode: "continuous", label: t("Continuous scrolling"), icon: <ScrollText size={18} /> },
             ] as const
           )
-            .filter((item) => !bookModeDisabled || item.mode !== "book")
+            .filter((item) => (!bookModeDisabled || item.mode !== "book") && (continuousAvailable || item.mode !== "continuous"))
             .map((item) => (
               <button
                 key={item.mode}
                 type="button"
                 aria-pressed={activeMode === item.mode}
-                onClick={() => patch({ mode: item.mode })}
-                className={`flex h-14 items-center justify-center gap-2 rounded-xl border transition ${activeMode === item.mode ? "border-accent bg-accent/10 text-accent" : "hover:bg-white/5"}`}
+                onClick={() => onModeChange(item.mode)}
+                className={`flex h-14 items-center justify-center gap-2 rounded-xl border transition ${item.mode === "continuous" ? "col-span-2" : ""} ${activeMode === item.mode ? "border-accent bg-accent/10 text-accent" : "hover:bg-white/5"}`}
                 style={{ borderColor: activeMode === item.mode ? undefined : `${colors.muted}35` }}
               >
                 {item.icon}

@@ -9,6 +9,7 @@ import type { EBookChapter } from "./providers";
 
 export type EBookReaderPrefs = {
   mode: "harbor" | "book";
+  pdfContinuous: boolean;
   doubleGap: number;
   direction: "auto" | "ltr" | "rtl";
   fontSize: number;
@@ -69,6 +70,7 @@ export type EBookAnnotation = {
 const PREFS = "harbor.ebook.reader.v1";
 const DEFAULTS: EBookReaderPrefs = {
   mode: "harbor",
+  pdfContinuous: false,
   doubleGap: 16,
   direction: "auto",
   fontSize: 19,
