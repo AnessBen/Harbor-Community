@@ -3,6 +3,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Maximize, Maximize2, Pause, Play, Settings2, Volume2, VolumeX, X } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { PipResizeHandles } from "@/components/player/transport/pip-resize-handles";
 import { useFloatingMedia, VideoPipSettings } from "./video-pip-settings";
 import { floatingSeek } from "@/lib/player/floating-controls";
 import { tracePlayback } from "@/lib/player/pause-trace";
@@ -12,16 +13,6 @@ import "./video-pip.css";
 type MpvEvent = { event: string; name?: string; data?: unknown };
 
 const IDLE_MS = 2200;
-const EDGES = [
-  "North",
-  "South",
-  "East",
-  "West",
-  "NorthEast",
-  "NorthWest",
-  "SouthEast",
-  "SouthWest",
-] as const;
 
 function clock(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
@@ -366,24 +357,7 @@ export function VideoPipApp() {
           </button>
         </div>
       </div>
-      {!fullscreen && (
-        <div className="vpip-resize">
-          {EDGES.map((edge) => (
-            <div
-              key={edge}
-              data-edge={edge}
-              onPointerDown={(event) => {
-                if (event.button === 0) {
-                  event.preventDefault();
-                  void getCurrentWindow()
-                    .startResizeDragging(edge)
-                    .catch(() => media.setError(true));
-                }
-              }}
-            />
-          ))}
-        </div>
-      )}
+      {!fullscreen && <PipResizeHandles minimum={{ width: 240, height: 135 }} />}
     </div>
   );
 }

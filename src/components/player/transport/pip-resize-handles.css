@@ -1,0 +1,70 @@
+.pip-resize-handles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 30;
+}
+.pip-resize-handles > div {
+  position: absolute;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+  touch-action: none;
+  /* Keep transparent WebView2 resize targets hit-testable over native video. */
+  background-color: rgba(0, 0, 0, 0.02);
+}
+.pip-resize-handles [data-edge="North"] {
+  top: 0;
+  left: 20px;
+  right: 20px;
+  height: 6px;
+  cursor: ns-resize;
+}
+.pip-resize-handles [data-edge="South"] {
+  bottom: 0;
+  left: 20px;
+  right: 20px;
+  height: 6px;
+  cursor: ns-resize;
+}
+.pip-resize-handles [data-edge="East"] {
+  right: 0;
+  top: 20px;
+  bottom: 20px;
+  width: 6px;
+  cursor: ew-resize;
+}
+.pip-resize-handles [data-edge="West"] {
+  left: 0;
+  top: 20px;
+  bottom: 20px;
+  width: 6px;
+  cursor: ew-resize;
+}
+.pip-resize-handles [data-edge="NorthEast"] {
+  top: 0;
+  right: 0;
+  width: 20px;
+  height: 20px;
+  cursor: nesw-resize;
+}
+.pip-resize-handles [data-edge="NorthWest"] {
+  top: 0;
+  left: 0;
+  width: 20px;
+  height: 20px;
+  cursor: nwse-resize;
+}
+.pip-resize-handles [data-edge="SouthEast"] {
+  bottom: 0;
+  right: 0;
+  width: 20px;
+  height: 20px;
+  cursor: nwse-resize;
+}
+.pip-resize-handles [data-edge="SouthWest"] {
+  bottom: 0;
+  left: 0;
+  width: 20px;
+  height: 20px;
+  cursor: nesw-resize;
+}
