@@ -2687,11 +2687,12 @@
   animation: midnight-detail-drift 32s ease-out both;
 }
 
+/* Episode lists can span dozens of viewports (e.g. Specials). Keep their container
+   opaque; the normal detail-entry fade is sufficient and does not depend on list length. */
 @supports (animation-timeline: view()) {
   [data-theme-layout="midnight"][data-midnight-detail]
     main.harbor-detail-enter
     [data-detail-section],
-  [data-theme-layout="midnight"][data-midnight-detail] main.harbor-detail-enter [data-episodes],
   [data-theme-layout="midnight"][data-midnight-detail]
     main.harbor-detail-enter
     > section
