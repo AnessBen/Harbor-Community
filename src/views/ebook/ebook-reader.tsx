@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, type Dispatch, type SetStateAction } from "react";
+import type { PdfViewSettings } from "@/lib/ebook/pdf-view-settings";
 import type { EBookChapter, EBookChapterContent } from "@/lib/ebook/providers";
 import { useT } from "@/lib/i18n";
 import { useProfiles } from "@/lib/profiles";
@@ -21,6 +22,8 @@ export function EBookReader({
   error,
   volumes,
   onSelectChapter,
+  pdfView,
+  onPdfViewChange,
   onClose,
 }: {
   bookId: string;
@@ -33,6 +36,8 @@ export function EBookReader({
   error?: string;
   volumes: EBookReaderVolume[];
   onSelectChapter: (chapter: EBookChapter) => void;
+  pdfView: PdfViewSettings;
+  onPdfViewChange: Dispatch<SetStateAction<PdfViewSettings>>;
   onClose: () => void;
 }) {
   const t = useT();
@@ -81,6 +86,8 @@ export function EBookReader({
       direction={direction}
       volumes={volumes}
       onSelectChapter={onSelectChapter}
+      pdfView={pdfView}
+      onPdfViewChange={onPdfViewChange}
       onClose={onClose}
     />
   );

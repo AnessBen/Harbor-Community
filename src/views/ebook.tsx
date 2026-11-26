@@ -134,6 +134,7 @@ import { openUrl } from "@/lib/window";
 import { EBookSourcesView } from "./ebook/ebook-sources-panel";
 import { EBookSetup } from "./ebook/ebook-setup";
 import { EBookReader } from "./ebook/ebook-reader";
+import { DEFAULT_PDF_VIEW, type PdfViewSettings } from "@/lib/ebook/pdf-view-settings";
 import { EBookLocalDetailsEditor } from "./ebook/ebook-local-details-editor";
 import { applyLocalEBookDetails, isLocalEBook } from "@/lib/ebook/local-details";
 import { EBookWheelMenu, type EBookWheelTarget } from "./ebook/ebook-wheel-menu";
@@ -2896,6 +2897,7 @@ function EBookDetails({
     content: EBookChapterContent | null;
     error?: string;
   } | null>(null);
+  const [pdfView, setPdfView] = useState<PdfViewSettings>(DEFAULT_PDF_VIEW);
   const ebookId = ebook?.id;
   const readStatus = useEBookReadStatus(ebook, profile);
   const sourceKey = (ebook?.books ?? (ebook ? [ebook] : []))
@@ -3043,6 +3045,7 @@ function EBookDetails({
   }, [ebookId, genreKey, recommendationsAttempt]);
   useEffect(() => {
     setReading(null);
+    setPdfView(DEFAULT_PDF_VIEW);
   }, [ebookId]);
   useEffect(() => {
     if (!ebook) return;
@@ -3587,7 +3590,12 @@ function EBookDetails({
               : [{ volume: "", label: t("Chapters"), chapters: chapters ?? [reading.chapter] }]
           }
           onSelectChapter={readChapter}
-          onClose={() => setReading(null)}
+          pdfView={pdfView}
+          onPdfViewChange={setPdfView}
+          onClose={() => {
+            setReading(null);
+            setPdfView(DEFAULT_PDF_VIEW);
+          }}
         />
       )}
       {editingLocalDetails &&

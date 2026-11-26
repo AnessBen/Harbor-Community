@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from "react";
 import {
   Bookmark,
   BookOpen,
@@ -39,10 +39,8 @@ import type { EBookChapter, EBookChapterContent } from "@/lib/ebook/providers";
 import { ebookTextIdentity } from "@/lib/ebook/chapter-locations";
 import { createEBookFlipPages, type EBookFlipPages } from "@/lib/ebook/book-pages";
 import { PdfDocumentError, pdfPageCount } from "@/lib/ebook/pdf";
-import {
-  createPdfFlipbookPageUrls,
-  releasePdfFlipbookPageUrls,
-} from "@/lib/ebook/pdf-flipbook-pages";
+import { fitPdfView, zoomPdfView, type PdfViewSettings } from "@/lib/ebook/pdf-view-settings";
+import { createPdfFlipbookPageUrls, releasePdfFlipbookPageUrls } from "@/lib/ebook/pdf-flipbook-pages";
 import {
   addEBookBookmark,
   loadEBookAnnotations,
@@ -83,6 +81,8 @@ type Props = {
   direction: "ltr" | "rtl";
   volumes: EBookReaderVolume[];
   onSelectChapter: (chapter: EBookChapter) => void;
+  pdfView: PdfViewSettings;
+  onPdfViewChange: Dispatch<SetStateAction<PdfViewSettings>>;
   onClose: () => void;
 };
 
@@ -534,16 +534,19 @@ function pdfChapterSource(id: string): { path: string; page: number } | null {
 export function PdfPageView({
   image,
   pdf,
+  view,
+  onViewChange,
 }: {
   image: string;
   pdf: NonNullable<EBookChapterContent["pdf"]>;
+  view: PdfViewSettings;
+  onViewChange: Dispatch<SetStateAction<PdfViewSettings>>;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const root = useRef<HTMLDivElement>(null);
   const [availableWidth, setAvailableWidth] = useState(800);
   const [availableHeight, setAvailableHeight] = useState(() => window.innerHeight);
-  const [zoom, setZoom] = useState(1);
-  const [fit, setFit] = useState<"page" | "width">("page");
+  const { fit, zoom } = view;
   const [scale, setScale] = useState(1);
 
   useEffect(() => {
@@ -573,16 +576,11 @@ export function PdfPageView({
       // handler. Capture it before other window listeners and WebView zoom.
       event.preventDefault();
       event.stopImmediatePropagation();
-      setZoom((value) =>
-        Math.max(
-          0.5,
-          Math.min(3, Math.round((value + (event.deltaY < 0 ? 0.1 : -0.1)) * 100) / 100),
-        ),
-      );
+      onViewChange((value) => zoomPdfView(value, event.deltaY < 0 ? 0.1 : -0.1));
     };
     window.addEventListener("wheel", onWheel, { capture: true, passive: false });
     return () => window.removeEventListener("wheel", onWheel, { capture: true });
-  }, []);
+  }, [onViewChange]);
 
   const aspect = pdf.width > 0 && pdf.height > 0 ? pdf.width / pdf.height : 0.75;
   const pageWidth = Math.min(availableWidth, Math.max(280, availableHeight - 360) * aspect);
@@ -604,55 +602,27 @@ export function PdfPageView({
       className="mx-auto flex w-full min-w-0 flex-col items-center gap-4"
     >
       <div className="flex flex-wrap items-center justify-center gap-2 rounded-full bg-black/70 px-3 py-2 text-xs text-white shadow-lg backdrop-blur">
-        <button
-          type="button"
-          aria-label="Fit PDF page"
-          aria-pressed={fit === "page"}
-          onClick={() => {
-            setFit("page");
-            setZoom(1);
-          }}
-          className={`rounded-full px-3 py-1.5 ${fit === "page" ? "bg-white/25" : "hover:bg-white/15"}`}
-        >
+        <button type="button" aria-label="Fit PDF page" aria-pressed={fit === "page"}
+          onClick={() => onViewChange(fitPdfView("page"))}
+          className={`rounded-full px-3 py-1.5 ${fit === "page" ? "bg-white/25" : "hover:bg-white/15"}`}>
           Fit page
         </button>
-        <button
-          type="button"
-          aria-label="Fit PDF width"
-          aria-pressed={fit === "width"}
-          onClick={() => {
-            setFit("width");
-            setZoom(1);
-          }}
-          className={`rounded-full px-3 py-1.5 ${fit === "width" ? "bg-white/25" : "hover:bg-white/15"}`}
-        >
+        <button type="button" aria-label="Fit PDF width" aria-pressed={fit === "width"}
+          onClick={() => onViewChange(fitPdfView("width"))}
+          className={`rounded-full px-3 py-1.5 ${fit === "width" ? "bg-white/25" : "hover:bg-white/15"}`}>
           Fit width
         </button>
         <span className="mx-1 h-4 w-px bg-white/25" aria-hidden="true" />
-        <button
-          type="button"
-          aria-label="Zoom out PDF"
-          disabled={zoom <= 0.5}
-          onClick={() => setZoom((value) => Math.max(0.5, Math.round((value - 0.15) * 100) / 100))}
-          className="rounded-full p-1.5 hover:bg-white/15 disabled:opacity-40"
-        >
+        <button type="button" aria-label="Zoom out PDF" disabled={zoom <= 0.5}
+          onClick={() => onViewChange((value) => zoomPdfView(value, -0.15))}
+          className="rounded-full p-1.5 hover:bg-white/15 disabled:opacity-40">
           <ZoomOut size={16} />
         </button>
-        <button
-          type="button"
-          aria-label="Reset PDF zoom"
-          onClick={() => setZoom(1)}
-          className="min-w-12 rounded-full px-2 py-1.5 hover:bg-white/15"
-        >
-          {Math.round(zoom * 100)}%
-        </button>
-        <button
-          type="button"
-          aria-label="Zoom in PDF"
-          disabled={zoom >= 3}
-          onClick={() => setZoom((value) => Math.min(3, Math.round((value + 0.15) * 100) / 100))}
-          className="rounded-full p-1.5 hover:bg-white/15 disabled:opacity-40"
-        >
+        <button type="button" aria-label="Reset PDF zoom" onClick={() => onViewChange((value) => ({ ...value, zoom: 1 }))}
+          className="min-w-12 rounded-full px-2 py-1.5 hover:bg-white/15">{Math.round(zoom * 100)}%</button>
+        <button type="button" aria-label="Zoom in PDF" disabled={zoom >= 3}
+          onClick={() => onViewChange((value) => zoomPdfView(value, 0.15))}
+          className="rounded-full p-1.5 hover:bg-white/15 disabled:opacity-40">
           <ZoomIn size={16} />
         </button>
       </div>
@@ -694,6 +664,8 @@ export function HarborReader({
   direction,
   volumes,
   onSelectChapter,
+  pdfView,
+  onPdfViewChange,
   onClose,
 }: Props) {
   const t = useT();
@@ -2231,7 +2203,12 @@ export function HarborReader({
               </p>
             )}
             {content.pdf && content.images?.[0] && (
-              <PdfPageView image={content.images[0]} pdf={content.pdf} />
+              <PdfPageView
+                image={content.images[0]}
+                pdf={content.pdf}
+                view={pdfView}
+                onViewChange={onPdfViewChange}
+              />
             )}
             {!pdfPage &&
               (content.images ?? []).map((src, index) => (
