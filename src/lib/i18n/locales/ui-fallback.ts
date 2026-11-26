@@ -1,5 +1,18 @@
 // Newly introduced UI copy remains usable until each locale provides an override.
 const uiFallback: Record<string, string> = {
+  "music.lyrics.providers": "Lyrics providers",
+  "music.lyrics.primary": "Primary lyrics provider",
+  "music.lyrics.primaryHelp": "Used first for synchronized and plain lyrics.",
+  "music.lyrics.fallback": "Experimental fallback",
+  "music.lyrics.neteaseToggle": "Enable NetEase lyrics fallback",
+  "music.lyrics.neteaseHelp":
+    "Optional experimental fallback for missing or unsynced lyrics. Uses an unofficial third-party interface and sends track title and artist to NetEase. Availability may vary.",
+  "music.recovery.copyDiagnostics": "Copy playback diagnostics",
+  "music.recovery.diagnosticsCopied": "Playback diagnostics copied.",
+  "music.recovery.diagnosticsFailed":
+    "Could not copy diagnostics. If a report appears below, copy it manually.",
+  "music.recovery.diagnosticsCollecting": "Collecting playback diagnostics...",
+  "Continuous scrolling": "Continuous scrolling",
   "Search their ratings": "Search their ratings",
   "Other ratings": "Other ratings",
   "No other ratings yet.": "No other ratings yet.",

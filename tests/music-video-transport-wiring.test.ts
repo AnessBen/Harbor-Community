@@ -1,3 +1,8 @@
+import { NextTrackWarmup } from "../src/lib/music/next-track-warmup.ts";
+import { RecommendationContinuation } from "../src/lib/music/recommendation-continuation.ts";
+import { fillSingleSongQueue } from "../src/lib/music/single-song-queue.ts";
+import { youtubeRestrictionDelay } from "../src/lib/music/youtube-restriction.ts";
+import { withTimeout } from "../src/lib/progressive-rows.ts";
 // @ts-expect-error Node test types are outside the browser tsconfig.
 import assert from "node:assert/strict";
 // @ts-expect-error Node test types are outside the browser tsconfig.
@@ -84,12 +89,20 @@ function loadPlayer() {
         pinSourceFor: () => {},
         unpinSourceFor: () => {},
       };
+    if (name === "./next-track-warmup") return { NextTrackWarmup };
+    if (name === "./recommendation-continuation") return { RecommendationContinuation };
+    if (name === "./single-song-queue")
+      return { fillSingleSongQueue, singleSongRecommendations: async () => [] };
+    if (name === "./youtube-restriction") return { youtubeRestrictionDelay };
+    if (name === "@/lib/progressive-rows") return { withTimeout };
     if (name === "./transport")
       return {
         getMusicTransport: () => ({ shuffle: false, repeat: "off" }),
         musicAdvance: (queue: any[], index: number) => queue[index + 1] ?? null,
         musicPrevious: () => null,
-        musicWarmTargets: () => [],
+        musicUpcoming: () => [],
+        musicPriorityNext: () => null,
+        subscribeTransport: () => () => {},
         resetMusicOrder: () => {},
         setMusicPriorityNext: () => {},
       };

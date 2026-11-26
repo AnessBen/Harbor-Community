@@ -1,3 +1,4 @@
+import * as spoilers from "../src/lib/spoilers.ts";
 // @ts-expect-error Node test types are intentionally outside the browser-only tsconfig.
 import assert from "node:assert/strict";
 // @ts-expect-error Node test types are intentionally outside the browser-only tsconfig.
@@ -62,6 +63,7 @@ function harness(layout: "list" | "grid" | "strip", videos: NonNullable<Meta["vi
       manualWatchedState: () => undefined,
     },
     "@/components/poster": { Poster: "Poster" },
+    "@/lib/spoilers": spoilers,
     "@/lib/settings": {
       useSettings: () => ({ settings: { episodeLayout: layout, instantPlay: false }, update() {} }),
     },

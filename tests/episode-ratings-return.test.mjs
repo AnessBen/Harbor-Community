@@ -1,3 +1,4 @@
+import * as spoilers from "../src/lib/spoilers.ts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -12,6 +13,8 @@ test("a TMDB outage fallback keeps the season's IMDb ratings on its rows", () =>
   const { CinemetaFallback } = load("src/views/detail/series-episodes/cinemeta-fallback.tsx", {
     react: { useMemo: (fn) => fn() },
     "@/lib/i18n": { useT: () => (value) => value },
+    "@/lib/settings": { useSettings: () => ({ settings: { hideSpoilers: false } }) },
+    "@/lib/spoilers": spoilers,
     "../cinemeta-episodes": { CinemetaEpisodeRow },
   });
   const tree = CinemetaFallback({
@@ -22,6 +25,7 @@ test("a TMDB outage fallback keeps the season's IMDb ratings on its rows", () =>
       { season: 3, episode: 1 },
     ],
     imdbRatings: new Map([["3:1", 8.3]]),
+    watchedFor: () => false,
   });
   assert.equal(tree.props.children.length, 1);
   assert.equal(tree.props.children[0].props.imdbRating, 8.3);
@@ -167,6 +171,7 @@ test("Cinemeta episode grids receive genuine episode IMDb badges", () => {
       useRef: (value) => ({ current: value }),
       useSyncExternalStore: () => 0,
     },
+    "@/lib/spoilers": spoilers,
     "@/lib/settings": {
       useSettings: () => ({
         settings: { episodeLayout: "grid", showEpisodeRating: true, omdbKey: "test-key" },
@@ -176,6 +181,7 @@ test("Cinemeta episode grids receive genuine episode IMDb badges", () => {
     "@/lib/i18n": { useT: () => (value) => value },
     "@/lib/manual-watched": {
       manualEpisodeKeys: () => ({ watched: new Set(), unwatched: new Set() }),
+      manualWatchedState: () => undefined,
     },
     "@/lib/local-library/use-series-play": { useLocalAwareSeriesPlay: () => () => {} },
     "@/lib/episode-progress": { resumeDefaultSeason: () => 3 },

@@ -1,3 +1,4 @@
+import * as spoilers from "../src/lib/spoilers.ts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -49,6 +50,7 @@ test("Cinemeta episode grids restore the saved season after recreation", () => {
       useSyncExternalStore: () => 0,
     },
     "@/lib/season-view-pref": { getViewedSeason, setViewedSeason },
+    "@/lib/spoilers": spoilers,
     "@/lib/settings": {
       useSettings: () => ({
         settings: { episodeLayout: "grid", showEpisodeRating: true, omdbKey: "test-key" },
@@ -58,6 +60,7 @@ test("Cinemeta episode grids restore the saved season after recreation", () => {
     "@/lib/i18n": { useT: () => (value) => value },
     "@/lib/manual-watched": {
       manualEpisodeKeys: () => ({ watched: new Set(), unwatched: new Set() }),
+      manualWatchedState: () => undefined,
     },
     "@/lib/local-library/use-series-play": { useLocalAwareSeriesPlay: () => () => {} },
     "@/lib/episode-progress": { resumeDefaultSeason: () => 1 },

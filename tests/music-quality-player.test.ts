@@ -1,3 +1,8 @@
+import { NextTrackWarmup } from "../src/lib/music/next-track-warmup.ts";
+import { RecommendationContinuation } from "../src/lib/music/recommendation-continuation.ts";
+import { fillSingleSongQueue } from "../src/lib/music/single-song-queue.ts";
+import { youtubeRestrictionDelay } from "../src/lib/music/youtube-restriction.ts";
+import { withTimeout } from "../src/lib/progressive-rows.ts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -104,11 +109,18 @@ function player() {
       pinSourceFor: () => {},
       unpinSourceFor: () => {},
     },
+    "./next-track-warmup": { NextTrackWarmup },
+    "./recommendation-continuation": { RecommendationContinuation },
+    "./single-song-queue": { fillSingleSongQueue, singleSongRecommendations: async () => [] },
+    "./youtube-restriction": { youtubeRestrictionDelay },
+    "@/lib/progressive-rows": { withTimeout },
     "./transport": {
       getMusicTransport: () => ({ shuffle: false, repeat: "off" }),
       musicAdvance: () => null,
       musicPrevious: () => null,
-      musicWarmTargets: () => [],
+      musicUpcoming: () => [],
+      musicPriorityNext: () => null,
+      subscribeTransport: () => () => {},
       resetMusicOrder: () => {},
       setMusicPriorityNext: () => {},
     },
