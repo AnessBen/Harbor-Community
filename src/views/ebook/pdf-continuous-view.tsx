@@ -114,6 +114,7 @@ export function PdfContinuousView({
   onViewChange,
   onPageChange,
   apiRef,
+  chromeVisible = true,
 }: {
   path: string;
   initialPage: number;
@@ -123,6 +124,7 @@ export function PdfContinuousView({
   onViewChange: Dispatch<SetStateAction<PdfViewSettings>>;
   onPageChange: (page: number, count: number) => void;
   apiRef: Ref<PdfScrollApi>;
+  chromeVisible?: boolean;
 }) {
   const t = useT();
   const root = useRef<HTMLDivElement>(null);
@@ -249,9 +251,9 @@ export function PdfContinuousView({
     return () => window.removeEventListener("wheel", listener, { capture: true });
   }, [onViewChange]);
   return (
-    <div ref={host} className="absolute inset-x-0 top-16 bottom-20 flex flex-col overflow-hidden">
+    <div ref={host} data-pdf-reading-surface className="absolute inset-x-0 top-16 bottom-20 flex flex-col overflow-hidden">
       <div className="z-10 flex shrink-0 justify-center p-2">
-        <PdfViewToolbar view={view} onViewChange={onViewChange} />
+        <PdfViewToolbar view={view} onViewChange={onViewChange} visible={chromeVisible} />
       </div>
       {countError && (
         <div role="alert" className="px-4 pb-2 text-center text-sm text-red-400">

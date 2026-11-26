@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type SetStateAction } from "react";
 import {
   Bookmark,
   BookOpen,
@@ -537,11 +537,13 @@ export function PdfPageView({
   pdf,
   view,
   onViewChange,
+  chromeVisible = true,
 }: {
   image: string;
   pdf: NonNullable<EBookChapterContent["pdf"]>;
   view: PdfViewSettings;
   onViewChange: Dispatch<SetStateAction<PdfViewSettings>>;
+  chromeVisible?: boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -598,7 +600,7 @@ export function PdfPageView({
 
   return (
     <div ref={host} data-pdf-page-view className="mx-auto flex w-full min-w-0 flex-col items-center gap-4">
-      <PdfViewToolbar view={view} onViewChange={onViewChange} />
+      <PdfViewToolbar view={view} onViewChange={onViewChange} visible={chromeVisible} />
       <div data-pdf-viewport className="w-full min-w-0 overflow-x-auto pb-6">
         <div
           className="flex w-full"
@@ -777,6 +779,9 @@ export function HarborReader({
     etaMs: null as number | null,
   });
   const [chrome, setChrome] = useState(true);
+  const [pdfChromeManuallyHidden, setPdfChromeManuallyHidden] = useState(false);
+  const chromeVisible = chrome && !(pdfPage && pdfChromeManuallyHidden);
+  const pdfTap = useRef<{ id: number; x: number; y: number } | null>(null);
   const [bookmarks, setBookmarks] = useState(() => loadEBookBookmarks(profile, bookId));
   const [annotations, setAnnotations] = useState(() => loadEBookAnnotations(profile, bookId));
   const [selection, setSelection] = useState<ReaderSelection | null>(null);
@@ -1166,10 +1171,52 @@ export function HarborReader({
   };
 
   const revealChrome = useCallback(() => {
+    if (pdfPage && pdfChromeManuallyHidden) return;
     setChrome(true);
     window.clearTimeout(chromeTimer.current);
     if (prefs.focusMode) chromeTimer.current = window.setTimeout(() => setChrome(false), 2200);
-  }, [prefs.focusMode]);
+  }, [pdfPage, pdfChromeManuallyHidden, prefs.focusMode]);
+
+  const startPdfTap = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!pdfPage) return;
+    const target = event.target;
+    pdfTap.current = event.isPrimary && event.button === 0 && target instanceof Element &&
+      target.closest("[data-pdf-reading-surface]") &&
+      !target.closest("[data-pdf-reader-controls], button, a, input, textarea, select, [role=button], [contenteditable=true]")
+      ? { id: event.pointerId, x: event.clientX, y: event.clientY }
+      : null;
+  };
+
+  const movePdfTap = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const tap = pdfTap.current;
+    if (tap && (tap.id !== event.pointerId || Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > 6)) {
+      pdfTap.current = null;
+    }
+  };
+
+  const handleReaderClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!pdfPage) return revealChrome();
+    const tap = pdfTap.current;
+    pdfTap.current = null;
+    const target = event.target;
+    if (!tap || event.button !== 0 || event.ctrlKey || event.altKey || event.shiftKey || event.metaKey ||
+      Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > 6 ||
+      !(target instanceof Element) || !target.closest("[data-pdf-reading-surface]") ||
+      target.closest("[data-pdf-reader-controls], button, a, input, textarea, select, [role=button], [contenteditable=true]") ||
+      panel || chaptersOpen || editing || !window.getSelection()?.isCollapsed && window.getSelection()?.toString()) return;
+    // Like the manga reader, leave the page-turn edges of the book alone.
+    if (readingMode === "book") {
+      const bounds = event.currentTarget.getBoundingClientRect();
+      const x = (event.clientX - bounds.left) / bounds.width;
+      if (x < 0.35 || x > 0.65) return;
+    }
+    window.clearTimeout(chromeTimer.current);
+    setPdfChromeManuallyHidden(chromeVisible);
+    if (!chromeVisible) {
+      setChrome(true);
+      if (prefs.focusMode) chromeTimer.current = window.setTimeout(() => setChrome(false), 2200);
+    }
+  };
 
   const goTo = useCallback(
     (index: number) => {
@@ -1970,7 +2017,11 @@ export function HarborReader({
         filter: `brightness(${prefs.brightness}%)`,
       }}
       onMouseMove={revealChrome}
-      onClick={revealChrome}
+      onPointerDownCapture={startPdfTap}
+      onPointerMoveCapture={movePdfTap}
+      onPointerCancelCapture={() => { pdfTap.current = null; }}
+      onWheelCapture={() => { pdfTap.current = null; }}
+      onClick={handleReaderClick}
     >
       {readerBackground.image && (
         <div
@@ -1987,7 +2038,9 @@ export function HarborReader({
       )}
       <div
         data-tauri-drag-region
-        className={`absolute inset-x-0 top-0 z-30 flex h-16 items-center justify-between border-b px-5 backdrop-blur-xl transition duration-300 ${chrome ? "translate-y-0 opacity-100" : "-translate-y-full opacity-0"}`}
+        data-pdf-reader-controls
+        inert={!chromeVisible}
+        className={`absolute inset-x-0 top-0 z-30 flex h-16 items-center justify-between border-b px-5 backdrop-blur-xl transition duration-300 ${chromeVisible ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-full opacity-0"}`}
         style={{ background: `${colors.desk}df`, borderColor: `${colors.muted}35` }}
       >
         <div className="flex items-center gap-1">
@@ -2097,9 +2150,10 @@ export function HarborReader({
           onViewChange={onPdfViewChange}
           onPageChange={onScrollPage}
           apiRef={pdfScrollApi}
+          chromeVisible={chromeVisible}
         />
       ) : readingMode === "book" ? (
-        <div className="absolute inset-x-0 bottom-16 top-16 overflow-hidden">
+        <div data-pdf-reading-surface={pdfPage || undefined} className="absolute inset-x-0 bottom-16 top-16 overflow-hidden">
           {flipLayers.map((layer) => {
             const isActive = layer.id === activeFlipLayerId;
             const isWaiting = !isActive && layer.id === flipLayers.at(-1)?.id;
@@ -2165,7 +2219,7 @@ export function HarborReader({
           )}
         </div>
       ) : (
-        <div ref={scroller} className="absolute inset-0 overflow-y-auto px-4 pb-32 pt-24 sm:px-8">
+        <div ref={scroller} data-pdf-reading-surface={pdfPage || undefined} className="absolute inset-0 overflow-y-auto px-4 pb-32 pt-24 sm:px-8">
           <article
             ref={article}
             dir={effectiveDirection}
@@ -2251,6 +2305,7 @@ export function HarborReader({
                 pdf={content.pdf}
                 view={pdfView}
                 onViewChange={onPdfViewChange}
+                chromeVisible={chromeVisible}
               />
             )}
             {!pdfPage &&
@@ -2307,7 +2362,9 @@ export function HarborReader({
       )}
 
       <div
-        className={`absolute inset-x-0 bottom-5 z-30 mx-auto flex w-fit items-center gap-1 rounded-full border p-1.5 shadow-2xl backdrop-blur-xl transition duration-300 ${chrome ? "translate-y-0 opacity-100" : "translate-y-10 opacity-0"}`}
+        data-pdf-reader-controls
+        inert={!chromeVisible}
+        className={`absolute inset-x-0 bottom-5 z-30 mx-auto flex w-fit items-center gap-1 rounded-full border p-1.5 shadow-2xl backdrop-blur-xl transition duration-300 ${chromeVisible ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-20 opacity-0"}`}
         style={{ background: `${colors.desk}e8`, borderColor: `${colors.muted}45` }}
       >
         <button
