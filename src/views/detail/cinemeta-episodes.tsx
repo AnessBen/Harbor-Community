@@ -16,6 +16,13 @@ import {
 import { isNuvioProviderActive } from "@/lib/active-profile-id";
 import { Poster } from "@/components/poster";
 import { useSettings } from "@/lib/settings";
+import {
+  episodeSpoilerMasks,
+  spoilerMaskFor,
+  SPOILER_TEXT_CLASS,
+  SPOILER_THUMB_CLASS,
+  type SpoilerMask,
+} from "@/lib/spoilers";
 import { useLocalAwareSeriesPlay } from "@/lib/local-library/use-series-play";
 import { useT } from "@/lib/i18n";
 import { EpisodeDownloadButton } from "./episode-download-button";
@@ -288,6 +295,10 @@ export function CinemetaEpisodes({
     ],
   );
 
+  const masks = episodeSpoilerMasks(settings, gridEpisodes, (g) => progressFor(g).watched);
+  const spoilerFor = (g: GridEpisode) =>
+    masks.get(g) ?? spoilerMaskFor(settings, { watched: progressFor(g).watched, isNextUp: false });
+
   // Without any metadata source the shelf can only render placeholders.
   const hasSeasonMetadata =
     !!settings.tvdbKey ||
@@ -363,6 +374,7 @@ export function CinemetaEpisodes({
             meta={meta}
             episodes={gridEpisodes}
             progressFor={progressFor}
+            spoilerFor={spoilerFor}
             onContextMenu={openWatchedMenu}
           />
         ) : settings.episodeLayout === "strip" ? (
@@ -377,6 +389,7 @@ export function CinemetaEpisodes({
                   meta={meta}
                   g={g}
                   progress={progressFor(g)}
+                  spoiler={spoilerFor(g)}
                   onContextMenu={openWatchedMenu}
                 />
               </div>
@@ -396,6 +409,7 @@ export function CinemetaEpisodes({
                   reviewsImdbId={reviewsImdbId}
                   flatIndex={ep.season == null ? i + 1 : undefined}
                   watched={watchedAt(season, epNumber)}
+                  spoiler={spoilerFor(gridEpisodes[i])}
                   onContextMenu={openWatchedMenu}
                 />
               );
@@ -429,6 +443,7 @@ export function CinemetaEpisodeRow({
   imdbRating,
   reviewsImdbId,
   watched = false,
+  spoiler,
   onContextMenu,
 }: {
   meta: Meta;
@@ -437,6 +452,7 @@ export function CinemetaEpisodeRow({
   imdbRating?: number;
   reviewsImdbId?: string | null;
   watched?: boolean;
+  spoiler: SpoilerMask;
   onContextMenu?: (e: React.MouseEvent, season: number, episode: number, watched: boolean) => void;
 }) {
   const t = useT();
@@ -457,6 +473,7 @@ export function CinemetaEpisodeRow({
   };
   return (
     <div
+      data-ep={epNumber}
       data-no-card-ring
       onContextMenu={onContextMenu ? (e) => onContextMenu(e, season, epNumber, watched) : undefined}
       className="group flex items-center gap-4 rounded-lg px-4 py-5 transition-colors hover:bg-elevated/30"
@@ -472,12 +489,14 @@ export function CinemetaEpisodeRow({
         className="flex min-w-0 flex-1 gap-6 text-start"
       >
         <div className="relative w-[200px] shrink-0 overflow-hidden rounded-lg">
-          <Poster
-            src={ep.thumbnail}
-            seed={ep.id ?? `${meta.id}-${ep.season}-${epNumber}`}
-            ratio="landscape"
-            lazy
-          />
+          <div className={spoiler.thumb ? SPOILER_THUMB_CLASS : undefined}>
+            <Poster
+              src={ep.thumbnail}
+              seed={ep.id ?? `${meta.id}-${ep.season}-${epNumber}`}
+              ratio="landscape"
+              lazy
+            />
+          </div>
           <div className="absolute inset-0 flex items-center justify-center bg-canvas/40 opacity-0 transition-opacity group-hover:opacity-100">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-ink text-canvas">
               <Play size={18} fill="currentColor" />
@@ -500,7 +519,9 @@ export function CinemetaEpisodeRow({
           )}
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-          <h4 className="truncate text-[16px] font-semibold text-ink">
+          <h4
+            className={`truncate text-[16px] font-semibold text-ink ${spoiler.title ? SPOILER_TEXT_CLASS : ""}`}
+          >
             {ep.name || ep.title || formatAired(aired) || t("Episode {n}", { n: epNumber })}
           </h4>
           <p className="text-[12px] text-ink-subtle">
@@ -514,7 +535,9 @@ export function CinemetaEpisodeRow({
           </p>
           <EpisodeReleaseCountdown date={aired} />
           {(ep.overview ?? ep.description) && (
-            <p className="line-clamp-2 text-[13.5px] leading-relaxed text-ink-muted">
+            <p
+              className={`line-clamp-2 text-[13.5px] leading-relaxed text-ink-muted ${spoiler.desc ? SPOILER_TEXT_CLASS : ""}`}
+            >
               {ep.overview ?? ep.description}
             </p>
           )}

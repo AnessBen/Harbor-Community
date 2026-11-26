@@ -166,6 +166,7 @@ export function BpEpisodeStrip({
               fact={state.factOf(ep)}
               onPlay={onPlay}
               watched={state.watchedOf(ep)}
+              spoiler={state.spoilerFor(ep)}
               progress={state.progressOf(ep)}
               onFocus={() => {
                 state.anchor(at);

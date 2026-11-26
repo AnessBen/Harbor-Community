@@ -3,9 +3,16 @@ import { EpisodeReleaseCountdown } from "@/components/episode-release-countdown"
 import { Play } from "@/components/icons/play-filled";
 import { pickEpisodeName } from "@/lib/providers/tmdb";
 import { useSettings } from "@/lib/settings";
+import type { SpoilerMask } from "@/lib/spoilers";
 import { SFX } from "@/lib/sfx";
 import { useBpT } from "../bp-i18n";
-import { BP_EPISODE_CARD_W, BpEpisodeRating, BpEpisodeStill } from "../bp-episode-still";
+import {
+  BP_EPISODE_CARD_W,
+  BP_SPOILER_TEXT,
+  BP_SPOILER_THUMB,
+  BpEpisodeRating,
+  BpEpisodeStill,
+} from "../bp-episode-still";
 import { bpShortDate } from "./bp-detail-chrome";
 import type { BpEpisodeFact } from "./use-bp-episode-facts";
 import type { BpEp } from "./use-bp-episode-strip";
@@ -17,6 +24,7 @@ export function BpEpisodeCard({
   fact,
   onPlay,
   watched,
+  spoiler,
   progress,
   onFocus,
 }: {
@@ -26,6 +34,7 @@ export function BpEpisodeCard({
   fact?: BpEpisodeFact;
   onPlay: (e: BpEp) => void;
   watched: boolean;
+  spoiler: SpoilerMask;
   progress: number;
   onFocus?: () => void;
 }) {
@@ -55,12 +64,14 @@ export function BpEpisodeCard({
         SFX.click();
         onPlay(stills[0] ? { ...ep, still: stills[0] } : ep);
       }}
-      aria-label={name ? `${epLabel}, ${name}` : epLabel}
+      aria-label={name && !spoiler.title ? `${epLabel}, ${name}` : epLabel}
       className="group relative flex shrink-0 flex-col overflow-hidden rounded-[var(--bp-r-md)] bg-[var(--bp-panel)] text-start transition-[transform,box-shadow] duration-[var(--bp-dur)] ease-[var(--bp-ease)]"
       style={{ width: BP_EPISODE_CARD_W }}
     >
       <span className="relative block w-full overflow-hidden" style={{ aspectRatio: "16 / 9" }}>
-        <BpEpisodeStill chain={stills} label={ep.label} backdrop={backdrop} />
+        <span className={`absolute inset-0 block ${spoiler.thumb ? BP_SPOILER_THUMB : ""}`}>
+          <BpEpisodeStill chain={stills} label={ep.label} backdrop={backdrop} />
+        </span>
         <span className="absolute inset-0 flex items-center justify-center bg-[var(--bp-void)]/55 opacity-0 transition-opacity duration-[var(--bp-dur)] group-data-[bp-focus=true]:opacity-100 motion-reduce:transition-none">
           <Play size={26} className="fill-ink text-ink" strokeWidth={0} />
         </span>
@@ -85,7 +96,9 @@ export function BpEpisodeCard({
         <span className="text-[clamp(10px,1.25vh,14px)] font-bold uppercase tracking-[0.14em] text-ink-subtle">
           {tag}
         </span>
-        <span className="line-clamp-1 text-[clamp(13px,1.8vh,20.5px)] font-semibold text-ink">
+        <span
+          className={`line-clamp-1 text-[clamp(13px,1.8vh,20.5px)] font-semibold text-ink ${spoiler.title ? BP_SPOILER_TEXT : ""}`}
+        >
           {name || epLabel}
         </span>
         {facts.length > 0 && (
@@ -94,7 +107,9 @@ export function BpEpisodeCard({
           </span>
         )}
         {overview && settings.showEpisodeDescription !== false && (
-          <span className="line-clamp-2 text-[clamp(10.5px,1.4vh,15.5px)] leading-[1.45] text-ink-subtle">
+          <span
+            className={`line-clamp-2 text-[clamp(10.5px,1.4vh,15.5px)] leading-[1.45] text-ink-subtle ${spoiler.desc ? BP_SPOILER_TEXT : ""}`}
+          >
             {overview}
           </span>
         )}

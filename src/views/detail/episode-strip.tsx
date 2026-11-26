@@ -116,9 +116,9 @@ export function EpisodeStrip({
       showSeason,
     ],
   );
-  const epByNumber = useMemo(() => {
-    const m = new Map<number, Episode>();
-    for (const e of episodes) m.set(e.episodeNumber, e);
+  const epByKey = useMemo(() => {
+    const m = new Map<string, Episode>();
+    for (const e of episodes) m.set(String(e.id), e);
     return m;
   }, [episodes]);
 
@@ -127,8 +127,8 @@ export function EpisodeStrip({
       <EpisodeGrid
         meta={meta}
         episodes={gridEpisodes}
-        progressFor={(g) => progressFor(epByNumber.get(g.number)!)}
-        spoilerFor={spoilerFor ? (g) => spoilerFor(epByNumber.get(g.number)!) : undefined}
+        progressFor={(g) => progressFor(epByKey.get(g.key)!)}
+        spoilerFor={spoilerFor ? (g) => spoilerFor(epByKey.get(g.key)!) : undefined}
         onContextMenu={onContextMenu}
         markRatingSeasons={markRatingSeasons}
       />

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Meta } from "@/lib/cinemeta";
+import { useSettings } from "@/lib/settings";
+import { episodeSpoilerMasks, type SpoilerMask } from "@/lib/spoilers";
 import { isManuallyWatched, remoteWatchedKeys, subscribeManualWatched } from "@/lib/manual-watched";
 import { episodeFromVideoId, type LibraryItem } from "@/lib/stremio";
 import type { PlayEpisode } from "@/lib/view";
@@ -33,6 +35,7 @@ export type BpEpisodeStripState = {
   stillsOf: (ep: BpEp) => string[];
   factOf: (ep: BpEp) => BpEpisodeFact | undefined;
   watchedOf: (ep: BpEp) => boolean;
+  spoilerFor: (ep: BpEp) => SpoilerMask;
   progressOf: (ep: BpEp) => number;
 };
 
@@ -86,6 +89,7 @@ export function useBpEpisodeStrip({
   cwEntry?: LibraryItem | null;
   enabled: boolean;
 }): BpEpisodeStripState {
+  const { settings } = useSettings();
   const live = enabled ? meta : IDLE_META;
   const { bySeason, seasonCounts } = useMemo(() => {
     const grouped = collect(live, ids);
@@ -176,6 +180,10 @@ export function useBpEpisodeStrip({
   const art = useBpEpisodeArt(live, artRefs, active);
   const facts = useBpEpisodeFacts(enabled ? tvId : null, active, enabled ? imdbId : null);
 
+  const watchedOf = (ep: BpEp) =>
+    isManuallyWatched(live.id, ep.season, ep.episode) || remote.has(`${ep.season}:${ep.episode}`);
+  const masks = episodeSpoilerMasks(settings, all, watchedOf);
+
   return {
     seasons,
     seasonCounts,
@@ -191,8 +199,8 @@ export function useBpEpisodeStrip({
     backdrop: live.background,
     stillsOf: (ep) => art.get(ep.key) ?? NO_STILLS,
     factOf: (ep) => facts.get(`${ep.imdbSeason ?? ep.season}:${ep.imdbEpisode ?? ep.episode}`),
-    watchedOf: (ep) =>
-      isManuallyWatched(live.id, ep.season, ep.episode) || remote.has(`${ep.season}:${ep.episode}`),
+    watchedOf,
+    spoilerFor: (ep) => masks.get(ep)!,
     progressOf: (ep) =>
       resumeAt && resumeAt.season === ep.season && resumeAt.episode === ep.episode
         ? resumeAt.ratio

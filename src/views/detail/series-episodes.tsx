@@ -780,6 +780,23 @@ export function SeriesEpisodes({
               videos={cinemetaVideos}
               season={active}
               imdbRatings={imdbRatings}
+              watchedFor={(ep) =>
+                getEpisodeProgress(
+                  meta.id,
+                  active,
+                  ep.episode ?? ep.number ?? 1,
+                  ep.runtime ?? null,
+                  traktKey,
+                  traktWatched,
+                  combinedWatched,
+                  undefined,
+                  simklWatched,
+                  undefined,
+                  undefined,
+                  undefined,
+                  pmdbWatched,
+                ).watched
+              }
             />
           )}
 
