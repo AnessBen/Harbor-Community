@@ -279,7 +279,7 @@ if (typeof document !== "undefined") {
 }
 
 function FadeInUp({ children }: { children: ReactNode }) {
-  return <div className="harbor-fade-in-up">{children}</div>;
+  return <div className="relative z-[1] harbor-fade-in-up">{children}</div>;
 }
 
 type DetailViewProps = {
