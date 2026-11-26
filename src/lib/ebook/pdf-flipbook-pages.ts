@@ -31,15 +31,27 @@ export function releasePdfFlipbookPageUrls(urls: readonly string[]): void {
   source.controller.abort();
 }
 
+// The vendor schedules texture continuations even after a flipbook is disposed.
+// Retired sources must settle those promises rather than reject into the app.
+function retiredPageBitmap(): Promise<ImageBitmap> {
+  return createImageBitmap(new ImageData(1, 1));
+}
+
 export async function loadPdfFlipbookPageBitmap(url: string): Promise<ImageBitmap> {
   const request = parse(url);
   const source = request && sources.get(request.sourceId);
-  if (!source || !request) throw new Error("This PDF book page is no longer available.");
+  if (!request || request.sourceId < 1 || request.sourceId > sourceSequence) {
+    throw new Error("This PDF book page is no longer available.");
+  }
+  if (!source) return retiredPageBitmap();
   const { signal } = source.controller;
   try {
-    return await pdfFlipbookPageBitmap(source.path, request.pageNumber, signal);
+    const bitmap = await pdfFlipbookPageBitmap(source.path, request.pageNumber, signal);
+    if (!signal.aborted) return bitmap;
+    bitmap.close();
+    return retiredPageBitmap();
   } catch (error) {
-    if (signal.aborted) throw error;
+    if (signal.aborted) return retiredPageBitmap();
     // One damaged PDF page must not strand the entire 3D reader in a loading state.
     console.warn("[ebook/pdf-flipbook-page]", error);
     const canvas = document.createElement("canvas");
